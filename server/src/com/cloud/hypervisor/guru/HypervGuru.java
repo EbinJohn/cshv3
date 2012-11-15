@@ -36,36 +36,34 @@ import com.cloud.vm.VirtualMachineProfile;
  * Implementation of Hypervisor guru for Hyper-Vr
  **/
 
+// HypervisorGuruBase --> AdapterBase implements Adapter, adapter allow object to participate in plugin system (dynamic component loader)
+// HypervisorGuruBase implements HypervisorGuru, HypervisorGuru
+
 @Local(value=HypervisorGuru.class)
 public class HypervGuru extends HypervisorGuruBase implements HypervisorGuru {
 
     @Inject GuestOSDao _guestOsDao;
-    @Inject HostDao _hostDao;
 
+    @Override
+    public HypervisorType getHypervisorType() {
+        return HypervisorType.Hyperv;
+    }
+	
     protected HypervGuru() {
     	super();
     }
     
     @Override
-    public HypervisorType getHypervisorType() {
-        return HypervisorType.Hyperv;
-    }
-
-    @Override
-    public <T extends VirtualMachine> VirtualMachineTO implement(VirtualMachineProfile<T> vm) {
+    public <T extends VirtualMachine> VirtualMachineTO implement(
+			VirtualMachineProfile<T> vm) {
         VirtualMachineTO to = toVirtualMachineTO(vm);
-        to.setBootloader(BootloaderType.HVM);
 
         // Determine the VM's OS description
         GuestOSVO guestOS = _guestOsDao.findById(vm.getVirtualMachine().getGuestOSId());
         to.setOs(guestOS.getDisplayName());
+
         return to;
     }
-    
-    @Override
-    public long getCommandHostDelegation(long hostId, Command cmd) {
-    	return hostId;
-    }   
     
     @Override
     public boolean trackVmHostChange() {
