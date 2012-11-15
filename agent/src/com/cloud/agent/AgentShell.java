@@ -377,7 +377,7 @@ public class AgentShell implements IAgentShell {
         final ComponentLocator locator = ComponentLocator.getLocator("agent");
 
         final Class<?> c = this.getClass();
-        _version = c.getPackage().getImplementationVersion();
+        _version = "4.1.0"; //c.getPackage().getImplementationVersion();
         if (_version == null) {
             throw new CloudRuntimeException(
                     "Unable to find the implementation version of this agent");
