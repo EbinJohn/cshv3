@@ -20,14 +20,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.ejb.Local;
 
+import org.apache.log4j.Logger;
+
 import com.cloud.agent.IAgentControl;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.CheckNetworkAnswer;
-import com.cloud.agent.api.CheckNetworkCommand;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.PingCommand;
 import com.cloud.agent.api.StartupCommand;
@@ -35,16 +36,80 @@ import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.agent.api.StartupStorageCommand;
 import com.cloud.agent.api.StoragePoolInfo;
 import com.cloud.agent.api.StartupRoutingCommand.VmState;
+import com.cloud.agent.api.AttachIsoCommand;
+import com.cloud.agent.api.AttachVolumeAnswer;
+import com.cloud.agent.api.AttachVolumeCommand;
+import com.cloud.agent.api.CheckNetworkAnswer;
+import com.cloud.agent.api.CheckNetworkCommand;
+import com.cloud.agent.api.CheckVirtualMachineAnswer;
+import com.cloud.agent.api.CheckVirtualMachineCommand;
+import com.cloud.agent.api.CleanupNetworkRulesCmd;
+import com.cloud.agent.api.Command;
+import com.cloud.agent.api.CreatePrivateTemplateFromVolumeCommand;
+import com.cloud.agent.api.CreateStoragePoolCommand;
+import com.cloud.agent.api.DeleteStoragePoolCommand;
+import com.cloud.agent.api.FenceAnswer;
+import com.cloud.agent.api.FenceCommand;
+import com.cloud.agent.api.GetHostStatsAnswer;
+import com.cloud.agent.api.GetHostStatsCommand;
+import com.cloud.agent.api.GetStorageStatsAnswer;
+import com.cloud.agent.api.GetStorageStatsCommand;
+import com.cloud.agent.api.GetVmStatsAnswer;
+import com.cloud.agent.api.GetVmStatsCommand;
+import com.cloud.agent.api.GetVncPortAnswer;
+import com.cloud.agent.api.GetVncPortCommand;
+import com.cloud.agent.api.HostStatsEntry;
+import com.cloud.agent.api.MaintainAnswer;
+import com.cloud.agent.api.MaintainCommand;
+import com.cloud.agent.api.MigrateAnswer;
+import com.cloud.agent.api.MigrateCommand;
+import com.cloud.agent.api.ModifyStoragePoolAnswer;
+import com.cloud.agent.api.ModifyStoragePoolCommand;
+import com.cloud.agent.api.PingCommand;
+import com.cloud.agent.api.PingRoutingCommand;
+import com.cloud.agent.api.PingTestCommand;
+import com.cloud.agent.api.PrepareForMigrationAnswer;
+import com.cloud.agent.api.PrepareForMigrationCommand;
+import com.cloud.agent.api.PrepareOCFS2NodesCommand;
+import com.cloud.agent.api.ReadyAnswer;
+import com.cloud.agent.api.ReadyCommand;
+import com.cloud.agent.api.RebootAnswer;
+import com.cloud.agent.api.RebootCommand;
+import com.cloud.agent.api.SecurityGroupRuleAnswer;
+import com.cloud.agent.api.SecurityGroupRulesCmd;
+import com.cloud.agent.api.StartAnswer;
+import com.cloud.agent.api.StartCommand;
+import com.cloud.agent.api.StartupCommand;
+import com.cloud.agent.api.StartupRoutingCommand;
+import com.cloud.agent.api.StopAnswer;
+import com.cloud.agent.api.StopCommand;
+import com.cloud.agent.api.VmStatsEntry;
+import com.cloud.agent.api.storage.CopyVolumeAnswer;
+import com.cloud.agent.api.storage.CopyVolumeCommand;
+import com.cloud.agent.api.storage.CreateAnswer;
+import com.cloud.agent.api.storage.CreateCommand;
+import com.cloud.agent.api.storage.CreatePrivateTemplateAnswer;
+import com.cloud.agent.api.storage.DestroyCommand;
+import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
+import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
+import com.cloud.agent.api.to.NicTO;
+import com.cloud.agent.api.to.StorageFilerTO;
+import com.cloud.agent.api.to.VirtualMachineTO;
+import com.cloud.agent.api.to.VolumeTO;
 import com.cloud.host.Host;
 import com.cloud.host.Host.Type;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.network.PhysicalNetworkSetupInfo;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.resource.ServerResource;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.StoragePoolType;
+import com.cloud.utils.script.Script;
 
 @Local(value = { ServerResource.class })
 public class HypervResource implements ServerResource {
+    private static final Logger s_logger = Logger.getLogger(HypervResource.class);
+
     String _name;
     Host.Type _type;
     boolean _negative;
@@ -57,13 +122,50 @@ public class HypervResource implements ServerResource {
 
     @Override
     public Answer executeRequest(Command cmd) {
-        if (cmd instanceof CheckNetworkCommand) {
-            return new CheckNetworkAnswer((CheckNetworkCommand) cmd, true, null);
-        }
         System.out.println("Received Command: " + cmd.toString());
-        Answer answer = new Answer(cmd, !_negative, "response");
-        System.out.println("Replying with: " + answer.toString());
-        return answer;
+
+    	// Commands I propose to implement:
+        if (cmd instanceof CheckNetworkCommand) {
+        	return execute((CheckNetworkCommand) cmd);
+        } else if (cmd instanceof ReadyCommand) { 
+			return execute((ReadyCommand) cmd);
+        } else if (cmd instanceof CleanupNetworkRulesCmd) {  // TODO:  provide proper implementation
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof GetHostStatsCommand) {
+			return execute((GetHostStatsCommand) cmd);
+		} else if (cmd instanceof GetStorageStatsCommand) {
+			return execute((GetStorageStatsCommand) cmd);
+	    } else if (cmd instanceof PrimaryStorageDownloadCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof CreateCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof StopCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof RebootCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof GetVmStatsCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof AttachVolumeCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof DestroyCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof CheckVirtualMachineCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof MaintainCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof StartCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof PingTestCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof AttachIsoCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof CreatePrivateTemplateFromVolumeCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof CopyVolumeCommand) {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else {
+			return Answer.createUnsupportedCommandAnswer(cmd);
+		}
     }
 
     @Override
@@ -74,6 +176,78 @@ public class HypervResource implements ServerResource {
     @Override
     public Type getType() {
         return _type;
+    }
+   
+    // TODO:  identify startup steps that should be triggered by a ReadyCommand
+    protected Answer execute(ReadyCommand cmd) {
+        return new ReadyAnswer(cmd);
+    }
+
+    protected GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing GetHostStatsCommand request");
+        }
+
+        String capacityStr = (String) getConfiguredProperty(
+                "local.storage.capacity", "10000000000");
+        String availableStr = (String) getConfiguredProperty(
+                "local.storage.avail", "5000000000");
+
+        long capacity = Long.parseLong(capacityStr);
+        long used = Long.parseLong(availableStr);
+        return new GetStorageStatsAnswer(cmd, capacity, used);
+    }
+    
+    /**
+     * This is the method called for getting the HOST stats
+     * 
+     * @param cmd
+     * @return
+     */
+    protected GetHostStatsAnswer execute(GetHostStatsCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing GetHostStatsCommand request");
+        }
+        try {
+            HostStatsEntry hostStats = new HostStatsEntry(cmd.getHostId(), 0, 0, 0, "host", 0, 0, 0, 0);
+            // TODO:  Use WMI to query necessary usage stats.
+            hostStats.setNetworkReadKBs(0);
+            hostStats.setNetworkWriteKBs(0);
+            hostStats.setTotalMemoryKBs(0);
+            hostStats.setFreeMemoryKBs(0);
+            hostStats.setCpuUtilization(0);
+            return new GetHostStatsAnswer(cmd, hostStats);
+        } catch (Exception e) {
+            String msg = "Unable to get Host stats" + e.toString();
+            s_logger.warn(msg, e);
+            return new GetHostStatsAnswer(cmd, null);
+        }
+    }
+    
+    protected CheckNetworkAnswer execute(CheckNetworkCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Checking if network name setup is done on the resource");
+        }
+        List<PhysicalNetworkSetupInfo> phyNics = cmd.getPhysicalNetworkInfoList();
+        String errMsg = null;
+        for (PhysicalNetworkSetupInfo nic : phyNics) {
+            if (!checkNetwork(nic.getGuestNetworkName())) {
+                errMsg = "Cannot find Guest network: " + nic.getGuestNetworkName();
+                break;
+            } else if (!checkNetwork(nic.getPrivateNetworkName())) {
+                errMsg = "Cannot find Private network: " + nic.getPrivateNetworkName();
+                break;
+            } else if (!checkNetwork(nic.getPublicNetworkName())) {
+                errMsg = "Cannot find Public network: " + nic.getPublicNetworkName();
+                break;
+            }
+        }
+
+        if (errMsg != null) {
+            return new CheckNetworkAnswer(cmd, false, errMsg);
+        } else {
+            return new CheckNetworkAnswer(cmd, true, null);
+        }
     }
 
     protected String getConfiguredProperty(String key, String defaultValue) {
@@ -105,7 +279,6 @@ public class HypervResource implements ServerResource {
         info.add(cap);
         info.add(dom0ram);
         return info;
-
     }
 
     protected void fillNetworkInformation(final StartupCommand cmd) {
@@ -116,7 +289,6 @@ public class HypervResource implements ServerResource {
                 "private.mac.address", "8A:D2:54:3F:7C:C3"));
         cmd.setPrivateNetmask((String) getConfiguredProperty(
                 "private.ip.netmask", "255.255.255.0"));
-
         cmd.setStorageIpAddress((String) getConfiguredProperty(
                 "private.ip.address", "127.0.0.1"));
         cmd.setStorageMacAddress((String) getConfiguredProperty(
@@ -145,7 +317,7 @@ public class HypervResource implements ServerResource {
         String hostIp = (String) getConfiguredProperty("private.ip.address",
                 "127.0.0.1");
         String localStoragePath = (String) getConfiguredProperty(
-                "local.storage.path", "/mnt");
+                "local.storage.path", "E:\\Disks\\Disks");
         String lh = hostIp + localStoragePath;
         String uuid = UUID.nameUUIDFromBytes(lh.getBytes()).toString();
 
@@ -157,9 +329,14 @@ public class HypervResource implements ServerResource {
         return new StoragePoolInfo(uuid, hostIp, localStoragePath,
                 localStoragePath, StoragePoolType.Filesystem,
                 Long.parseLong(capacity), Long.parseLong(available));
-
     }
 
+    // TODO: Implement proper check for the network configuration correctly.
+    private boolean checkNetwork(String networkName) {
+            return true;
+    }
+
+    // Draws on values in conf/agent.properties
     @Override
     public StartupCommand[] initialize() {
         Map<String, VmState> changes = null;
@@ -173,6 +350,7 @@ public class HypervResource implements ServerResource {
         fillNetworkInformation(cmd);
         cmd.getHostDetails().putAll(getVersionStrings());
         cmd.setCluster(getConfiguredProperty("cluster", "1"));
+
         StoragePoolInfo pi = initializeLocalStorage();
         StartupStorageCommand sscmd = new StartupStorageCommand();
         sscmd.setPoolInfo(pi);
