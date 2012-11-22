@@ -143,16 +143,11 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 	// implements Adapter (see below)
 	//
 	// Discoverer.find() causes an agent capable of controlling the hypervisor to call home.
-	// If a remote agent is require and not running, 'find' launches the agent using remote invocation.
-	// In code below, it sends StartupVMMAgentCommand to trigger a registration.
-	// TODO:  unclear if StartupVMMAgentCommand is the correct approach.
-	// TODO:  should we be bypassing usual message bus to make Nio calls within the plugin?
-	// A:  There is a custom IAgentShell to operate in the SCVMM, class VmmAgentShell
-	//     Better opinion is that we no longer want to use VmmAgentShell.  It's purpose was to 
-	//     to add a ServerResource to the process.  Problem is that it uses an Agent that is 
-	//     at present untested.  Also, we are stepping out of WMI to launch the process.  We'd
-	//     be better off staying inside WMI.
-	// 
+	// If a remote agent is required and not running, 'find' launches the agent using remote invocation.
+	// Previously, the code below sent a StartupVMMAgentCommand to trigger a registration.
+	// However, this was to make use of a custom IAgentShell to operate in the SCVMM, class VmmAgentShell
+	// We no longer want to use VmmAgentShell.  It's purpose was to add a ServerResource to the process.
+	// Problem is that it uses an Agent that is at present untested.
     @SuppressWarnings("static-access")
     @Override
     public Map<? extends ServerResource, Map<String, String>> find(long dcId, 
@@ -179,7 +174,6 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
             return null;
         }
 
-		// object to store resultss
 		Map<HypervDummyResourceBase, Map<String, String>> resources = new HashMap<HypervDummyResourceBase, Map<String, String>>();
 	    Map<String, String> details = new HashMap<String, String>();
         if (!uri.getScheme().equals("http")) {
@@ -204,26 +198,32 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 			// Find expects to trigger agent to connect back to mgmt server,
 			// KVM uses SSH to do this, first attempt at HyperV used a custom IAgentShell
 			
-			// Stub out either by returning NULL to indicate to manager that it should not
-			// attempt to use the Hypervisor (yet!)
-				s_logger.info("SCVMM agent did not connect back after sending bootstrap request"); 
-				return null;
-/*
+			// Management server expects this step to succeed if the GUI is to be used to
+    		// register the HyperV server.
+    		
+    		s_logger.info("Creating HypervDummyResourceBase for zone/pod/cluster " +dcId + "/"+podId + "/"+ clusterId);
+
 	        Map<String, Object> params = new HashMap<String, Object>();
 	        HypervDummyResourceBase resource = new HypervDummyResourceBase(); 
 	
 	        details.put("url", uri.getHost());
 	        details.put("username", username);
 	        details.put("password", password);
-			resources.put(resource, details);
 	
 	        params.put("zone", Long.toString(dcId));
 	        params.put("pod", Long.toString(podId));
 	        params.put("cluster", Long.toString(clusterId));
-
-            resource.configure("Hyperv", params);
+			params.put("guid", guid); 
+			params.put("agentIp", agentIp);
+            resource.configure("Hyperv agent", params);
+			resources.put(resource, details);
+			 // place a place holder guid derived from cluster ID
+			if (cluster.getGuid() == null) {
+			    cluster.setGuid(UUID.nameUUIDFromBytes(String.valueOf(clusterId).getBytes()).toString());
+			    _clusterDao.update(clusterId, cluster);
+			}
+			
             return resources;
-			*/
 /*        } catch (ConfigurationException e) {
             _alertMgr.sendAlert(AlertManager.ALERT_TYPE_HOST, dcId, podId, "Unable to add " + uri.getHost(), "Error is " + e.getMessage());
             s_logger.warn("Unable to instantiate " + uri.getHost(), e);
