@@ -26,6 +26,7 @@ import java.util.UUID;
 import javax.ejb.Local;
 
 import org.apache.log4j.Logger;
+import org.libvirt.Connect;
 
 import com.cloud.agent.IAgentControl;
 import com.cloud.agent.api.Answer;
@@ -99,12 +100,22 @@ import com.cloud.agent.api.to.VolumeTO;
 import com.cloud.host.Host;
 import com.cloud.host.Host.Type;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.hypervisor.kvm.resource.LibvirtConnection;
+import com.cloud.hypervisor.kvm.resource.LibvirtVMDef;
+import com.cloud.hypervisor.kvm.storage.KVMPhysicalDisk;
+import com.cloud.hypervisor.kvm.storage.KVMStoragePool;
 import com.cloud.network.PhysicalNetworkSetupInfo;
+import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.resource.ServerResource;
 import com.cloud.storage.Storage;
+import com.cloud.storage.Volume;
 import com.cloud.storage.Storage.StoragePoolType;
+import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.script.Script;
+import com.cloud.vm.DiskProfile;
+import com.cloud.vm.VirtualMachine;
+import com.cloud.vm.VirtualMachine.State;
 
 @Local(value = { ServerResource.class })
 public class HypervResource implements ServerResource {
@@ -136,9 +147,9 @@ public class HypervResource implements ServerResource {
 		} else if (cmd instanceof GetStorageStatsCommand) {
 			return execute((GetStorageStatsCommand) cmd);
 	    } else if (cmd instanceof PrimaryStorageDownloadCommand) {
-			return Answer.createUnsupportedCommandAnswer(cmd);
-		} else if (cmd instanceof CreateCommand) {
-			return Answer.createUnsupportedCommandAnswer(cmd);
+			return execute((PrimaryStorageDownloadCommand) cmd);
+		} else if (cmd instanceof CreateCommand) { // volume creation
+			return execute((CreateCommand) cmd);
 		} else if (cmd instanceof StopCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof RebootCommand) {
@@ -147,14 +158,14 @@ public class HypervResource implements ServerResource {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof AttachVolumeCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
-		} else if (cmd instanceof DestroyCommand) {
+		} else if (cmd instanceof DestroyCommand) { // volume destruction
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof CheckVirtualMachineCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof MaintainCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
-		} else if (cmd instanceof StartCommand) {
-			return Answer.createUnsupportedCommandAnswer(cmd);
+		} else if (cmd instanceof StartCommand) {   // VM creation
+			return execute((StartCommand) cmd);
 		} else if (cmd instanceof PingTestCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof AttachIsoCommand) {
@@ -182,6 +193,87 @@ public class HypervResource implements ServerResource {
     protected Answer execute(ReadyCommand cmd) {
         return new ReadyAnswer(cmd);
     }
+
+    /*
+     * Sample:
+     * contextMap	LinkedHashMap<K,V>  (id=111)	
+     * format	Storage$ImageFormat  (id=114)	
+     * localPath	"E:\\Disks\\Disks" (id=119)	
+     * name	"routing-9" (id=124)	
+     * poolId	201	
+     * poolUuid	"5fe2bad3-d785-394e-9949-89786b8a63d2" (id=125)	
+     * primaryStorageUrl	"nfs://10.70.176.29E:\\Disks\\Disks" (id=126)	
+     * secondaryStorageUrl	"nfs://10.70.176.4/CSHV3" (id=127)	
+     * secUrl	null	
+     * url	"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/" (id=128)	
+     * wait	10800	
+     * 
+     */
+    protected PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing PrimaryStorageDownloadCommand request");
+        }
+        
+        // Get template volume
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Template to download is in " + cmd.getUrl() );
+        }
+        
+        // Decide destination
+        String installPath = cmd.getLocalPath();
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Template's destination is " + cmd.getPrimaryStorageUrl());
+        }
+       
+        // Copy
+        installPath = (String) getConfiguredProperty("prototype.vm.template.pathfilename", "e:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx");
+        String templateSizeStr = (String) getConfiguredProperty("prototype.vm.template.size", "2285895680");
+        long templateSize = Long.parseLong(templateSizeStr);
+
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Prototype uses config settings for filename of " + installPath + " and size of " + templateSize);
+        }
+       
+        return new PrimaryStorageDownloadAnswer(installPath, templateSize);
+    }
+
+    /*
+     * Create VM.
+     * 
+     * KVM manages local list of VMs.
+     */
+    protected synchronized StartAnswer execute(StartCommand cmd) {
+        VirtualMachineTO vmSpec = cmd.getVirtualMachine();
+        
+        // Setup volumes
+        
+        // Setup NICs
+        
+        return new StartAnswer(cmd);
+    }
+    
+    /*
+     * Creates a volume
+     */
+    protected Answer execute(CreateCommand cmd) {
+    	// Create root volume from passed template or from scratch
+    	// 
+        StorageFilerTO pool = cmd.getPool();
+        DiskProfile dskch = cmd.getDiskCharacteristics();
+        long disksize = dskch.getSize();
+
+        if (cmd.getTemplateUrl() != null) {
+            // Create volume from template
+            } else {
+                // Create volume from scratch
+        }
+        VolumeTO volume = new VolumeTO(cmd.getVolumeId(), dskch.getType(),
+                    pool.getType(), pool.getUuid(), pool.getPath(),
+                    "FakeVolume", "FakeVolume", disksize, null);
+            return new CreateAnswer(cmd, volume);
+    }
+
+
 
     protected GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
         if (s_logger.isDebugEnabled()) {
