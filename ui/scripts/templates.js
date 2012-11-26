@@ -237,6 +237,10 @@
                         //formatSelect.append("<option value='RAW'>RAW</option>");
                         items.push({id:'RAW', description: 'RAW'});
                       }
+                      else if(args.hypervisor == "Hyperv") {
+                          //formatSelect.append("<option value='VHD'>VHD</option>");
+                          items.push({id:'VHD', description: 'VHD'});
+                        }
                       args.response.success({data: items});
                     }
                   },
