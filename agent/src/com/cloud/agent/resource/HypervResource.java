@@ -16,6 +16,9 @@
 // under the License.
 package com.cloud.agent.resource;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,7 +29,6 @@ import java.util.UUID;
 import javax.ejb.Local;
 
 import org.apache.log4j.Logger;
-import org.libvirt.Connect;
 
 import com.cloud.agent.IAgentControl;
 import com.cloud.agent.api.Answer;
@@ -100,10 +102,6 @@ import com.cloud.agent.api.to.VolumeTO;
 import com.cloud.host.Host;
 import com.cloud.host.Host.Type;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.hypervisor.kvm.resource.LibvirtConnection;
-import com.cloud.hypervisor.kvm.resource.LibvirtVMDef;
-import com.cloud.hypervisor.kvm.storage.KVMPhysicalDisk;
-import com.cloud.hypervisor.kvm.storage.KVMStoragePool;
 import com.cloud.network.PhysicalNetworkSetupInfo;
 import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
@@ -151,17 +149,17 @@ public class HypervResource implements ServerResource {
 		} else if (cmd instanceof CreateCommand) { // volume creation
 			return execute((CreateCommand) cmd);
 		} else if (cmd instanceof StopCommand) {
-			return Answer.createUnsupportedCommandAnswer(cmd);
+			return execute((StopCommand) cmd);
 		} else if (cmd instanceof RebootCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof GetVmStatsCommand) {
-			return Answer.createUnsupportedCommandAnswer(cmd);
+			return execute((GetVmStatsCommand) cmd);
 		} else if (cmd instanceof AttachVolumeCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof DestroyCommand) { // volume destruction
-			return Answer.createUnsupportedCommandAnswer(cmd);
+			return execute((DestroyCommand) cmd);
 		} else if (cmd instanceof CheckVirtualMachineCommand) {
-			return Answer.createUnsupportedCommandAnswer(cmd);
+			return execute((CheckVirtualMachineCommand) cmd);
 		} else if (cmd instanceof MaintainCommand) {
 			return Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof StartCommand) {   // VM creation
@@ -187,8 +185,50 @@ public class HypervResource implements ServerResource {
     @Override
     public Type getType() {
         return _type;
+    }   
+    
+    protected Answer execute(CheckVirtualMachineCommand cmd) {
+        final String vmName = cmd.getVmName();
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing StopCommand request for VM named " + vmName);
+        }
+        
+        return new CheckVirtualMachineAnswer(cmd, State.Running, null);
     }
-   
+    
+    protected GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
+        List<String> vmNames = cmd.getVmNames();
+        HashMap<String, VmStatsEntry> vmStatsNameMap = new HashMap<String, VmStatsEntry>();
+        for (String vmName : vmNames) {
+            if (s_logger.isDebugEnabled()) {
+                s_logger.debug("Processing GetVmStatsCommand for VM named " + vmName);
+            }
+
+            VmStatsEntry statEntry = new VmStatsEntry(0.15, 100, 100, 1, "vm");
+
+            vmStatsNameMap.put(vmName, statEntry);
+        }
+        return new GetVmStatsAnswer(cmd, vmStatsNameMap);
+    }
+
+    public Answer execute(DestroyCommand cmd) {
+        VolumeTO vol = cmd.getVolume();
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing DestroyCommand request for volume id " + vol.getId());
+        }
+
+        return new Answer(cmd, true, "Success");
+	}
+    
+    protected Answer execute(StopCommand cmd) {
+        final String vmName = cmd.getVmName();
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing StopCommand request for VM named " + vmName);
+        }
+        
+        String result = "Simulated stop for VM named " +vmName;
+        return new StopAnswer(cmd, result, 0, true);
+    }
     // TODO:  identify startup steps that should be triggered by a ReadyCommand
     protected Answer execute(ReadyCommand cmd) {
         return new ReadyAnswer(cmd);
@@ -240,17 +280,55 @@ public class HypervResource implements ServerResource {
     /*
      * Create VM.
      * 
-     * KVM manages local list of VMs.
      */
     protected synchronized StartAnswer execute(StartCommand cmd) {
         VirtualMachineTO vmSpec = cmd.getVirtualMachine();
-        
-        // Setup volumes
-        
-        // Setup NICs
-        
-        return new StartAnswer(cmd);
+        String psScript= "powershell C:\\cygwin\\home\\Administrator\\github\\cshv3\\agent\\scripts\\createvm.ps1" + vmSpec.getId();
+        try {
+        	runPowerShell(psScript);
+       
+	        return new StartAnswer(cmd);
+        } catch (Exception e)
+        {
+        	String err = "Failure starting VM using script " + psScript + ", msg:" + e.getMessage();
+            s_logger.info(err);
+            return new StartAnswer(cmd, err);
+        }
     }
+
+    /*
+     * General mechanism for calling PowerShell scripts.
+     */
+    protected synchronized void runPowerShell(String psScript) throws  Exception{
+	        Runtime runtime = Runtime.getRuntime();
+	        Process proc = runtime.exec(psScript);
+	        proc.getOutputStream().close();
+	        InputStream is = proc.getInputStream();
+	        InputStreamReader isr = new InputStreamReader(is);
+	        BufferedReader reader = new BufferedReader(isr);
+	        String line;
+	        while ((line = reader.readLine()) != null)
+	        {
+	            s_logger.debug("PowerShell feedback: " + line);
+	        }
+	        reader.close();
+    }
+    
+    protected synchronized boolean test_runPowerShell() {
+        String psScript= "powershell C:\\cygwin\\home\\Administrator\\github\\cshv3\\agent\\scripts\\createvm.ps1 " + 
+        		UUID.randomUUID().toString();
+        try {
+        	runPowerShell(psScript);
+        	return true;
+        } catch (Exception e)
+        {
+        	String err = "Failure starting VM using script " + psScript + ", msg:" + e.getMessage();
+            s_logger.info(err);
+            return false;
+        }
+    }
+
+    
     
     /*
      * Creates a volume
