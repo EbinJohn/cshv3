@@ -17,8 +17,11 @@
 package com.cloud.agent.resource;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,6 +34,7 @@ import javax.ejb.Local;
 import org.apache.log4j.Logger;
 
 import com.cloud.agent.IAgentControl;
+import com.cloud.agent.PythonLaunch;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.PingCommand;
@@ -106,6 +110,7 @@ import com.cloud.network.PhysicalNetworkSetupInfo;
 import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.resource.ServerResource;
+import com.cloud.serializer.GsonHelper;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Volume;
 import com.cloud.storage.Storage.StoragePoolType;
@@ -115,9 +120,14 @@ import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
 
+import com.google.gson.Gson;
+
 @Local(value = { ServerResource.class })
 public class HypervResource implements ServerResource {
     private static final Logger s_logger = Logger.getLogger(HypervResource.class);
+    protected static final Gson s_gson = GsonHelper.getGson();
+    protected static String s_scriptPathAndName;
+    protected static String s_pythonExec;
 
     String _name;
     Host.Type _type;
@@ -209,6 +219,71 @@ public class HypervResource implements ServerResource {
             vmStatsNameMap.put(vmName, statEntry);
         }
         return new GetVmStatsAnswer(cmd, vmStatsNameMap);
+    }
+   
+    public <T extends Command, ResultT extends Answer> 
+    				ResultT callHypervPythonModule(T cmd, Class<ResultT> answerType)
+    {
+        String cmdName = cmd.getClass().getSimpleName();
+        String cmdData = s_gson.toJson(cmd, cmd.getClass());
+        s_logger.debug("Execute " + cmdName + " using script " + s_scriptPathAndName +
+        		"passing" + cmdData);
+
+        List<String> scriptArgs = new ArrayList<String>();
+        scriptArgs.add(cmdName);
+
+        String result = runPythonProcess(
+        		s_scriptPathAndName,
+    			scriptArgs.toArray(new String[0]),
+    			cmdData
+    			);
+        s_logger.debug("Use Gson to create " +  answerType.getSimpleName() + " from " + result);
+        ResultT resultAnswer = s_gson.fromJson(result, answerType);
+        s_logger.info(resultAnswer.toString() + " contains " + 
+        		s_gson.toJson(resultAnswer));
+        return resultAnswer;
+    }
+    
+    public static String runPythonProcess(String pyScript, String[] args,  String jsonData){
+    	String output = "";
+    	    	// Launch script
+    	try {
+    		List<String> exeArgs = new ArrayList<String>();
+
+    		exeArgs.add(s_pythonExec);
+    		exeArgs.add(pyScript);
+
+    		for(String s: args)
+    		{
+    			exeArgs.add(s);
+    		}
+    		
+    		// when we launch from the shell, we need to use Cygwin's path to the exe, and 
+	    	ProcessBuilder builder = new ProcessBuilder(exeArgs);
+	    	builder.redirectErrorStream(true);  // TODO: may want to treat the two separately.
+	    	Process proc = builder.start();
+		        
+		    // Write data to script's stdin
+		    OutputStream scriptInput = proc.getOutputStream();
+		    OutputStreamWriter siw = new OutputStreamWriter(scriptInput);
+		    BufferedWriter writer = new BufferedWriter(siw);
+		    writer.write(jsonData);
+		    writer.flush();
+		    writer.close();
+		        
+		    // Read data to stdout
+		    InputStream is = proc.getInputStream();
+		    InputStreamReader isr = new InputStreamReader(is);
+		    BufferedReader reader = new BufferedReader(isr);
+		    
+		    output = reader.readLine();
+		    reader.close();
+		    // TODO:  is waitfor() required?
+        } catch (Exception ex) {
+        	s_logger.debug("Error calling " + pyScript + 
+        			"while reading command process stream" + ex.getMessage() );
+        }
+	    return output;
     }
 
     public Answer execute(DestroyCommand cmd) {
@@ -327,8 +402,6 @@ public class HypervResource implements ServerResource {
             return false;
         }
     }
-
-    
     
     /*
      * Creates a volume
@@ -541,11 +614,15 @@ public class HypervResource implements ServerResource {
         value = (String) params.get("negative.reply");
         _negative = Boolean.parseBoolean(value);
         setParams(params);
+
         return true;
     }
 
     public void setParams(Map<String, Object> _params) {
         this._params = _params;
+    	s_scriptPathAndName = (String)_params.get("hyperv.python.module.dir");
+    	s_scriptPathAndName = s_scriptPathAndName + (String)_params.get("hyperv.python.module.script");
+    	s_pythonExec = (String)_params.get("python.executable");
     }
 
     @Override
