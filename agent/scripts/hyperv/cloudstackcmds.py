@@ -30,6 +30,7 @@ will be used rather than stdin.
 import sys
 import json
 import argparse
+import textwrap
 
 import vmops
 import log as logging
@@ -56,13 +57,49 @@ def serialiseAnswerData(fp, answer):
     LOG.debug("Call to " + ARGS.command + " returns " + json.dumps(answer))
     json.dump(answer, fp)
 
+def StartCommand(cmdData):
+    """
+    Generate StartAnswer JSON corresponding to a StartCommand
+    pass via stdin in a JSON format.
+    """
+    if ARGS.test:
+        sample = textwrap.dedent("""\
+        {"vm":{"id":6,"name":"i-2-6-VM","type":"User","cpus":1,"speed":500,
+        "minRam":536870912,"maxRam":536870912,"arch":"x86_64",
+        "os":"CentOS 6.0 (64-bit)","bootArgs":"","rebootOnCrash":false,
+        "enableHA":false,"limitCpuUse":false,"vncPassword":"7e24c0da0e848ad4",
+        "params":{},"uuid":"3ff475a7-0ee8-44d6-970d-64fe776beb92",
+        "disks":[
+                {"id":6,"name":"E:\\\\Disks\\\\Disks","mountPoint":"FakeVolume",
+        "path":"FakeVolume","size":0,"type":"ROOT","storagePoolType":"Filesystem",
+        "storagePoolUuid":"5fe2bad3-d785-394e-9949-89786b8a63d2","deviceId":0},
+                {"id":6,"name":"Hyper-V Sample1","size":0,"type":"ISO","storagePoolType":"ISO","deviceId":3}
+                ],
+        "nics":[
+                {"deviceId":0,"networkRateMbps":100,"defaultNic":true,"uuid":
+        "e146bb95-4ee4-4b9f-8d61-62cb21f7224e","ip":"10.1.1.164","netmask":"255.255.255.0",
+        "gateway":"10.1.1.1","mac":"02:00:67:06:00:04","dns1":"4.4.4.4","broadcastType":"Vlan",
+        "type":"Guest","broadcastUri":"vlan://261","isolationUri":"vlan://261",
+        "isSecurityGroupEnabled":false}
+                ]
+        },"contextMap":{},"wait":0}
+        """)
+        cmdData = json.loads(sample)
+
+    LOG.debug('StartCommand call with data ' + json.dumps(cmdData))
+
+    opsObj = vmops.VMOps(volume_ops_stub)
+    instance = {}
+    instance["name"] = cmdData["vm"]["name"]
+    LOG.debug('instance["name"] = ' + instance["name"])
+    opsObj.spawn(cmdData)
+
+
 def GetVmStatsCommand(cmdData):
     """
     Generates GetVmStatsAnswer JSON corresponding to a GetVmStatsCommand
     passed via stdin in a JSON format.
 
-    E.g. sample input:
-    {"vmNames":["TestCentOS6.3"],"hostGuid":"1","hostName":"localhost","contextMap":{},"wait":0}
 
     E.g. sample output:
     {"vmStatsMap":{"otherVM":{"cpuUtilization":100.0,"networkReadKBs":100.0,"networkWriteKBs":100.0,"numCPUs":2,"entityType":"vm"},
@@ -73,7 +110,7 @@ def GetVmStatsCommand(cmdData):
         sample = ('{"vmNames":["TestCentOS6.3"],"hostGuid":"1","hostName":"localhost","contextMap":{},"wait":0}')
         cmdData = json.loads(sample)
 
-    LOG.debug('GetVmStatsAnswer call with data ' + json.dumps(cmdData))
+    LOG.debug('GetVmStatsCommand call with data ' + json.dumps(cmdData))
 
     opsObj = vmops.VMOps(volume_ops_stub)
     answers = {}

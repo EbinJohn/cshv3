@@ -110,7 +110,7 @@ public class PythonLaunch {
     	vmNames.add("TestCentOS6.3");
     	GetVmStatsCommand vmStatsCmd = new GetVmStatsCommand(vmNames, "1", "localhost");
 
-    	s_hypervresource.callHypervPythonModule(vmStatsCmd, GetVmStatsAnswer.class);
+    	s_hypervresource.execute(vmStatsCmd);
     }
     
     public static String SampleJsonFromGetVmStatsAnswer()

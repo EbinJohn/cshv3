@@ -29,12 +29,25 @@ HYPERV_VM_STATE_RESET = 11
 HYPERV_VM_STATE_PAUSED = 32768
 HYPERV_VM_STATE_SUSPENDED = 32769
 
+class VmPowerState:
+    # VM is offline and not using any resources
+    HALTED = HYPERV_VM_STATE_DISABLED
+    # Running
+    RUNNING = HYPERV_VM_STATE_ENABLED,
+    # All resources have been allocated but the VM itself is paused and its vCPUs are not running
+    PAUSED = HYPERV_VM_STATE_PAUSED,
+    # VM state has been saved to disk and it is nolonger running. Note that disks remain in-use while the VM is suspended.
+    SUSPENDED = HYPERV_VM_STATE_SUSPENDED
+    # The value does not belong to this enumeration
+    UNRECOGNIZED = None
+
 HYPERV_POWER_STATE = {
-    HYPERV_VM_STATE_DISABLED: power_state.SHUTDOWN,
-    HYPERV_VM_STATE_ENABLED: power_state.RUNNING,
-    HYPERV_VM_STATE_PAUSED: power_state.PAUSED,
-    HYPERV_VM_STATE_SUSPENDED: power_state.SUSPENDED
+    HYPERV_VM_STATE_ENABLED: VmPowerState.RUNNING,
+    HYPERV_VM_STATE_DISABLED: VmPowerState.SUSPENDED,
+    HYPERV_VM_STATE_PAUSED: VmPowerState.PAUSED,
+    HYPERV_VM_STATE_SUSPENDED: VmPowerState.HALTED
 }
+
 
 REQ_POWER_STATE = {
     'Enabled': HYPERV_VM_STATE_ENABLED,
@@ -44,6 +57,7 @@ REQ_POWER_STATE = {
     'Paused': HYPERV_VM_STATE_PAUSED,
     'Suspended': HYPERV_VM_STATE_SUSPENDED,
 }
+
 
 WMI_WIN32_PROCESSOR_ARCHITECTURE = {
     0: 'x86',

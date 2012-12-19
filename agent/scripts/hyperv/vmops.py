@@ -22,6 +22,7 @@ Management class for basic VM operations.
 import os
 import uuid
 import log as logging
+import shutil
 
 import baseops
 import constants
@@ -125,54 +126,67 @@ class VMOps(baseops.BaseOps):
 
 
 
-    def spawn(self, context, instance, image_meta, injected_files,
-        admin_password, network_info, block_device_info=None):
-        """ Create a new VM and start it."""
+    def spawn(self, cmdData):
+        """ Create a new VM and start it.
+
+        """
+        instance = cmdData["vm"]
+        instance['vcpus'] = instance['cpus']
+        instance['memory_mb'] =  instance['maxRam'] / 1048576
         instance_name = instance["name"]
-        vm = self._vmutils.lookup(self._conn, instance_name)
-        if vm is not None:
-            raise vmutils.HyperVException(_('InstanceExists %s') %
-                instance_name)
+        
+        network_info = instance["nics"]
+        for nic in network_info:
+            nic["address"] = nic["mac"]
 
-        ebs_root = self._volumeops.volume_in_mapping(
-            self._volumeops.get_default_root_device(),
-           block_device_info)
-
-        #If is not a boot from volume spawn
-        #if not (ebs_root):
-        #    #Fetch the file, assume it is a VHD file.
-        #    vhdfile = self._vmutils.get_vhd_path(instance_name)
-        #    try:
-        #        self._cache_image(fn=self._vmutils.fetch_image,
-        #          context=context,
-        #          target=vhdfile,
-        #          fname=instance['image_ref'],
-        #          image_id=instance['image_ref'],
-        #          user=instance['user_id'],
-        #          project=instance['project_id'],
-        #          cow=CONF.use_cow_images)
-        #    except Exception as exn:
-        #        LOG.exception(_('cache image failed: %s'), exn)
-        #        self.destroy(instance)
-
+        LOG.debug("Create VM %s , %s vcpus, %s MB RAM",
+                   instance_name, instance['vcpus'],instance['memory_mb'])
+        
+        # Does it exist?
+        vms = self._vmutils.lookup_all(self._conn, instance_name)
+        if vms is not None:
+            LOG.debug("VMs exist with name %s", instance_name)
+            # CitrixResourceBase.execute will destroy Halted VMs until it comes
+            # across one that is not running.  Return on the running one
+            # or go one to create a new one.
+            for vm in vms:
+                # vm object is a Msvm_ComputerSystem
+                # http://msdn.microsoft.com/en-us/library/cc136822%28v=vs.85%29.aspx
+                if vm.EnabledState == constants.VmPowerState.HALTED:
+                    #todo Destroy existing, HALTED VM, carry on with create
+                    LOG.debug("VMs exist with name %s", instance_name)
+                elif vm.EnabledState == constants.VmPowerState.RUNNING:
+                    #Report VM already running, answer false
+                    raise vmutils.HyperVException(_('VM %s is runing on host') %
+                                                  instance_name )
+                else:
+                    # Report existing VM, answer false
+                    raise vmutils.HyperVException(_('There is already a VM having the name %s') %
+                                                  instance_name )
+        
         try:
+            # Create VM carcass
             self._create_vm(instance)
 
-            if not ebs_root:
-                self._attach_ide_drive(instance['name'], vhdfile, 0, 0,
-                    constants.IDE_DISK)
-            else:
-                self._volumeops.attach_boot_volume(block_device_info,
-                                             instance_name)
+            # todo: create root volume properly
+            # volumes to use should already have been created by earlier commands,
+            # and details embedded in the StartCommand that kicked off this method call.
+            # These are not yet implemented, so we fudge the value for now.
+            vhdfile = 'E:\\Disks\\Disks\\' + instance_name + '.vhdx'
+            shutil.copy2('E:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx', vhdfile)
+            
+            self._attach_ide_drive(instance['name'], vhdfile, 0, 0, constants.IDE_DISK)
 
-            #A SCSI controller for volumes connection is created
-            self._create_scsi_controller(instance['name'])
+            # todo: add DVD?
 
+
+            # Add NIC to VM
             for vif in network_info:
                 mac_address = vif['address'].replace(':', '')
                 self._create_nic(instance['name'], mac_address)
 
             LOG.debug(_('Starting VM %s '), instance_name)
+            
             self._set_vm_state(instance['name'], 'Enabled')
             LOG.info(_('Started VM %s '), instance_name)
         except Exception as exn:
@@ -181,7 +195,12 @@ class VMOps(baseops.BaseOps):
             raise exn
 
     def _create_vm(self, instance):
-        """Create a VM but don't start it.  """
+        """Create a VM but don't start it.  
+        
+        instance["name"]
+        instance['memory_mb']
+        instance['vcpus']
+        """
         instance_name = instance["name"]
         vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
 
@@ -201,10 +220,11 @@ class VMOps(baseops.BaseOps):
         LOG.debug(_('Created VM %s...'), instance_name)
         vm = self._conn.Msvm_ComputerSystem(ElementName=instance_name)[0]
 
+        # Look up for setting data via queries using the associator operation
         vmsettings = vm.associators(
                           wmi_result_class='Msvm_VirtualSystemSettingData')
-        vmsetting = [s for s in vmsettings
-                        if s.SettingType == 3][0]  # avoid snapshots
+        # remove snapshots from the list, select first setting obj
+        vmsetting = [s for s in vmsettings if s.SettingType == 3][0]
         memsetting = vmsetting.associators(
                            wmi_result_class='Msvm_MemorySettingData')[0]
         #No Dynamic Memory, so reservation, limit and quantity are identical.
@@ -215,6 +235,7 @@ class VMOps(baseops.BaseOps):
 
         (job, ret_val) = vs_man_svc.ModifyVirtualSystemResources(
                 vm.path_(), [memsetting.GetText_(1)])
+        #todo: why not wait for the job to finish?
         LOG.debug(_('Set memory for vm %s...'), instance_name)
         procsetting = vmsetting.associators(
                 wmi_result_class='Msvm_ProcessorSettingData')[0]
@@ -223,11 +244,9 @@ class VMOps(baseops.BaseOps):
         procsetting.Reservation = vcpus
         procsetting.Limit = 100000  # static assignment to 100%
 
-        if CONF.limit_cpu_features:
-            procsetting.LimitProcessorFeatures = True
-
         (job, ret_val) = vs_man_svc.ModifyVirtualSystemResources(
                 vm.path_(), [procsetting.GetText_(1)])
+        #todo: why not wait for the job to finish?
         LOG.debug(_('Set vcpus for vm %s...'), instance_name)
 
     def _create_scsi_controller(self, vm_name):
@@ -334,7 +353,7 @@ class VMOps(baseops.BaseOps):
         vms = self._conn.Msvm_ComputerSystem(ElementName=vm_name)
         extswitch = self._find_external_network()
         if extswitch is None:
-            raise vmutils.HyperVException(_('Cannot find vSwitch'))
+            raise vmutils.HyperVException(_('Cannot find vSwitch attached to external network'))
 
         vm = vms[0]
         switch_svc = self._conn.Msvm_VirtualSwitchManagementService()[0]
@@ -379,27 +398,16 @@ class VMOps(baseops.BaseOps):
            Assumes only one physical nic on the host
         """
         #If there are no physical nics connected to networks, return.
-        LOG.debug(_("Attempting to bind NIC to %s ")
-                % CONF.vswitch_name)
-        if CONF.vswitch_name:
-            LOG.debug(_("Attempting to bind NIC to %s ")
-                % CONF.vswitch_name)
-            bound = self._conn.Msvm_VirtualSwitch(
-                ElementName=CONF.vswitch_name)
-        else:
-            LOG.debug(_("No vSwitch specified, attaching to default"))
-            self._conn.Msvm_ExternalEthernetPort(IsBound='TRUE')
+        LOG.debug(_("No vSwitch name specified, attaching to default"))
+        bound = self._conn.Msvm_ExternalEthernetPort(IsBound='TRUE')
         if len(bound) == 0:
+            LOG.debug(_("No vSwitch available"))
             return None
-        if CONF.vswitch_name:
-            return self._conn.Msvm_VirtualSwitch(
-                ElementName=CONF.vswitch_name)[0]\
-                .associators(wmi_result_class='Msvm_SwitchPort')[0]\
-                .associators(wmi_result_class='Msvm_VirtualSwitch')[0]
-        else:
-            return self._conn.Msvm_ExternalEthernetPort(IsBound='TRUE')\
-                .associators(wmi_result_class='Msvm_SwitchPort')[0]\
-                .associators(wmi_result_class='Msvm_VirtualSwitch')[0]
+        
+        return self._conn.Msvm_ExternalEthernetPort(IsBound='TRUE')[0]\
+            .associators(wmi_result_class='Msvm_SwitchLANEndpoint')[0]\
+            .associators(wmi_result_class='Msvm_SwitchPort')[0]\
+            .associators(wmi_result_class='Msvm_VirtualSwitch')[0]
 
     def reboot(self, instance, network_info, reboot_type):
         instance_name = instance["name"]
@@ -492,6 +500,7 @@ class VMOps(baseops.BaseOps):
         LOG.debug(_("Power on instance"), instance=instance)
         self._set_vm_state(instance["name"], 'Enabled')
 
+    # update to make callers use an enumeration rather string literals
     def _set_vm_state(self, vm_name, req_state):
         """Set the desired state of the VM"""
         vms = self._conn.Msvm_ComputerSystem(ElementName=vm_name)

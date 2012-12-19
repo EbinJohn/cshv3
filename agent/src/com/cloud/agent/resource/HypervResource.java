@@ -119,6 +119,7 @@ import com.cloud.utils.script.Script;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
+import com.cloud.utils.StringUtils;
 
 import com.google.gson.Gson;
 
@@ -206,19 +207,16 @@ public class HypervResource implements ServerResource {
         return new CheckVirtualMachineAnswer(cmd, State.Running, null);
     }
     
-    protected GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
-        List<String> vmNames = cmd.getVmNames();
-        HashMap<String, VmStatsEntry> vmStatsNameMap = new HashMap<String, VmStatsEntry>();
-        for (String vmName : vmNames) {
-            if (s_logger.isDebugEnabled()) {
-                s_logger.debug("Processing GetVmStatsCommand for VM named " + vmName);
-            }
-
-            VmStatsEntry statEntry = new VmStatsEntry(0.15, 100, 100, 1, "vm");
-
-            vmStatsNameMap.put(vmName, statEntry);
+    public GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Processing GetVmStatsCommand for VMs " + StringUtils.join(cmd.getVmNames(),","));
         }
-        return new GetVmStatsAnswer(cmd, vmStatsNameMap);
+        
+    	GetVmStatsAnswer pythonResult = callHypervPythonModule(cmd, GetVmStatsAnswer.class);
+    	
+    	// TODO:  add infrastructure to propagate failures.
+    	// TODO:  why is there a ctor that takes the original command?
+        return new GetVmStatsAnswer(cmd, pythonResult.getVmStatsMap());
     }
    
     public <T extends Command, ResultT extends Answer> 
@@ -357,18 +355,11 @@ public class HypervResource implements ServerResource {
      * 
      */
     protected synchronized StartAnswer execute(StartCommand cmd) {
-        VirtualMachineTO vmSpec = cmd.getVirtualMachine();
-        String psScript= "powershell C:\\cygwin\\home\\Administrator\\github\\cshv3\\agent\\scripts\\createvm.ps1" + vmSpec.getId();
-        try {
-        	runPowerShell(psScript);
-       
-	        return new StartAnswer(cmd);
-        } catch (Exception e)
-        {
-        	String err = "Failure starting VM using script " + psScript + ", msg:" + e.getMessage();
-            s_logger.info(err);
-            return new StartAnswer(cmd, err);
+        if (s_logger.isDebugEnabled()) {
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("StartCommand call using data:" + cmdData);
         }
+        return new StartAnswer(cmd, "not coded");
     }
 
     /*

@@ -89,6 +89,14 @@ class VMUtils(object):
         else:
             return vms[0].ElementName
 
+    def lookup_all(self, conn, i):
+        vms = conn.Msvm_ComputerSystem(ElementName=i)
+        n = len(vms)
+        if n == 0:
+            return None
+        else:
+            return vms
+
     def check_job_status(self, jobpath):
         """Poll WMI job state for completion"""
         job_wmi_path = jobpath.replace('\\', '/')
