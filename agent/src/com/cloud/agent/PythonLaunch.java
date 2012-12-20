@@ -48,6 +48,8 @@ import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.GetVmStatsAnswer;
 import com.cloud.agent.api.GetVmStatsCommand;
+import com.cloud.agent.api.StartAnswer;
+import com.cloud.agent.api.StartCommand;
 import com.cloud.agent.api.VmStatsEntry;
 import com.cloud.agent.resource.HypervResource;
 
@@ -72,7 +74,7 @@ import com.google.gson.stream.JsonReader;
 
 /*
  * General mechanism for calling Python scripts.
- * 
+ *
  * mvn exec:java -Dexec.mainClass=com.cloud.agent.PythonLaunch
  */
 public class PythonLaunch {
@@ -99,7 +101,8 @@ public class PythonLaunch {
     public static void main(String[] args) throws ConfigurationException {
     	PythonLaunch.initialise();
         
-    	PythonLaunch.TestGetVmStatsCommand();
+//    	PythonLaunch.TestGetVmStatsCommand();
+    	PythonLaunch.TestStartCommand();
         return;
     }
     
@@ -112,7 +115,34 @@ public class PythonLaunch {
 
     	s_hypervresource.execute(vmStatsCmd);
     }
-    
+
+    public static void TestStartCommand()
+    {
+       	String sample = "{\"vm\":{\"id\":6,\"name\":\"i-2-6-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+       	             "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+       	             "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+       	             "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"7e24c0da0e848ad4\"," +
+       	             "\"params\":{},\"uuid\":\"3ff475a7-0ee8-44d6-970d-64fe776beb92\"," +
+       	             "\"disks\":[" +
+       	                     "{\"id\":6,\"name\":\"E:\\\\Disks\\\\Disks\",\"mountPoint\":\"FakeVolume\"," +
+       	             "\"path\":\"FakeVolume\",\"size\":0,\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\"," +
+       	             "\"storagePoolUuid\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"deviceId\":0}," +
+       	                     "{\"id\":6,\"name\":\"Hyper-V Sample1\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}" +
+       	                     "]," +
+       	             "\"nics\":[" +
+       	                     "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":" +
+       	             "\"e146bb95-4ee4-4b9f-8d61-62cb21f7224e\",\"ip\":\"10.1.1.164\",\"netmask\":\"255.255.255.0\"," +
+       	             "\"gateway\":\"10.1.1.1\",\"mac\":\"02:00:67:06:00:04\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\"," +
+       	             "\"type\":\"Guest\",\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\"," +
+       	             "\"isSecurityGroupEnabled\":false}" +
+       	                     "]" +
+       	             "},\"contextMap\":{},\"wait\":0}";
+        s_logger.info("Sample JSON: " + sample );
+
+       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
+
     public static String SampleJsonFromGetVmStatsAnswer()
     {
     	// Sample GetVmStatsCommand

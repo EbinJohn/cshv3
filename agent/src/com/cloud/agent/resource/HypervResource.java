@@ -199,15 +199,18 @@ public class HypervResource implements ServerResource {
     }   
     
     protected Answer execute(CheckVirtualMachineCommand cmd) {
-        final String vmName = cmd.getVmName();
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Processing StopCommand request for VM named " + vmName);
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("CheckVirtualMachineCommand call using data:" + cmdData);
         }
-        
         return new CheckVirtualMachineAnswer(cmd, State.Running, null);
     }
     
     public GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("CheckVirtualMachineCommand call using data:" + cmdData);
+        }
         if (s_logger.isDebugEnabled()) {
             s_logger.debug("Processing GetVmStatsCommand for VMs " + StringUtils.join(cmd.getVmNames(),","));
         }
@@ -285,21 +288,19 @@ public class HypervResource implements ServerResource {
     }
 
     public Answer execute(DestroyCommand cmd) {
-        VolumeTO vol = cmd.getVolume();
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Processing DestroyCommand request for volume id " + vol.getId());
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("DestroyCommand call using data:" + cmdData);
         }
-
         return new Answer(cmd, true, "Success");
 	}
     
     protected Answer execute(StopCommand cmd) {
-        final String vmName = cmd.getVmName();
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Processing StopCommand request for VM named " + vmName);
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("StopCommand call using data:" + cmdData);
         }
-        
-        String result = "Simulated stop for VM named " +vmName;
+       
         return new StopAnswer(cmd, result, 0, true);
     }
     // TODO:  identify startup steps that should be triggered by a ReadyCommand
@@ -324,7 +325,8 @@ public class HypervResource implements ServerResource {
      */
     protected PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Processing PrimaryStorageDownloadCommand request");
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("PrimaryStorageDownloadCommand call using data:" + cmdData);
         }
         
         // Get template volume
@@ -352,52 +354,33 @@ public class HypervResource implements ServerResource {
 
     /*
      * Create VM.
-     * 
      */
-    protected synchronized StartAnswer execute(StartCommand cmd) {
+    public synchronized StartAnswer execute(StartCommand cmd) {
         if (s_logger.isDebugEnabled()) {
             String cmdData = s_gson.toJson(cmd, cmd.getClass());
             s_logger.debug("StartCommand call using data:" + cmdData);
         }
-        return new StartAnswer(cmd, "not coded");
+        StartAnswer pythonResult = callHypervPythonModule(cmd, StartAnswer.class);
+    	
+        if (s_logger.isDebugEnabled()) {
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("StartCommand call result was " +  pythonResult.getResult()
+            		+ " and msg: " + pythonResult.getDetails());
+        }
+    	if (pythonResult.getResult())
+    		return new StartAnswer(cmd);
+    	else
+    		return new StartAnswer(cmd, pythonResult.getDetails());
     }
 
-    /*
-     * General mechanism for calling PowerShell scripts.
-     */
-    protected synchronized void runPowerShell(String psScript) throws  Exception{
-	        Runtime runtime = Runtime.getRuntime();
-	        Process proc = runtime.exec(psScript);
-	        proc.getOutputStream().close();
-	        InputStream is = proc.getInputStream();
-	        InputStreamReader isr = new InputStreamReader(is);
-	        BufferedReader reader = new BufferedReader(isr);
-	        String line;
-	        while ((line = reader.readLine()) != null)
-	        {
-	            s_logger.debug("PowerShell feedback: " + line);
-	        }
-	        reader.close();
-    }
-    
-    protected synchronized boolean test_runPowerShell() {
-        String psScript= "powershell C:\\cygwin\\home\\Administrator\\github\\cshv3\\agent\\scripts\\createvm.ps1 " + 
-        		UUID.randomUUID().toString();
-        try {
-        	runPowerShell(psScript);
-        	return true;
-        } catch (Exception e)
-        {
-        	String err = "Failure starting VM using script " + psScript + ", msg:" + e.getMessage();
-            s_logger.info(err);
-            return false;
-        }
-    }
-    
     /*
      * Creates a volume
      */
     protected Answer execute(CreateCommand cmd) {
+        if (s_logger.isDebugEnabled()) {
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("CreateCommand call using data:" + cmdData);
+        }
     	// Create root volume from passed template or from scratch
     	// 
         StorageFilerTO pool = cmd.getPool();
@@ -412,14 +395,16 @@ public class HypervResource implements ServerResource {
         VolumeTO volume = new VolumeTO(cmd.getVolumeId(), dskch.getType(),
                     pool.getType(), pool.getUuid(), pool.getPath(),
                     "FakeVolume", "FakeVolume", disksize, null);
-            return new CreateAnswer(cmd, volume);
+            
+        return new CreateAnswer(cmd, volume);
     }
 
 
 
     protected GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Processing GetHostStatsCommand request");
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("GetHostStatsCommand call using data:" + cmdData);
         }
 
         String capacityStr = (String) getConfiguredProperty(
@@ -440,8 +425,10 @@ public class HypervResource implements ServerResource {
      */
     protected GetHostStatsAnswer execute(GetHostStatsCommand cmd) {
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Processing GetHostStatsCommand request");
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("GetHostStatsCommand call using data:" + cmdData);
         }
+
         try {
             HostStatsEntry hostStats = new HostStatsEntry(cmd.getHostId(), 0, 0, 0, "host", 0, 0, 0, 0);
             // TODO:  Use WMI to query necessary usage stats.
@@ -460,7 +447,8 @@ public class HypervResource implements ServerResource {
     
     protected CheckNetworkAnswer execute(CheckNetworkCommand cmd) {
         if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Checking if network name setup is done on the resource");
+            String cmdData = s_gson.toJson(cmd, cmd.getClass());
+            s_logger.debug("CheckNetworkCommand call using data:" + cmdData);
         }
         List<PhysicalNetworkSetupInfo> phyNics = cmd.getPhysicalNetworkInfoList();
         String errMsg = null;

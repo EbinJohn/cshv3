@@ -32,7 +32,9 @@ import json
 import argparse
 import textwrap
 
+import exceptions
 import vmops
+import vmutils
 import log as logging
 
 PARSER = argparse.ArgumentParser()
@@ -56,6 +58,27 @@ def parseCommandData(fp):
 def serialiseAnswerData(fp, answer):
     LOG.debug("Call to " + ARGS.command + " returns " + json.dumps(answer))
     json.dump(answer, fp)
+
+def CreateCommand(cmdData):
+    """
+    Generate StartAnswer JSON corresponding to a StartCommand
+    pass via stdin in a JSON format.
+    """
+    if ARGS.test:
+        sample = textwrap.dedent("""\
+        {
+        "disks":[
+                {"id":6,"name":"E:\\\\Disks\\\\Disks","mountPoint":"FakeVolume",
+        "path":"FakeVolume","size":0,"type":"ROOT","storagePoolType":"Filesystem",
+        "storagePoolUuid":"5fe2bad3-d785-394e-9949-89786b8a63d2","deviceId":0},
+                {"id":6,"name":"Hyper-V Sample1","size":0,"type":"ISO","storagePoolType":"ISO","deviceId":3}
+                ]},"contextMap":{},"wait":0}
+        """)
+        cmdData = json.loads(sample)
+
+    LOG.debug('StartCommand call with data %s' % json.dumps(cmdData))
+
+    opsObj = vmops.VMOps(volume_ops_stub)
 
 def StartCommand(cmdData):
     """
@@ -86,14 +109,22 @@ def StartCommand(cmdData):
         """)
         cmdData = json.loads(sample)
 
-    LOG.debug('StartCommand call with data ' + json.dumps(cmdData))
+    LOG.debug('StartCommand call with data %s' % json.dumps(cmdData))
 
     opsObj = vmops.VMOps(volume_ops_stub)
-    instance = {}
-    instance["name"] = cmdData["vm"]["name"]
-    LOG.debug('instance["name"] = ' + instance["name"])
-    opsObj.spawn(cmdData)
-
+    try:
+        opsObj.spawn(cmdData)
+        answer = {"result":"true",
+               "wait":0 }
+        return answer
+    except vmutils.HyperVException as e:
+        LOG.debug('StartCommand for %s failed with msg %s' % (cmdData["vm"]["name"], e))
+        answer = {"result":"false",
+                   "details": e }
+    except Exception as e:
+        LOG.debug('StartCommand for %s failed with msg %s' % (cmdData["vm"]["name"], e))
+        answer = {"result":"false",
+                   "details": e }
 
 def GetVmStatsCommand(cmdData):
     """
@@ -115,6 +146,7 @@ def GetVmStatsCommand(cmdData):
     opsObj = vmops.VMOps(volume_ops_stub)
     answers = {}
     for vmName in cmdData['vmNames']:
+        # todo: get_info can throw if the instance is not found.  Catch.  How should this affect the resulting answer?
         vmInfo=opsObj.get_info(vmName)
         LOG.debug(vmName + ' info is ' + json.dumps(vmInfo))
 
@@ -127,8 +159,7 @@ def GetVmStatsCommand(cmdData):
         answers[vmName] = vmStat
 
     result = { "vmStatsMap": answers,
-               "result":"true",
-               "wait":0 }
+               "result":"true" }
                
     return result
 

@@ -124,8 +124,6 @@ class VMOps(baseops.BaseOps):
                 'cpu_utilization' : info.ProcessorLoad,
                 'cpu_time': info.UpTime}
 
-
-
     def spawn(self, cmdData):
         """ Create a new VM and start it.
 
@@ -154,15 +152,18 @@ class VMOps(baseops.BaseOps):
                 # http://msdn.microsoft.com/en-us/library/cc136822%28v=vs.85%29.aspx
                 if vm.EnabledState == constants.VmPowerState.HALTED:
                     #todo Destroy existing, HALTED VM, carry on with create
-                    LOG.debug("VMs exist with name %s", instance_name)
+                    LOG.debug("Deleting a VM with name %s", instance_name)
+                    self.destroy(instance)
                 elif vm.EnabledState == constants.VmPowerState.RUNNING:
                     #Report VM already running, answer false
-                    raise vmutils.HyperVException(_('VM %s is runing on host') %
-                                                  instance_name )
+                    errorMsg = _('VM %s is running on host') % instance_name
+                    LOG.exception(errorMsg)
+                    raise vmutils.HyperVException(errorMsg)
                 else:
                     # Report existing VM, answer false
-                    raise vmutils.HyperVException(_('There is already a VM having the name %s') %
-                                                  instance_name )
+                    errorMsg = _('There is already a VM having the name %s') % instance_name
+                    LOG.exception(errorMsg)
+                    raise vmutils.HyperVException(errorMsg)
         
         try:
             # Create VM carcass
@@ -175,10 +176,8 @@ class VMOps(baseops.BaseOps):
             vhdfile = 'E:\\Disks\\Disks\\' + instance_name + '.vhdx'
             shutil.copy2('E:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx', vhdfile)
             
+            # todo: add DVD driver?
             self._attach_ide_drive(instance['name'], vhdfile, 0, 0, constants.IDE_DISK)
-
-            # todo: add DVD?
-
 
             # Add NIC to VM
             for vif in network_info:
@@ -422,12 +421,14 @@ class VMOps(baseops.BaseOps):
         """Destroy the VM. Also destroy the associated VHD disk files"""
         instance_name = instance["name"]
         LOG.debug(_("Got request to destroy vm %s"), instance_name)
-        vm = self._vmutils.lookup(self._conn, instance_name)
+        vm = self._vmutils.lookup_all(self._conn, instance_name)
         if vm is None:
+            LOG.debug(_("No such VM destroy, vm %s"), instance_name)
             return
         vm = self._conn.Msvm_ComputerSystem(ElementName=instance_name)[0]
         vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
         #Stop the VM first.
+        LOG.debug(_("destroy vm %s, Stop the VM"), instance_name)
         self._set_vm_state(instance_name, 'Disabled')
         vmsettings = vm.associators(
                          wmi_result_class='Msvm_VirtualSystemSettingData')
@@ -440,15 +441,18 @@ class VMOps(baseops.BaseOps):
                     if r.ResourceSubType == 'Microsoft Physical Disk Drive']
         volumes_drives_list = []
         #collect the volumes information before destroying the VM.
+        LOG.debug(_("destroy vm %s, Collect volumes info"), instance_name)
         for volume in volumes:
             hostResources = volume.HostResource
             drive_path = hostResources[0]
             #Appending the Msvm_Disk path
             volumes_drives_list.append(drive_path)
         #Collect disk file information before destroying the VM.
+        LOG.debug(_("destroy vm %s, Collect disk file info"), instance_name)
         for disk in disks:
             disk_files.extend([c for c in disk.Connection])
         #Nuke the VM. Does not destroy disks.
+        LOG.debug(_("destroy vm %s, Nuke the VM"), instance_name)
         (job, ret_val) = vs_man_svc.DestroyVirtualSystem(vm.path_())
         if ret_val == constants.WMI_JOB_STATUS_STARTED:
             success = self._vmutils.check_job_status(job)
@@ -458,9 +462,13 @@ class VMOps(baseops.BaseOps):
             raise vmutils.HyperVException(_('Failed to destroy vm %s') %
                 instance_name)
         #Disconnect volumes
+        LOG.debug(_("destroy vm %s, Disconnect volumes"), instance_name)
         for volume_drive in volumes_drives_list:
-            self._volumeops.disconnect_volume(volume_drive)
+            #self._volumeops.disconnect_volume(volume_drive)
+            #todo: implement volume manipulation properly
+            pass
         #Delete associated vhd disk files.
+        LOG.debug(_("destroy vm %s, Delete associated vhd"), instance_name)
         for disk in disk_files:
             vhdfile = self._conn_cimv2.query(
             "Select * from CIM_DataFile where Name = '" +
