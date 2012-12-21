@@ -36,15 +36,13 @@ import exceptions
 import vmops
 import vmutils
 import log as logging
+import volumeops
 
 PARSER = argparse.ArgumentParser()
 PARSER.add_argument("--test", help="Use sample data for command data. Useful for testing.",
                     action="store_true")
 PARSER.add_argument("command", help="CloudStack command being executed")
 ARGS = PARSER.parse_args()
-
-
-
 LOG = logging.getLogger('root')
 
 # todo: remove stubs
@@ -59,31 +57,88 @@ def serialiseAnswerData(fp, answer):
     LOG.debug("Call to " + ARGS.command + " returns " + json.dumps(answer))
     json.dump(answer, fp)
 
-def CreateCommand(cmdData):
+def CreateCommand(cmdData, opsObj):
     """
-    Generate StartAnswer JSON corresponding to a StartCommand
-    pass via stdin in a JSON format.
+    Create new volume
     """
     if ARGS.test:
         sample = textwrap.dedent("""\
-        {
-        "disks":[
-                {"id":6,"name":"E:\\\\Disks\\\\Disks","mountPoint":"FakeVolume",
-        "path":"FakeVolume","size":0,"type":"ROOT","storagePoolType":"Filesystem",
-        "storagePoolUuid":"5fe2bad3-d785-394e-9949-89786b8a63d2","deviceId":0},
-                {"id":6,"name":"Hyper-V Sample1","size":0,"type":"ISO","storagePoolType":"ISO","deviceId":3}
-                ]},"contextMap":{},"wait":0}
+        {"volId":9,
+        "pool":{"id":201,"uuid":"5fe2bad3-d785-394e-9949-89786b8a63d2","host":"10.70.176.29",
+        "path":"E:\\\\Disks\\\\Disks","port":0,"type":"Filesystem"},
+        "diskCharacteristics":{"size":0,"tags":[],"type":"ROOT","name":"ROOT-8","useLocalStorage":true,
+        "recreatable":true,"diskOfferingId":11,"volumeId":9,"hyperType":"Hyperv"},
+        "templateUrl":"e:\\\\Disks\\\\Disks\\\\SampleHyperVCentOS63VM.vhdx","contextMap":{},"wait":0}
         """)
         cmdData = json.loads(sample)
 
-    LOG.debug('StartCommand call with data %s' % json.dumps(cmdData))
+    try:
+        volume = opsObj.create_volume(cmdData)
+        answer = {"result":"true",
+                  "volume":volume}
+        return answer
+    except Exception as e:
+        LOG.debug('CreateCommand %s failed with msg %s' % (cmdData, e))
+        answer = {"result":"false",
+                   "details": e }
+        return answer
 
-    opsObj = vmops.VMOps(volume_ops_stub)
-
-def StartCommand(cmdData):
+def DestroyCommand(cmdData, opsObj):
     """
-    Generate StartAnswer JSON corresponding to a StartCommand
-    pass via stdin in a JSON format.
+    Delete a volume.
+    """
+    if ARGS.test:
+        sample = textwrap.dedent("""\
+        {"volume":
+        {"name":"ROOT-8","storagePoolType":"Filesystem",
+        "mountPoint":"E:\\\\Disks\\\\Disks",
+        "path":"E:\\\\Disks\\\\Disks\\\\ROOT-8.vhdx",
+        "storagePoolUuid":"5fe2bad3-d785-394e-9949-89786b8a63d2", 
+        "type":"ROOT","id":9,"size":0}
+        }
+        """)
+        cmdData = json.loads(sample)
+    try:
+        # Detach before you destroy
+        # todo, cause excpetion by changing second arg to cmdData["vmName"]
+        opsObj.destroy_volume(cmdData["volume"], None)
+        answer = {"result":"true",
+                  "details":"success" }
+        return answer
+    except Exception as e:
+        LOG.debug('DestroyCommand %s failed with msg %s' % (cmdData, e))
+        answer = {"result":"false",
+                   "details": e }
+        return answer
+
+def StopCommand(cmdData, opsObj):
+    """
+    Delete VM and NICs so that these resources are released.
+    Leave volumes alone, as they are managed separately.
+    """
+    if ARGS.test:
+        sample = textwrap.dedent("""\
+        {"isProxy":false,"vmName":"i-2-8-VM","contextMap":{},"wait":0}
+        """)
+        cmdData = json.loads(sample)
+
+    try:
+        instance = {}
+        instance["name"] = cmdData["vmName"] 
+        opsObj.destroy(instance)
+        answer = {"result":"true",
+                  "details":"success",
+               "wait":0 }
+        return answer
+    except Exception as e:
+        LOG.debug('StopCommand %s failed with msg %s' % (cmdData, e))
+        answer = {"result":"false",
+                   "details": e }
+        return answer
+
+def StartCommand(cmdData, opsObj):
+    """
+    Create new VM based on specification that includes disks and nics to attach
     """
     if ARGS.test:
         sample = textwrap.dedent("""\
@@ -110,23 +165,22 @@ def StartCommand(cmdData):
         cmdData = json.loads(sample)
 
     LOG.debug('StartCommand call with data %s' % json.dumps(cmdData))
-
-    opsObj = vmops.VMOps(volume_ops_stub)
     try:
         opsObj.spawn(cmdData)
-        answer = {"result":"true",
-               "wait":0 }
+        answer = {"result":"true" }
         return answer
     except vmutils.HyperVException as e:
         LOG.debug('StartCommand for %s failed with msg %s' % (cmdData["vm"]["name"], e))
         answer = {"result":"false",
                    "details": e }
+        return answer
     except Exception as e:
         LOG.debug('StartCommand for %s failed with msg %s' % (cmdData["vm"]["name"], e))
         answer = {"result":"false",
                    "details": e }
+        return answer
 
-def GetVmStatsCommand(cmdData):
+def GetVmStatsCommand(cmdData, opsObj):
     """
     Generates GetVmStatsAnswer JSON corresponding to a GetVmStatsCommand
     passed via stdin in a JSON format.
@@ -142,8 +196,7 @@ def GetVmStatsCommand(cmdData):
         cmdData = json.loads(sample)
 
     LOG.debug('GetVmStatsCommand call with data ' + json.dumps(cmdData))
-
-    opsObj = vmops.VMOps(volume_ops_stub)
+    
     answers = {}
     for vmName in cmdData['vmNames']:
         # todo: get_info can throw if the instance is not found.  Catch.  How should this affect the resulting answer?
@@ -167,7 +220,8 @@ def DispatchCmd(args):
     cmdData = None
     if not ARGS.test:
         cmdData = parseCommandData(sys.stdin)
-    answer = globals()[args.command](cmdData)
+    opsObj = vmops.VMOps(volumeops.VolumeOps())
+    answer = globals()[args.command](cmdData, opsObj)
         
     serialiseAnswerData(sys.stdout, answer)
 

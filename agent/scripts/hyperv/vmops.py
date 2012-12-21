@@ -74,6 +74,42 @@ class VMOps(baseops.BaseOps):
                     Caption="Virtual Machine")]
         return vms
 
+    def create_volume(self, cmdData):
+        volume = {}
+        volume["id"] = cmdData["volId"];
+        volume["name"] = cmdData["diskCharacteristics"]["name"];
+        src = cmdData["templateUrl"]
+        extension = src[src.rindex('.'):]
+        volume["path"] = cmdData["pool"]["path"] + os.path.sep + volume["name"] + extension
+        volume["size"] = cmdData["diskCharacteristics"]["size"];
+        volume["type"] = cmdData["diskCharacteristics"]["type"];
+        volume["storagePoolType"] = cmdData["pool"]["type"];
+        volume["storagePoolUuid"] = cmdData["pool"]["uuid"];
+        volume["mountPoint"] = cmdData["pool"]["path"];
+        
+        if not volume["storagePoolType"] == "Filesystem":
+            raise vmutils.HyperVException(_('Hyper-V only supports Filesystem pools, not %s pools') %
+                volume["storagePoolType"])
+        # todo: support DATADISK types
+        if not volume["type"] == "ROOT" and not volume["type"] == "ISO":
+            raise vmutils.HyperVException(_('No support for volumes of type %s pools') %
+                volume["type"])
+        shutil.copy2(src, volume["path"])
+        return volume
+    
+    def destroy_volume(self, volume, vmname):
+        #Delete  vhd disk files
+        disk = volume["path"]
+
+        LOG.debug(_("delete volume [%s]"), disk)
+        if vmname is not None:
+            self._volumeops.detach_volume(vmname, disk)
+        vhdfile = self._conn_cimv2.query(
+            "Select * from CIM_DataFile where Name = '" +
+                disk.replace("'", "''") + "'")[0]
+        LOG.debug(_("Del: disk %(vhdfile)s")  % locals())
+        vhdfile.Delete()
+
     def get_info(self, instance_name):
         """
         Get information about the VM
@@ -169,15 +205,22 @@ class VMOps(baseops.BaseOps):
             # Create VM carcass
             self._create_vm(instance)
 
+            # Attach volumes
             # todo: create root volume properly
-            # volumes to use should already have been created by earlier commands,
-            # and details embedded in the StartCommand that kicked off this method call.
-            # These are not yet implemented, so we fudge the value for now.
-            vhdfile = 'E:\\Disks\\Disks\\' + instance_name + '.vhdx'
-            shutil.copy2('E:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx', vhdfile)
-            
-            # todo: add DVD driver?
-            self._attach_ide_drive(instance['name'], vhdfile, 0, 0, constants.IDE_DISK)
+            disks = cmdData["vm"]["disks"]
+            for disk in disks:
+                if disk["type"] == "ROOT":
+                    # todo: stop using hardcoded path
+                    vhdfile = 'E:\\Disks\\Disks\\' + instance_name + '.vhdx'
+                    shutil.copy2('E:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx', vhdfile)
+                    self._attach_ide_drive(instance['name'], vhdfile, 0, long(disk["deviceId"]), constants.IDE_DISK)
+                elif disk["type"] == "ISO":
+                    #todo:  are parameter 0,0 correct?
+                    self._attach_ide_drive(disk['name'], "d:\\", 0, long(disk["deviceId"]), constants.IDE_DVD)
+                else:
+                    errorMsg = _('Unknown disk type %s, for disk %s') % (disk["type"], disk["name"])
+                    LOG.exception(errorMsg)
+                    raise vmutils.HyperVException(errorMsg)
 
             # Add NIC to VM
             for vif in network_info:
@@ -247,28 +290,6 @@ class VMOps(baseops.BaseOps):
                 vm.path_(), [procsetting.GetText_(1)])
         #todo: why not wait for the job to finish?
         LOG.debug(_('Set vcpus for vm %s...'), instance_name)
-
-    def _create_scsi_controller(self, vm_name):
-        """ Create an iscsi controller ready to mount volumes """
-        LOG.debug(_('Creating a scsi controller for %(vm_name)s for volume '
-                'attaching') % locals())
-        vms = self._conn.MSVM_ComputerSystem(ElementName=vm_name)
-        vm = vms[0]
-        scsicontrldefault = self._conn.query(
-                "SELECT * FROM Msvm_ResourceAllocationSettingData \
-                WHERE ResourceSubType = 'Microsoft Synthetic SCSI Controller'\
-                AND InstanceID LIKE '%Default%'")[0]
-        if scsicontrldefault is None:
-            raise vmutils.HyperVException(_('Controller not found'))
-        scsicontrl = self._vmutils.clone_wmi_obj(self._conn,
-                'Msvm_ResourceAllocationSettingData', scsicontrldefault)
-        scsicontrl.VirtualSystemIdentifiers = ['{' + str(uuid.uuid4()) + '}']
-        scsiresource = self._vmutils.add_virt_resource(self._conn,
-            scsicontrl, vm)
-        if scsiresource is None:
-            raise vmutils.HyperVException(
-                _('Failed to add scsi controller to VM %s') %
-                vm_name)
 
     def _get_ide_controller(self, vm, ctrller_addr):
         #Find the IDE controller for the vm.
@@ -417,8 +438,9 @@ class VMOps(baseops.BaseOps):
                 instance["id"])
         self._set_vm_state(instance_name, 'Reboot')
 
+    # TODO:  delete the NICs as well!
     def destroy(self, instance, network_info=None, cleanup=True):
-        """Destroy the VM. Also destroy the associated VHD disk files"""
+        """Destroy the VM. Do not destroy the associated VHD disk files"""
         instance_name = instance["name"]
         LOG.debug(_("Got request to destroy vm %s"), instance_name)
         vm = self._vmutils.lookup_all(self._conn, instance_name)
@@ -430,27 +452,6 @@ class VMOps(baseops.BaseOps):
         #Stop the VM first.
         LOG.debug(_("destroy vm %s, Stop the VM"), instance_name)
         self._set_vm_state(instance_name, 'Disabled')
-        vmsettings = vm.associators(
-                         wmi_result_class='Msvm_VirtualSystemSettingData')
-        rasds = vmsettings[0].associators(
-                         wmi_result_class='MSVM_ResourceAllocationSettingData')
-        disks = [r for r in rasds
-                    if r.ResourceSubType == 'Microsoft Virtual Hard Disk']
-        disk_files = []
-        volumes = [r for r in rasds
-                    if r.ResourceSubType == 'Microsoft Physical Disk Drive']
-        volumes_drives_list = []
-        #collect the volumes information before destroying the VM.
-        LOG.debug(_("destroy vm %s, Collect volumes info"), instance_name)
-        for volume in volumes:
-            hostResources = volume.HostResource
-            drive_path = hostResources[0]
-            #Appending the Msvm_Disk path
-            volumes_drives_list.append(drive_path)
-        #Collect disk file information before destroying the VM.
-        LOG.debug(_("destroy vm %s, Collect disk file info"), instance_name)
-        for disk in disks:
-            disk_files.extend([c for c in disk.Connection])
         #Nuke the VM. Does not destroy disks.
         LOG.debug(_("destroy vm %s, Nuke the VM"), instance_name)
         (job, ret_val) = vs_man_svc.DestroyVirtualSystem(vm.path_())
@@ -461,21 +462,6 @@ class VMOps(baseops.BaseOps):
         if not success:
             raise vmutils.HyperVException(_('Failed to destroy vm %s') %
                 instance_name)
-        #Disconnect volumes
-        LOG.debug(_("destroy vm %s, Disconnect volumes"), instance_name)
-        for volume_drive in volumes_drives_list:
-            #self._volumeops.disconnect_volume(volume_drive)
-            #todo: implement volume manipulation properly
-            pass
-        #Delete associated vhd disk files.
-        LOG.debug(_("destroy vm %s, Delete associated vhd"), instance_name)
-        for disk in disk_files:
-            vhdfile = self._conn_cimv2.query(
-            "Select * from CIM_DataFile where Name = '" +
-                disk.replace("'", "''") + "'")[0]
-            LOG.debug(_("Del: disk %(vhdfile)s vm %(instance_name)s")
-                % locals())
-            vhdfile.Delete()
 
     def pause(self, instance):
         """Pause VM instance."""

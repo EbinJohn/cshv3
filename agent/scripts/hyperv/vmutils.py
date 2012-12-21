@@ -188,7 +188,7 @@ class VMUtils(object):
             return None
 
     def remove_virt_resource(self, conn, res_setting_data, target_vm):
-        """Add a new resource (disk/nic) to the VM"""
+        """Remove a resource (disk/nic) from the VM"""
         vs_man_svc = conn.Msvm_VirtualSystemManagementService()[0]
         (job, ret_val) = vs_man_svc.\
                     RemoveVirtualSystemResources([res_setting_data.path_()],
