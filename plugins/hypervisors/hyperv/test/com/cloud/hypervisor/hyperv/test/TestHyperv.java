@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package com.cloud.agent;
+package com.cloud.hypervisor.hyperv.test;
 
 import java.io.BufferedWriter;
 import java.io.BufferedReader;
@@ -64,7 +64,7 @@ import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.DestroyAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 
-import com.cloud.agent.resource.HypervResource;
+import com.cloud.hypervisor.hyperv.resource.HypervResource;
 
 import org.apache.log4j.Logger;
 
@@ -87,18 +87,18 @@ import com.google.gson.stream.JsonReader;
 
 
 /*
- * General mechanism for calling Python scripts.
+ * General mechanism for calling Hyper-V agent command processing methods.
  *
- * mvn exec:java -Dexec.mainClass=com.cloud.agent.PythonLaunch
+ * mvn exec:java -Dexec.mainClass=com.cloud.agent.TestHyperv
  */
-public class PythonLaunch {
-    private static final Logger s_logger = Logger.getLogger(PythonLaunch.class.getName());
+public class TestHyperv {
+    private static final Logger s_logger = Logger.getLogger(TestHyperv.class.getName());
     
     // TODO:  make this a config parameter
     protected static final Gson s_gson = GsonHelper.getGson();
     protected static final HypervResource s_hypervresource = new HypervResource();
        
-    public PythonLaunch() {
+    public TestHyperv() {
     }
     
     public static void initialise() throws ConfigurationException
@@ -107,25 +107,24 @@ public class PythonLaunch {
         final ComponentLocator locator = ComponentLocator.getLocator("agent");
 
         // Obtain script locations from agent.properties
-        final Map<String, Object> params = PropertiesUtil.toMap(PythonLaunch.loadProperties());
+        final Map<String, Object> params = PropertiesUtil.toMap(loadProperties());
         
         s_hypervresource.configure("hypervresource",  params);
     }
     
     public static void main(String[] args) throws ConfigurationException {
-    	PythonLaunch.initialise();
+    	initialise();
 //    	SampleJsonFromPrimaryStorageDownloadCommand();
-    	PythonLaunch.TestGetHostStatsCommand();
-    	PythonLaunch.TestGetVmStatsCommand();
-    	PythonLaunch.TestGetStorageStatsCommand();
-    	PythonLaunch.TestCreateCommand();
-    	PythonLaunch.TestStartCommand();
-    	PythonLaunch.TestStopCommand();
-    	PythonLaunch.TestDestroyCommand();
+    	TestGetHostStatsCommand();
+    	TestGetVmStatsCommand();
+    	TestGetStorageStatsCommand();
+    	TestCreateCommand();
+    	TestStartCommand();
+    	TestStopCommand();
+    	TestDestroyCommand();
     	return;
     }
     
-
     public static void TestGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
@@ -241,7 +240,7 @@ public class PythonLaunch {
     	
     	GetVmStatsAnswer answer = new GetVmStatsAnswer(vmStatsCmd, vmStatsMap);
 
-    	return PythonLaunch.toJson(answer);
+    	return toJson(answer);
    }
 
     public static String SampleJsonFromPrimaryStorageDownloadCommand()
@@ -254,7 +253,7 @@ public class PythonLaunch {
         		201, 
         		"5fe2bad3-d785-394e-9949-89786b8a63d2", 
         		10800);
-    	String result = PythonLaunch.toJson(cmd);
+    	String result = toJson(cmd);
     	s_logger.debug("Converting a " + cmd.getClass().getName() + " to JSON: " + result );
     	return result;
     }
