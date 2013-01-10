@@ -133,9 +133,9 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     }
 
     @Override
-    public HypervPhysicalDisk createPhysicalDisk(String name, HypervStoragePool pool,
+    public HypervPhysicalDisk createPhysicalDisk(String name, HypervStoragePool poolArg,
             PhysicalDiskFormat format, long size) {
-        WindowsStoragePool libvirtPool = (WindowsStoragePool) pool;
+        WindowsStoragePool pool = (WindowsStoragePool) poolArg;
         
     	String taskMsg = "creating an empty" + format.name() + "disk named " +name + " in pool " 
     				+ pool.getUuid() + " with path " + pool.getLocalPath();
@@ -147,6 +147,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         		name, (long)-1, size, new String[0], true, true, (long)-1);
         StoragePoolVO cmdPool = new StoragePoolVO();
         cmdPool.setPath(pool.getLocalPath());
+
         CreateCommand cmd = new CreateCommand(diskCharacteristics, cmdPool);
 
         CreateAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, CreateAnswer.class);
