@@ -26,7 +26,6 @@ import log as logging
 if sys.platform == 'win32':
     import wmi
 
-from log import _ as _
 LOG = logging.getLogger(__name__)
 
 

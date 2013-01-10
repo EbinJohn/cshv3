@@ -95,8 +95,8 @@ class VMOps(baseops.BaseOps):
         image_service = self._conn.query("Select * from Msvm_ImageManagementService")[0]
         (job, ret_val) = image_service.CreateDynamicVirtualHardDisk(
                             Path=volume["path"], Size=volume["size"])
-        LOG.debug("Creating DATADISK disk: JobID=%s, Source=%s, Target=%s",
-                    job, base, target)
+        LOG.debug("Creating DATADISK disk: JobID=%s, Path=%s, Size=%s",
+                    job, volume["path"], volume["size"])
         if ret_val == constants.WMI_JOB_STATUS_STARTED:
             success = self._vmutils.check_job_status(job)
         else:
