@@ -17,6 +17,8 @@
 package com.cloud.hypervisor.hyperv.storage;
 
 public class HypervPhysicalDisk {
+	
+	// Path does not include the filename, which is given by the 'name' parameter.
     private String path;
     private String name;
     private HypervStoragePool pool;

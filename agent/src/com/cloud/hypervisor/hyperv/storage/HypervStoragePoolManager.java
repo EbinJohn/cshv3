@@ -23,24 +23,25 @@ import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk.PhysicalDiskFormat
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageLayer;
 
+// Hyper-V 3.0 introduces Resource Pools, which are available with the new API
+// However, our starting point was the V1 API, so we emulate storage pools.
+// This involves mapping a storage pool to a specific folder, which is managed
+// by the admin independent of CloudStack.
 public class HypervStoragePoolManager {
     private StorageAdaptor _storageAdaptor;
-    private final Map<String, Object> _storagePools = new ConcurrentHashMap<String, Object>();
-
-    private void addStoragePool(String uuid) {
-        synchronized (_storagePools) {
-            if (!_storagePools.containsKey(uuid)) {
-                _storagePools.put(uuid, new Object());
-            }
-        }
-    }
+    private final Map<String, HypervStoragePool> _storagePools = new ConcurrentHashMap<String, HypervStoragePool>();
 
     public HypervStoragePoolManager(StorageLayer storagelayer) {
         this._storageAdaptor = new WindowsStorageAdaptor(storagelayer);
     }
 
     public HypervStoragePool getStoragePool(String uuid) {
-        return this._storageAdaptor.getStoragePool(uuid);
+        synchronized (_storagePools) {
+            if (!_storagePools.containsKey(uuid)) {
+                return null;
+            }
+            return _storagePools.get(uuid);
+        }
     }
 
     public HypervStoragePool getStoragePoolByURI(String uri) {
@@ -49,16 +50,24 @@ public class HypervStoragePoolManager {
 
     public HypervStoragePool createStoragePool(String name, String host, int port, String path,
                                             String userInfo, StoragePoolType type) {
+    	
         HypervStoragePool pool = this._storageAdaptor.createStoragePool(name,
                                 host, port, path, userInfo, type);
 
-        addStoragePool(pool.getUuid());
-        return pool;
+        synchronized (_storagePools) {
+            if (!_storagePools.containsKey(pool.getUuid())) {
+                _storagePools.put(pool.getUuid(), pool);
+            }
+        }
+        
+        return getStoragePool(pool.getUuid());
     }
 
     public boolean deleteStoragePool(String uuid) {
         this._storageAdaptor.deleteStoragePool(uuid);
-        _storagePools.remove(uuid);
+        synchronized (_storagePools) {
+        	_storagePools.remove(uuid);
+        }
         return true;
     }
 

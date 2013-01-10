@@ -17,22 +17,39 @@
 package com.cloud.hypervisor.hyperv.storage;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.apache.log4j.Logger;
 import org.apache.commons.codec.binary.Base64;
 
+import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.ManageSnapshotCommand;
+import com.cloud.agent.api.storage.CreateAnswer;
+import com.cloud.agent.api.storage.CreateCommand;
+import com.cloud.agent.api.to.VolumeTO;
+import com.cloud.hypervisor.hyperv.resource.PythonUtils;
 import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk.PhysicalDiskFormat;
+import com.cloud.hypervisor.hyperv.storage.HypervStoragePool;
 import com.cloud.exception.InternalErrorException;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageLayer;
+import com.cloud.storage.StoragePool;
+import com.cloud.storage.StoragePoolVO;
+import com.cloud.storage.Volume;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.utils.exception.RuntimeCloudException;
 import com.cloud.utils.script.OutputInterpreter;
 import com.cloud.utils.script.Script;
+import com.cloud.vm.DiskProfile;
+
 
 public class WindowsStorageAdaptor implements StorageAdaptor {
     private static final Logger s_logger = Logger
@@ -40,370 +57,111 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     private StorageLayer _storageLayer;
     
     // TODO: need to fix mount point
+    // Mount point used in cases where Pool models secondary storage.
     private String _mountPoint = "/mnt";
-    private String _manageSnapshotPath;
 
     public WindowsStorageAdaptor(StorageLayer storage) {
         _storageLayer = storage;
-        _manageSnapshotPath = Script.findScript("scripts/storage/qcow2/",
-                "managesnapshot.sh");
     }
 
+    // Method used by pools modelling secondary storage to create folders
+    // at uuid + path.  
+    // TODO:  duplicated when secondary storage design becomes more concrete
     @Override
     public boolean createFolder(String uuid, String path) {
-        String mountPoint = _mountPoint + File.separator + uuid;
-        File f = new File(mountPoint + path);
-        if (!f.exists()) {
-            f.mkdirs();
-        }
-        return true;
-    }
-
-    public StorageVol getVolume(StoragePool pool, String volName) {
-        StorageVol vol = null;
-
-        try {
-            vol = pool.storageVolLookupByName(volName);
-        } catch (LibvirtException e) {
-
-        }
-        if (vol == null) {
-            storagePoolRefresh(pool);
-            try {
-                vol = pool.storageVolLookupByName(volName);
-            } catch (LibvirtException e) {
-                throw new CloudRuntimeException(e.toString());
-            }
-        }
-        return vol;
-    }
-
-    public StorageVol createVolume(Connect conn, StoragePool pool, String uuid,
-            long size, volFormat format) throws LibvirtException {
-        LibvirtStorageVolumeDef volDef = new LibvirtStorageVolumeDef(UUID
-                .randomUUID().toString(), size, format, null, null);
-        s_logger.debug(volDef.toString());
-        return pool.storageVolCreateXML(volDef.toString(), 0);
-    }
-
-    public void storagePoolRefresh(StoragePool pool) {
-        try {
-            synchronized (getStoragePool(pool.getUUIDString())) {
-                pool.refresh(0);
-            }
-        } catch (LibvirtException e) {
-
-        }
-    }
-
-    private StoragePool createSharedStoragePool(Connect conn, String uuid,
-            String host, String path) {
-        String mountPoint = path;
-        if (!_storageLayer.exists(mountPoint)) {
-            s_logger.error(mountPoint + " does not exists. Check local.storage.path in agent.properties.");
-            return null;
-        }
-        LibvirtStoragePoolDef spd = new LibvirtStoragePoolDef(poolType.DIR,
-                uuid, uuid, host, path, path);
-        StoragePool sp = null;
-        try {
-            s_logger.debug(spd.toString());
-            sp = conn.storagePoolDefineXML(spd.toString(), 0);
-            sp.create(0);
-
-            return sp;
-        } catch (LibvirtException e) {
-            s_logger.error(e.toString());
-            if (sp != null) {
-                try {
-                    sp.undefine();
-                    sp.free();
-                } catch (LibvirtException l) {
-                    s_logger.debug("Failed to define shared mount point storage pool with: "
-                            + l.toString());
-                }
-            }
-            return null;
-        }
-    }
-
-    public StorageVol copyVolume(StoragePool destPool,
-            LibvirtStorageVolumeDef destVol, StorageVol srcVol, int timeout)
-            throws LibvirtException {
-        StorageVol vol = destPool.storageVolCreateXML(destVol.toString(), 0);
-        String srcPath = srcVol.getKey();
-        String destPath = vol.getKey();
-        Script.runSimpleBashScript("cp " + srcPath + " " + destPath, timeout);
-        return vol;
-    }
-
-    public boolean copyVolume(String srcPath, String destPath,
-            String volumeName, int timeout) throws InternalErrorException {
-        _storageLayer.mkdirs(destPath);
-        if (!_storageLayer.exists(srcPath)) {
-            throw new InternalErrorException("volume:" + srcPath
-                    + " is not exits");
-        }
-        String result = Script.runSimpleBashScript("cp " + srcPath + " "
-                + destPath + File.separator + volumeName, timeout);
-        if (result != null) {
-            return false;
-        } else {
-            return true;
-        }
-    }
-
-    public LibvirtStoragePoolDef getStoragePoolDef(Connect conn,
-            StoragePool pool) throws LibvirtException {
-        String poolDefXML = pool.getXMLDesc(0);
-        LibvirtStoragePoolXMLParser parser = new LibvirtStoragePoolXMLParser();
-        return parser.parseStoragePoolXML(poolDefXML);
-    }
-
-    public LibvirtStorageVolumeDef getStorageVolumeDef(Connect conn,
-            StorageVol vol) throws LibvirtException {
-        String volDefXML = vol.getXMLDesc(0);
-        LibvirtStorageVolumeXMLParser parser = new LibvirtStorageVolumeXMLParser();
-        return parser.parseStorageVolumeXML(volDefXML);
-    }
-
-    public StoragePool createFileBasedStoragePool(Connect conn,
-            String localStoragePath, String uuid) {
-        if (!(_storageLayer.exists(localStoragePath) && _storageLayer
-                .isDirectory(localStoragePath))) {
-            return null;
-        }
-
-        File path = new File(localStoragePath);
-        if (!(path.canWrite() && path.canRead() && path.canExecute())) {
-            return null;
-        }
-
-        StoragePool pool = null;
-
-        try {
-            pool = conn.storagePoolLookupByUUIDString(uuid);
-        } catch (LibvirtException e) {
-
-        }
-
-        if (pool == null) {
-            LibvirtStoragePoolDef spd = new LibvirtStoragePoolDef(poolType.DIR,
-                    uuid, uuid, null, null, localStoragePath);
-            try {
-                pool = conn.storagePoolDefineXML(spd.toString(), 0);
-                pool.create(0);
-            } catch (LibvirtException e) {
-                if (pool != null) {
-                    try {
-                        pool.destroy();
-                        pool.undefine();
-                    } catch (LibvirtException e1) {
-                    }
-                    pool = null;
-                }
-                throw new CloudRuntimeException(e.toString());
-            }
-        }
-
-        try {
-            StoragePoolInfo spi = pool.getInfo();
-            if (spi.state != StoragePoolState.VIR_STORAGE_POOL_RUNNING) {
-                pool.create(0);
-            }
-
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
-
-        return pool;
+        throw new CloudRuntimeException("Not implemented");
     }
 
     @Override
     public HypervStoragePool getStoragePool(String uuid) {
-        StoragePool storage = null;
-        try {
-            Connect conn = LibvirtConnection.getConnection();
-            storage = conn.storagePoolLookupByUUIDString(uuid);
-
-            if (storage.getInfo().state != StoragePoolState.VIR_STORAGE_POOL_RUNNING) {
-                storage.create(0);
-            }
-            LibvirtStoragePoolDef spd = getStoragePoolDef(conn, storage);
-            StoragePoolType type = null;
-
-
-            LibvirtStoragePool pool = new LibvirtStoragePool(uuid, storage.getName(),
-                                                            type, this, storage);
-
-            pool.setLocalPath(spd.getTargetPath());
-
-            pool.refresh();
-            pool.setCapacity(storage.getInfo().capacity);
-            pool.setUsed(storage.getInfo().allocation);
-
-            return pool;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
+        throw new CloudRuntimeException("Not implemented");
     }
 
     @Override
     public HypervPhysicalDisk getPhysicalDisk(String volumeUuid,
-            HypervStoragePool pool) {
-        LibvirtStoragePool libvirtPool = (LibvirtStoragePool) pool;
+            HypervStoragePool poolArg) {
+    	WindowsStoragePool pool = (WindowsStoragePool) poolArg;
 
-        try {
-            StorageVol vol = this.getVolume(libvirtPool.getPool(), volumeUuid);
-            HypervPhysicalDisk disk;
-            LibvirtStorageVolumeDef voldef = getStorageVolumeDef(libvirtPool
-                    .getPool().getConnect(), vol);
-            disk = new HypervPhysicalDisk(vol.getPath(), vol.getName(), pool);
-            disk.setSize(vol.getInfo().allocation);
-            disk.setVirtualSize(vol.getInfo().capacity);
-            if (voldef.getFormat() == null) {
-                disk.setFormat(pool.getDefaultFormat());
-            } else if (voldef.getFormat() == LibvirtStorageVolumeDef.volFormat.QCOW2) {
-                disk.setFormat(HypervPhysicalDisk.PhysicalDiskFormat.QCOW2);
-            } else if (voldef.getFormat() == LibvirtStorageVolumeDef.volFormat.RAW) {
-                disk.setFormat(HypervPhysicalDisk.PhysicalDiskFormat.RAW);
-            }
-            return disk;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
+    	String diskPath = pool.getLocalPath() + File.pathSeparator + volumeUuid;
+    	String taskMsg = "Return HypervPhysical obj for volume uuid " + volumeUuid + " from pool " + pool.getUuid().toString();
+        s_logger.debug(taskMsg);
+        
+        if (!this._storageLayer.exists(diskPath)) {
+        	String errMsg = "No file at " + diskPath + " for disk, failed task" + taskMsg;
+        	s_logger.error(errMsg);
+        	throw new CloudRuntimeException(errMsg);
         }
+        
+        HypervPhysicalDisk disk = new HypervPhysicalDisk(diskPath, volumeUuid, pool);
+        // TODO:  AFAIK, usage stats for a volume come from WMI
+        //disk.setSize(vol.getInfo().allocation);
+        //disk.setVirtualSize(vol.getInfo().capacity);
 
+        return disk;
     }
 
     @Override
     public HypervStoragePool createStoragePool(String name, String host, int port,
                                             String path, String userInfo, StoragePoolType type) {
-        StoragePool sp = null;
-        Connect conn = null;
-        try {
-            conn = LibvirtConnection.getConnection();
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
+    	String taskMsg = "Creating pool " + name + " at " + path + " of type " + type.name();
+        s_logger.debug(taskMsg);
+
+        if (!this._storageLayer.isDirectory(path)){
+        	String errMsg = "Not such path for task " + taskMsg;
+        	s_logger.debug(errMsg);
+        	throw new CloudRuntimeException(errMsg);
         }
+        
+        WindowsStoragePool pool = new WindowsStoragePool(name, name, type, this);
 
-        try {
-            sp = conn.storagePoolLookupByUUIDString(name);
-            if (sp.getInfo().state != StoragePoolState.VIR_STORAGE_POOL_RUNNING) {
-                sp.undefine();
-                sp = null;
-            }
-        } catch (LibvirtException e) {
+        pool.setLocalPath(path);
+            
+        File dir = new File(path);
+        long usableCapacity = dir.getUsableSpace();
 
-        }
-
-        if (sp == null) {
-        	if (type == StoragePoolType.Filesystem) {
-                sp = createSharedStoragePool(conn, name, host, path);
-            }
-        }
-
-        try {
-            StoragePoolInfo spi = sp.getInfo();
-            if (spi.state != StoragePoolState.VIR_STORAGE_POOL_RUNNING) {
-                sp.create(0);
-            }
-
-            LibvirtStoragePoolDef spd = getStoragePoolDef(conn, sp);
-            LibvirtStoragePool pool = new LibvirtStoragePool(name,
-                    sp.getName(), type, this, sp);
-
-            pool.setLocalPath(spd.getTargetPath());
-
-            pool.setCapacity(sp.getInfo().capacity);
-            pool.setUsed(sp.getInfo().allocation);
+        // Determine the used / capacity stats, not sure how to derive these.
+        pool.setCapacity(usableCapacity);
+        pool.setUsed(0);
   
-            return pool;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
+        return pool;
     }
 
+    // TODO:  expand delete semantics to remove physical disks from folder 
     @Override
     public boolean deleteStoragePool(String uuid) {
-        Connect conn = null;
-        try {
-            conn = LibvirtConnection.getConnection();
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
-
-        StoragePool sp = null;
-        Secret s = null;
-
-        try {
-            sp = conn.storagePoolLookupByUUIDString(uuid);
-        } catch (LibvirtException e) {
-            return true;
-        }
-
-        /*
-         * Some storage pools, like RBD also have 'secret' information stored in libvirt
-         * Destroy them if they exist
-        */
-        try {
-            s = conn.secretLookupByUUIDString(uuid);
-        } catch (LibvirtException e) {
-        }
-
-        try {
-            sp.destroy();
-            sp.undefine();
-            sp.free();
-            if (s != null) {
-                s.undefine();
-                s.free();
-            }
-            return true;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
+    	return true;
     }
 
     @Override
     public HypervPhysicalDisk createPhysicalDisk(String name, HypervStoragePool pool,
             PhysicalDiskFormat format, long size) {
-        LibvirtStoragePool libvirtPool = (LibvirtStoragePool) pool;
-        StoragePool virtPool = libvirtPool.getPool();
-        LibvirtStorageVolumeDef.volFormat libvirtformat = null;
+        WindowsStoragePool libvirtPool = (WindowsStoragePool) pool;
+        
+    	String taskMsg = "creating an empty" + format.name() + "disk named " +name + " in pool " 
+    				+ pool.getUuid() + " with path " + pool.getLocalPath();
+        s_logger.debug(taskMsg);
 
-        if (format == PhysicalDiskFormat.QCOW2) {
-            libvirtformat = LibvirtStorageVolumeDef.volFormat.QCOW2;
-        } else if (format == PhysicalDiskFormat.RAW) {
-            libvirtformat = LibvirtStorageVolumeDef.volFormat.RAW;
-        }
+        // WMI to create blank VHD for Hyper-V  (using V1.0 API)
+        // Create corresponding CreateCommand to pass to Python for create insvocation!
+        DiskProfile diskCharacteristics = new DiskProfile((long)-1, Volume.Type.DATADISK, 
+        		name, (long)-1, size, new String[0], true, true, (long)-1);
+        StoragePoolVO cmdPool = new StoragePoolVO();
+        cmdPool.setPath(pool.getLocalPath());
+        CreateCommand cmd = new CreateCommand(diskCharacteristics, cmdPool);
 
-        LibvirtStorageVolumeDef volDef = new LibvirtStorageVolumeDef(name,
-                size, libvirtformat, null, null);
-        s_logger.debug(volDef.toString());
-        try {
-            StorageVol vol = virtPool.storageVolCreateXML(volDef.toString(), 0);
-            HypervPhysicalDisk disk = new HypervPhysicalDisk(vol.getPath(),
-                    vol.getName(), pool);
-            disk.setFormat(format);
-            disk.setSize(vol.getInfo().allocation);
-            disk.setVirtualSize(vol.getInfo().capacity);
-            return disk;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
+        CreateAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, CreateAnswer.class);
+        VolumeTO vol = pythonResult.getVolume();
+        HypervPhysicalDisk disk = new HypervPhysicalDisk(vol.getPath(),vol.getName(), pool);
+        return disk;
     }
 
     @Override
     public boolean deletePhysicalDisk(String uuid, HypervStoragePool pool) {
-        LibvirtStoragePool libvirtPool = (LibvirtStoragePool) pool;
-        try {
-            StorageVol vol = this.getVolume(libvirtPool.getPool(), uuid);
-            vol.delete(0);
-            vol.free();
-            return true;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
+    	String path = pool.getLocalPath() + File.pathSeparator + uuid;
+    	String taskMsg = "requested delete disk " + uuid + " in pool " + pool.getUuid() + " with path " + pool.getLocalPath();
+        s_logger.debug(taskMsg);
+
+    	return this.deleteVbdByPath(path);
     }
 
     @Override
@@ -414,25 +172,11 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         HypervStoragePool srcPool = template.getPool();
         HypervPhysicalDisk disk = null;
 
-        /*
-            With RBD you can't run qemu-img convert with an existing RBD image as destination
-            qemu-img will exit with the error that the destination already exists.
-            So for RBD we don't create the image, but let qemu-img do that for us.
-
-            We then create a HypervPhysicalDisk object that we can return
-        */
-
+        
+        // TODO: Is disk from template outright copy or thin copy.
+        // Calls down to our createPhysicalDisk mehtod
         disk = destPool.createPhysicalDisk(newUuid, format, template.getVirtualSize());
 
-        if (format == PhysicalDiskFormat.QCOW2) {
-        	Script.runSimpleBashScript("qemu-img create -f "
-        			+ template.getFormat() + " -b  " + template.getPath() + " "
-        			+ disk.getPath());
-        } else if (format == PhysicalDiskFormat.RAW) {
-        	Script.runSimpleBashScript("qemu-img convert -f "
-        			+ template.getFormat() + " -O raw " + template.getPath()
-        			+ " " + disk.getPath());
-        }
         return disk;
     }
 
@@ -445,71 +189,89 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
 
     @Override
     public List<HypervPhysicalDisk> listPhysicalDisks(String storagePoolUuid,
-            HypervStoragePool pool) {
-        LibvirtStoragePool libvirtPool = (LibvirtStoragePool) pool;
-        StoragePool virtPool = libvirtPool.getPool();
+            HypervStoragePool poolArg) {
+    	WindowsStoragePool pool = (WindowsStoragePool) poolArg;
+
+    	String taskMsg = "Return list of disks corresponding to pool, id: " + pool.getUuid().toString();
+        s_logger.debug(taskMsg);
+        
         List<HypervPhysicalDisk> disks = new ArrayList<HypervPhysicalDisk>();
-        try {
-            String[] vols = virtPool.listVolumes();
-            for (String volName : vols) {
-                HypervPhysicalDisk disk = this.getPhysicalDisk(volName, pool);
-                disks.add(disk);
-            }
-            return disks;
-        } catch (LibvirtException e) {
-            throw new CloudRuntimeException(e.toString());
+        String diskPath = pool.getLocalPath();
+        if (!this._storageLayer.exists(diskPath)) {
+        	String errMsg = "No localPath " + diskPath + " for pool, failed task" + taskMsg;
+        	s_logger.error(errMsg);
+        	throw new CloudRuntimeException(errMsg);
         }
+        
+        File folder = new File(pool.getLocalPath());
+        File[] listOfFiles = folder.listFiles();
+
+        for (File file : listOfFiles) {
+        	if (file.isFile()) {
+        		HypervPhysicalDisk disk = new HypervPhysicalDisk(file.getPath(), file.getName(), pool);
+        		disks.add(disk);
+        	}
+        }
+        	    
+        return disks;
     }
 
     @Override
     public HypervPhysicalDisk copyPhysicalDisk(HypervPhysicalDisk disk, String name,
             HypervStoragePool destPool) {
+    	String taskMsg = "Use file system to make copy of disk " + disk.getPath() + " to " + destPool.getLocalPath();
+        s_logger.debug(taskMsg);
 
-        /*
-            With RBD you can't run qemu-img convert with an existing RBD image as destination
-            qemu-img will exit with the error that the destination already exists.
-            So for RBD we don't create the image, but let qemu-img do that for us.
-
-            We then create a HypervPhysicalDisk object that we can return
-        */
-
-        HypervPhysicalDisk newDisk;
-        if (destPool.getType() != StoragePoolType.RBD) {
-            newDisk = destPool.createPhysicalDisk(name, disk.getVirtualSize());
+    	// Use file system to complete task.
+        String sourcePath = disk.getPath();
+        String destPath = destPool.getLocalPath();
+        
+        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destPath, name, destPool);
+        
+        // Warnings about performance issues lead to use of NIO for copy.
+        // See http://stackoverflow.com/questions/106770/standard-concise-way-to-copy-a-file-in-java
+        FileChannel src = null;
+        FileChannel dest = null;
+        File sourceFile = new File(sourcePath);
+        File destFile = new File(destPath);
+        
+        try {
+            src = new FileInputStream(sourceFile).getChannel();
+            dest = new FileOutputStream(destFile).getChannel();
+            dest.transferFrom(src, 0, src.size());
+        }
+        catch (FileNotFoundException e) {
+        	String errMsg = e.toString() + " for task to " + taskMsg + "";
+            s_logger.debug(errMsg);
+            throw new RuntimeCloudException(errMsg, e);
+        }
+        catch (IOException e) {
+        	String errMsg = e.toString() + " for task to " + taskMsg + "";
+            s_logger.debug(errMsg);
+            throw new RuntimeCloudException(errMsg, e);
+        }
+        finally {
+        	try {
+            if(src != null) {
+            	src.close();
+            }
+            if(dest != null) {
+            	dest.close();
+            }
+        	}
+            catch (IOException e) {
+            	String errMsg = e.toString() + " when cleaning up after task " + taskMsg + "";
+                s_logger.debug(errMsg);
+                throw new RuntimeCloudException(errMsg, e);
+            }
         }
         
-        HypervStoragePool srcPool = disk.getPool();
-        String destPath = newDisk.getPath();
-        String sourcePath = disk.getPath();
-        PhysicalDiskFormat sourceFormat = disk.getFormat();
-        PhysicalDiskFormat destFormat = newDisk.getFormat();
-
-        if ((srcPool.getType() != StoragePoolType.RBD) && (destPool.getType() != StoragePoolType.RBD)) {
-            Script.runSimpleBashScript("qemu-img convert -f " + sourceFormat
-                + " -O " + destFormat
-                + " " + sourcePath
-                + " " + destPath);
-        } 
-
         return newDisk;
     }
 
     @Override
     public HypervStoragePool getStoragePoolByURI(String uri) {
-        URI storageUri = null;
-
-        try {
-            storageUri = new URI(uri);
-        } catch (URISyntaxException e) {
-            throw new CloudRuntimeException(e.toString());
-        }
-
-        String sourcePath = null;
-        String uuid = null;
-        String sourceHost = "";
-        StoragePoolType protocal = null;
-
-        return createStoragePool(uuid, sourceHost, 0, sourcePath, "", protocal);
+        throw new CloudRuntimeException("Not implemented");
     }
 
     @Override
@@ -526,45 +288,31 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
 
     @Override
     public boolean refresh(HypervStoragePool pool) {
-        LibvirtStoragePool libvirtPool = (LibvirtStoragePool) pool;
-        StoragePool virtPool = libvirtPool.getPool();
-        try {
-            virtPool.refresh(0);
-        } catch (LibvirtException e) {
-            return false;
-        }
         return true;
     }
 
     @Override
-    public boolean deleteStoragePool(HypervStoragePool pool) {
-        LibvirtStoragePool libvirtPool = (LibvirtStoragePool) pool;
-        StoragePool virtPool = libvirtPool.getPool();
-        try {
-            virtPool.destroy();
-            virtPool.undefine();
-            virtPool.free();
-        } catch (LibvirtException e) {
-            return false;
-        }
+    public boolean deleteStoragePool(HypervStoragePool poolArg) {
+        WindowsStoragePool pool = (WindowsStoragePool) poolArg;
+    	String path = pool.getLocalPath();
+    	String taskMsg = "Remove all files from pool " + pool.getName() + " at " + path;
+    	s_logger.debug(taskMsg);
+
+        // TODO: ensure that File operations include same synchronisation
+        // you see in core/src/com/cloud/storage/JavaStorageLayer.java
+        this._storageLayer.deleteDir(path);
 
         return true;
     }
 
     public boolean deleteVbdByPath(String diskPath) {
-        Connect conn;
-        try {
-            conn = LibvirtConnection.getConnection();
-            StorageVol vol = conn.storageVolLookupByPath(diskPath);
-            if(vol != null) {
-                s_logger.debug("requested delete disk " + diskPath);
-                vol.delete(0);
-            }
-        } catch (LibvirtException e) {
-            s_logger.debug("Libvirt error in attempting to find and delete patch disk:" + e.toString());
-            return false;
-        }
-        return true;
+    	String taskMsg = "requested delete disk " + diskPath;
+    	s_logger.debug(taskMsg);
+    	boolean result = this._storageLayer.delete(diskPath);
+    	if (!result) {
+            s_logger.debug("Failed to perform task " + taskMsg);
+    	}
+  
+    	return result;
     }
-
 }

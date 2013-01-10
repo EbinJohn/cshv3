@@ -108,18 +108,22 @@ import com.cloud.agent.api.to.VolumeTO;
 import com.cloud.host.Host;
 import com.cloud.host.Host.Type;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.hypervisor.kvm.storage.KVMStoragePool;
-import com.cloud.hypervisor.kvm.storage.KVMStoragePoolManager;
+import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk;
+import com.cloud.hypervisor.hyperv.storage.HypervStoragePool;
+import com.cloud.hypervisor.hyperv.storage.HypervStoragePoolManager;
 import com.cloud.network.PhysicalNetworkSetupInfo;
 import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.resource.ServerResource;
 import com.cloud.serializer.GsonHelper;
 import com.cloud.storage.Storage;
+import com.cloud.storage.StorageLayer;
 import com.cloud.storage.Volume;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.template.TemplateInfo;
+import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.utils.exception.RuntimeCloudException;
 import com.cloud.utils.script.Script;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VirtualMachine;
@@ -127,20 +131,23 @@ import com.cloud.vm.VirtualMachine.State;
 import com.cloud.utils.StringUtils;
 
 import com.google.gson.Gson;
-import com.xensource.xenapi.Connection;
 
 @Local(value = { ServerResource.class })
 public class HypervResource implements ServerResource {
     private static final Logger s_logger = Logger.getLogger(HypervResource.class);
     protected static final Gson s_gson = GsonHelper.getGson();
-    protected static String s_scriptPathAndName;
-    protected static String s_pythonExec;
 
     String _name;
     Host.Type _type;
     boolean _negative;
     IAgentControl _agentControl;
     private Map<String, Object> _params;
+	private HypervStoragePoolManager _storagePoolMgr;
+	private StorageLayer _storage;
+	private String _dcId;
+	private String _clusterId;
+	private String _localStoragePath;
+	private String _localStorageUUID;
 
     @Override
     public void disconnected() {
@@ -230,86 +237,21 @@ public class HypervResource implements ServerResource {
     
     public GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
     	// TODO:  add infrastructure to propagate failures.
-    	GetVmStatsAnswer pythonResult = callHypervPythonModule(cmd, GetVmStatsAnswer.class);
+    	GetVmStatsAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, GetVmStatsAnswer.class);
 
     	// TODO:  why is there a ctor that takes the original command?
         return new GetVmStatsAnswer(cmd, pythonResult.getVmStatsMap());
     }
-   
-    public <T extends Command, ResultT extends Answer> 
-    				ResultT callHypervPythonModule(T cmd, Class<ResultT> answerType)
-    {
-        String cmdName = cmd.getClass().getSimpleName();
-        String cmdData = s_gson.toJson(cmd, cmd.getClass());
-        s_logger.debug("Execute " + cmdName + " using script " + s_scriptPathAndName +
-        		"passing" + cmdData);
-
-        List<String> scriptArgs = new ArrayList<String>();
-        scriptArgs.add(cmdName);
-
-        String result = runPythonProcess(
-        		s_scriptPathAndName,
-    			scriptArgs.toArray(new String[0]),
-    			cmdData
-    			);
-        s_logger.debug("Use Gson to create " +  answerType.getSimpleName() + " from " + result);
-        ResultT resultAnswer = s_gson.fromJson(result, answerType);
-        s_logger.info(resultAnswer.toString() + " contains " + 
-        		s_gson.toJson(resultAnswer));
-        return resultAnswer;
-    }
-    
-    public static String runPythonProcess(String pyScript, String[] args,  String jsonData){
-    	String output = "";
-    	    	// Launch script
-    	try {
-    		List<String> exeArgs = new ArrayList<String>();
-
-    		exeArgs.add(s_pythonExec);
-    		exeArgs.add(pyScript);
-
-    		for(String s: args)
-    		{
-    			exeArgs.add(s);
-    		}
-    		
-    		// when we launch from the shell, we need to use Cygwin's path to the exe, and 
-	    	ProcessBuilder builder = new ProcessBuilder(exeArgs);
-	    	builder.redirectErrorStream(true);  // TODO: may want to treat the two separately.
-	    	Process proc = builder.start();
-		        
-		    // Write data to script's stdin
-		    OutputStream scriptInput = proc.getOutputStream();
-		    OutputStreamWriter siw = new OutputStreamWriter(scriptInput);
-		    BufferedWriter writer = new BufferedWriter(siw);
-		    writer.write(jsonData);
-		    writer.flush();
-		    writer.close();
-		        
-		    // Read data to stdout
-		    InputStream is = proc.getInputStream();
-		    InputStreamReader isr = new InputStreamReader(is);
-		    BufferedReader reader = new BufferedReader(isr);
-		    
-		    output = reader.readLine();
-		    reader.close();
-		    // TODO:  is waitfor() required?
-        } catch (Exception ex) {
-        	s_logger.debug("Error calling " + pyScript + 
-        			"while reading command process stream" + ex.getMessage() );
-        }
-	    return output;
-    }
 
     // TODO: create unit test
     public Answer execute(DestroyCommand cmd) {
-    	DestroyAnswer pythonResult = callHypervPythonModule(cmd, DestroyAnswer.class);
+    	DestroyAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, DestroyAnswer.class);
     	
         return new DestroyAnswer(cmd, pythonResult.getResult(), pythonResult.getDetails());
 	}
     
     public Answer execute(StopCommand cmd) {
-    	StopAnswer pythonResult = callHypervPythonModule(cmd, StopAnswer.class);
+    	StopAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, StopAnswer.class);
    	
         return new StopAnswer(cmd, pythonResult.getDetails(), pythonResult.getResult());
     }
@@ -352,7 +294,7 @@ public class HypervResource implements ServerResource {
      * Create VM.
      */
     public synchronized StartAnswer execute(StartCommand cmd) {
-        StartAnswer pythonResult = callHypervPythonModule(cmd, StartAnswer.class);
+        StartAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, StartAnswer.class);
     	
         if (s_logger.isDebugEnabled()) {
             String ansData = s_gson.toJson(pythonResult, pythonResult.getClass());
@@ -365,18 +307,41 @@ public class HypervResource implements ServerResource {
     }
 
     /*
-	 * Create volume from passed template or from scratch
-	 */
-    public Answer execute(CreateCommand cmd) {
-    	CreateAnswer pythonResult = callHypervPythonModule(cmd, CreateAnswer.class);
-    	
-        if (pythonResult.getResult()) 
-        {
-            return new CreateAnswer(cmd, pythonResult.getVolume());
-        }
-        return new CreateAnswer(cmd, pythonResult.getDetails());
-    }
+     * Create volume based on KVM implementation.
+     */
+    protected Answer execute(CreateCommand cmd) {
+        StorageFilerTO pool = cmd.getPool();
+        DiskProfile dskch = cmd.getDiskCharacteristics();
+        HypervStoragePool primaryPool = null;
+        HypervPhysicalDisk vol = null;
+        long disksize;
+        try {
+            primaryPool = _storagePoolMgr.getStoragePool(pool.getUuid());
+            disksize = dskch.getSize();
 
+            if (cmd.getTemplateUrl() != null) {
+                HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(cmd.getTemplateUrl());
+                vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, UUID
+                        .randomUUID().toString(), primaryPool);
+
+                if (vol == null) {
+                    return new Answer(cmd, false,
+                            " Can't create storage volume on storage pool");
+                }
+            } else {
+                vol = primaryPool.createPhysicalDisk(UUID.randomUUID()
+                        .toString(), dskch.getSize());
+            }
+            VolumeTO volume = new VolumeTO(cmd.getVolumeId(), dskch.getType(),
+                    pool.getType(), pool.getUuid(), pool.getPath(),
+                    vol.getName(), vol.getName(), disksize, null);
+            return new CreateAnswer(cmd, volume);
+        } catch (RuntimeCloudException e) {
+            s_logger.debug("Failed to create volume: " + e.toString());
+            return new CreateAnswer(cmd, e);
+        }
+    }
+    
     public GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
         if (s_logger.isDebugEnabled()) {
             String cmdData = s_gson.toJson(cmd, cmd.getClass());
@@ -509,31 +474,6 @@ public class HypervResource implements ServerResource {
         return result;
     }
 
-    protected StoragePoolInfo initializeLocalStorage() {
-        String hostIp = (String) getConfiguredProperty("private.ip.address",
-                "127.0.0.1");
-        String localStoragePath = (String) getConfiguredProperty(
-                "local.storage.path", "E:\\Disks\\Disks");
-        _localStorageUUID = (String) params.get("local.storage.uuid");
-        if (_localStorageUUID == null) {
-            throw new ConfigurationException("local.storage.uuid is not set! Please set this to a valid UUID");
-        }
-
-
-        String lh = hostIp + localStoragePath;
-        String uuid = UUID.nameUUIDFromBytes(lh.getBytes()).toString();
-
-        String capacity = (String) getConfiguredProperty(
-                "local.storage.capacity", "1000000000");
-        String available = (String) getConfiguredProperty(
-                "local.storage.avail", "10000000");
-
-        
-        return new StoragePoolInfo(uuid, hostIp, localStoragePath,
-                localStoragePath, StoragePoolType.Filesystem,
-                Long.parseLong(capacity), Long.parseLong(available));
-    }
-
     // TODO: Implement proper check for the network configuration correctly.
     private boolean checkNetwork(String networkName) {
             return true;
@@ -546,6 +486,7 @@ public class HypervResource implements ServerResource {
         	s_logger.error(msg);
         	return new Answer(cmd, false, msg);
         }
+        
         return null;
     }
     
@@ -565,7 +506,7 @@ public class HypervResource implements ServerResource {
         }
         
     	// TODO:  drop existing storage pool, create new one. 
-        KVMStoragePool storagepool = _storagePoolMgr.createStoragePool(cmd
+        HypervStoragePool storagepool = _storagePoolMgr.createStoragePool(cmd
                 .getPool().getUuid(), cmd.getPool().getHost(), cmd.getPool().getPort(),
                 cmd.getPool().getPath(), cmd.getPool().getUserInfo(), cmd.getPool().getType());
         if (storagepool == null) {
@@ -588,9 +529,6 @@ public class HypervResource implements ServerResource {
         }
     }
 
-
-
-
     // Draws on values in conf/agent.properties
     @Override
     public StartupCommand[] initialize() {
@@ -604,39 +542,77 @@ public class HypervResource implements ServerResource {
                 RouterPrivateIpStrategy.HostLocal, changes);
         fillNetworkInformation(cmd);
         cmd.getHostDetails().putAll(getVersionStrings());
-        cmd.setCluster(getConfiguredProperty("cluster", "1"));
+        cmd.setCluster(_clusterId);
 
-        StoragePoolInfo pi = initializeLocalStorage();
-        StartupStorageCommand sscmd = new StartupStorageCommand();
-        sscmd.setPoolInfo(pi);
-        sscmd.setGuid(pi.getUuid());
-        sscmd.setDataCenter((String) _params.get("zone"));
-        sscmd.setResourceType(Storage.StorageResourceType.STORAGE_POOL);
+        StartupStorageCommand sscmd = null;
+        try {
+            HypervStoragePool localStoragePool = _storagePoolMgr
+                    .createStoragePool(_localStorageUUID, "localhost", -1,
+                            _localStoragePath, "", StoragePoolType.Filesystem);
+            StoragePoolInfo pi = new com.cloud.agent.api.StoragePoolInfo(
+                    localStoragePool.getUuid(), cmd.getPrivateIpAddress(),
+                    _localStoragePath, _localStoragePath,
+                    StoragePoolType.Filesystem, localStoragePool.getCapacity(),
+                    localStoragePool.getUsed());
 
+            sscmd = new StartupStorageCommand();
+            sscmd.setPoolInfo(pi);
+            sscmd.setGuid(pi.getUuid());
+            sscmd.setDataCenter(_dcId);
+            sscmd.setResourceType(Storage.StorageResourceType.STORAGE_POOL);
+        } catch (RuntimeCloudException e) {
+        	String errMsg = "Problem setting up storage pool object model" + e.toString();
+            s_logger.debug(errMsg);
+            throw e;
+        }
+        
         return new StartupCommand[] { cmd, sscmd };
     }
 
     @Override
-    public boolean configure(String name, Map<String, Object> params) {
+    public boolean configure(String name, Map<String, Object> params) 
+            throws ConfigurationException {
         _name = name;
 
         String value = (String) params.get("type");
         _type = Host.Type.valueOf(value);
 
+        try {
+            Class<?> clazz = Class
+                    .forName("com.cloud.storage.JavaStorageLayer");
+            _storage = (StorageLayer) ComponentLocator.inject(clazz);
+            _storage.configure("StorageLayer", params);
+        } catch (ClassNotFoundException e) {
+            throw new ConfigurationException("Unable to find class "
+                    + "com.cloud.storage.JavaStorageLayer");
+        }
+        
         value = (String) params.get("negative.reply");
         _negative = Boolean.parseBoolean(value);
         setParams(params);
-
-        _storagePoolMgr = new KVMStoragePoolManager(_storage, _monitor);
+        
+        _localStoragePath = (String) getConfiguredProperty("local.storage.path", "E:\\Disks\\Disks");
+        
+        _localStorageUUID = (String) params.get("local.storage.uuid");
+        if (_localStorageUUID == null) {
+        	throw new ConfigurationException("local.storage.uuid is not set! Please set this to a valid UUID");
+        }
+        
+        _clusterId = getConfiguredProperty("cluster", "1");
+        
+        _dcId = getConfiguredProperty("zone", "1"); 
+        
+        _storagePoolMgr = new HypervStoragePoolManager(_storage);
         
         return true;
     }
 
     public void setParams(Map<String, Object> _params) {
         this._params = _params;
-    	s_scriptPathAndName = (String)_params.get("hyperv.python.module.dir");
-    	s_scriptPathAndName = s_scriptPathAndName + (String)_params.get("hyperv.python.module.script");
-    	s_pythonExec = (String)_params.get("python.executable");
+        PythonUtils.s_scriptPathAndName = (String)_params.get("hyperv.python.module.dir");
+        PythonUtils.s_scriptPathAndName = PythonUtils.s_scriptPathAndName + 
+        		(String)_params.get("hyperv.python.module.script");
+        PythonUtils.s_pythonExec = (String)_params.get("python.executable");
     }
 
     @Override

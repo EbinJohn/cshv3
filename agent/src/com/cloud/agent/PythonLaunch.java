@@ -46,16 +46,30 @@ import javax.naming.ConfigurationException;
 import com.cloud.agent.api.Answer;
 
 import com.cloud.agent.api.Command;
+import com.cloud.agent.api.GetHostStatsAnswer;
+import com.cloud.agent.api.GetHostStatsCommand;
+import com.cloud.agent.api.GetStorageStatsAnswer;
+import com.cloud.agent.api.GetStorageStatsCommand;
 import com.cloud.agent.api.GetVmStatsAnswer;
 import com.cloud.agent.api.GetVmStatsCommand;
 import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.StartCommand;
+import com.cloud.agent.api.StopAnswer;
+import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.VmStatsEntry;
+import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
+import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
+import com.cloud.agent.api.storage.CreateAnswer;
+import com.cloud.agent.api.storage.CreateCommand;
+import com.cloud.agent.api.storage.DestroyAnswer;
+import com.cloud.agent.api.storage.DestroyCommand;
+
 import com.cloud.agent.resource.HypervResource;
 
 import org.apache.log4j.Logger;
 
 import com.cloud.serializer.GsonHelper;
+import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.utils.PropertiesUtil;
 import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -100,12 +114,18 @@ public class PythonLaunch {
     
     public static void main(String[] args) throws ConfigurationException {
     	PythonLaunch.initialise();
-        
-//    	PythonLaunch.TestGetVmStatsCommand();
+//    	SampleJsonFromPrimaryStorageDownloadCommand();
+    	PythonLaunch.TestGetHostStatsCommand();
+    	PythonLaunch.TestGetVmStatsCommand();
+    	PythonLaunch.TestGetStorageStatsCommand();
+    	PythonLaunch.TestCreateCommand();
     	PythonLaunch.TestStartCommand();
-        return;
+    	PythonLaunch.TestStopCommand();
+    	PythonLaunch.TestDestroyCommand();
+    	return;
     }
     
+
     public static void TestGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
@@ -142,6 +162,67 @@ public class PythonLaunch {
        	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
     	s_hypervresource.execute(cmd);
     }
+    
+    public static void TestStopCommand()
+    {
+    	String sample = "{\"isProxy\":false,\"vmName\":\"i-2-6-VM\",\"contextMap\":{},\"wait\":0}";
+    
+    	s_logger.info("Sample JSON: " + sample );
+
+    	StopCommand cmd = s_gson.fromJson(sample, StopCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
+
+    public static void TestCreateCommand()
+    {
+    	// TODO:  update when CreateStoragePool works.
+    	String sample = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"host\":\"10.70.176.29\"" +
+    					",\"path\":\"E:\\\\Disks\\\\Disks\",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
+    					"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-9\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
+    					"\"volumeId\":10,\"hyperType\":\"Hyperv\"},\"templateUrl\":\"e:\\\\Disks\\\\Disks\\\\SampleHyperVCentOS63VM.vhdx\"," +
+    					"\"contextMap\":{},\"wait\":0}";
+
+    	s_logger.info("Sample JSON: " + sample );
+
+    	CreateCommand cmd = s_gson.fromJson(sample, CreateCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
+
+    public static void TestDestroyCommand()
+    {
+    	// TODO:  update when CreateStoragePool works.
+    	// TODO:  how does the command vary when we are only deleting a volume?
+    	String sample = "{\"vmName\":\"i-2-6-VM\",\"volume\":{\"id\":9,\"name\":\"ROOT-8\",\"mountPoint\":\"E:\\\\Disks\\\\Disks\"," +
+    					"\"path\":\"FakeVolume\",\"size\":0,\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\"," +
+    					"\"storagePoolUuid\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"deviceId\":0},\"contextMap\":{},\"wait\":0}";
+
+    	s_logger.info("Sample JSON: " + sample );
+
+    	DestroyCommand cmd = s_gson.fromJson(sample, DestroyCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
+
+    public static void TestGetStorageStatsCommand()
+    {
+    	// TODO:  Update sample data to unsure it is using correct info.
+    	String sample = "{\"id\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"localPath\":\"E:\\\\Disks\\\\Disks\"," +
+    					"\"pooltype\":\"Filesystem\",\"contextMap\":{},\"wait\":0}";
+    	       
+    	s_logger.info("Sample JSON: " + sample );
+
+    	GetStorageStatsCommand cmd = s_gson.fromJson(sample, GetStorageStatsCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
+    
+    public static void TestGetHostStatsCommand()
+    {
+    	String sample = "{\"hostGuid\":\"B4AE5970-FCBF-4780-9F8A-2D2E04FECC34-HypervResource\",\"hostName\":\"CC-SVR11\",\"hostId\":5,\"contextMap\":{},\"wait\":0}";
+    
+    	s_logger.info("Sample JSON: " + sample );
+
+    	GetHostStatsCommand cmd = s_gson.fromJson(sample, GetHostStatsCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
 
     public static String SampleJsonFromGetVmStatsAnswer()
     {
@@ -162,7 +243,22 @@ public class PythonLaunch {
 
     	return PythonLaunch.toJson(answer);
    }
-    
+
+    public static String SampleJsonFromPrimaryStorageDownloadCommand()
+    {
+    	PrimaryStorageDownloadCommand cmd = new PrimaryStorageDownloadCommand(
+    			"routing-9",
+    			"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/",
+    			ImageFormat.VHD,
+        		1, 
+        		201, 
+        		"5fe2bad3-d785-394e-9949-89786b8a63d2", 
+        		10800);
+    	String result = PythonLaunch.toJson(cmd);
+    	s_logger.debug("Converting a " + cmd.getClass().getName() + " to JSON: " + result );
+    	return result;
+    }
+   
     // TODO: Unicode issues?
     public static String toJson(Command cmd) {
         String result = s_gson.toJson(cmd, cmd.getClass());
