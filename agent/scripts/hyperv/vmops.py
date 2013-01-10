@@ -78,24 +78,51 @@ class VMOps(baseops.BaseOps):
         volume = {}
         volume["id"] = cmdData["volId"];
         volume["name"] = cmdData["diskCharacteristics"]["name"];
-        src = cmdData["templateUrl"]
-        extension = src[src.rindex('.'):]
-        volume["path"] = cmdData["pool"]["path"] + os.path.sep + volume["name"] + extension
         volume["size"] = cmdData["diskCharacteristics"]["size"];
         volume["type"] = cmdData["diskCharacteristics"]["type"];
-        volume["storagePoolType"] = cmdData["pool"]["type"];
-        volume["storagePoolUuid"] = cmdData["pool"]["uuid"];
+        volume["path"] = cmdData["pool"]["path"] + os.path.sep + volume["name"] + '.' + volume["type"]
         volume["mountPoint"] = cmdData["pool"]["path"];
         
-        if not volume["storagePoolType"] == "Filesystem":
-            raise vmutils.HyperVException(_('Hyper-V only supports Filesystem pools, not %s pools') %
-                volume["storagePoolType"])
+        #volume["storagePoolType"] = cmdData["pool"]["type"];
+        #if not volume["storagePoolType"] == "Filesystem":
+        #    raise vmutils.HyperVException(_('Hyper-V only supports Filesystem pools, not %s pools') %
+        #        volume["storagePoolType"])
         # todo: support DATADISK types
-        if not volume["type"] == "ROOT" and not volume["type"] == "ISO":
+        if not volume["type"] == "DATADISK" and not volume["type"] == "ISO":
             raise vmutils.HyperVException(_('No support for volumes of type %s pools') %
                 volume["type"])
-        shutil.copy2(src, volume["path"])
+
+        image_service = self._conn.query("Select * from Msvm_ImageManagementService")[0]
+        (job, ret_val) = image_service.CreateDynamicVirtualHardDisk(
+                            Path=volume["path"], Size=volume["size"])
+        LOG.debug("Creating DATADISK disk: JobID=%s, Source=%s, Target=%s",
+                    job, base, target)
+        if ret_val == constants.WMI_JOB_STATUS_STARTED:
+            success = self._vmutils.check_job_status(job)
+        else:
+            success = (ret_val == 0)
+
+        if not success:
+            raise vmutils.HyperVException(_('Failed to create Difference Disk from '
+                            '%(base)s to %(target)s') % locals())
         return volume
+
+    def create_differencing_vhd(self, target, base):
+        image_service = self._conn.query(
+                    "Select * from Msvm_ImageManagementService")[0]
+        (job, ret_val) = image_service.CreateDifferencingVirtualHardDisk(
+                                            Path=target, ParentPath=base)
+        LOG.debug("Creating difference disk: JobID=%s, Source=%s, Target=%s",
+                    job, base, target)
+        if ret_val == constants.WMI_JOB_STATUS_STARTED:
+            success = self._vmutils.check_job_status(job)
+        else:
+            success = (ret_val == 0)
+
+        if not success:
+            raise vmutils.HyperVException(
+                        _('Failed to create Difference Disk from '
+                            '%(base)s to %(target)s') % locals())
     
     def destroy_volume(self, volume, vmname):
         #Delete  vhd disk files
@@ -125,7 +152,7 @@ class VMOps(baseops.BaseOps):
                 instance_name)
         vm = self._conn.Msvm_ComputerSystem(
             ElementName=instance_name)[0]
-        vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
+        vs_man_svc = self._conn.VirtualSystemManagementService()[0]
         vmsettings = vm.associators(
                        wmi_association_class='Msvm_SettingsDefineState',
                        wmi_result_class='Msvm_VirtualSystemSettingData')
