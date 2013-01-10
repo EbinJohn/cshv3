@@ -26,67 +26,65 @@ public class PythonUtils {
 
     static public <T extends Command, ResultT extends Answer> 
 	ResultT callHypervPythonModule(T cmd, Class<ResultT> answerType)
-{
-String cmdName = cmd.getClass().getSimpleName();
-String cmdData = s_gson.toJson(cmd, cmd.getClass());
-s_logger.debug("Execute " + cmdName + " using script " + s_scriptPathAndName +
-"passing" + cmdData);
+	{
+		String cmdName = cmd.getClass().getSimpleName();
+		String cmdData = s_gson.toJson(cmd, cmd.getClass());
+		s_logger.debug("Execute " + cmdName + " using script " + 
+				PythonUtils.s_scriptPathAndName + "passing" + cmdData);
+		
+		List<String> scriptArgs = new ArrayList<String>();
+		scriptArgs.add(cmdName);
+		
+		String result = runPythonProcess(
+				PythonUtils.s_scriptPathAndName,
+							scriptArgs.toArray(new String[0]),
+							cmdData
+							);
+		s_logger.debug("Use Gson to create " +  answerType.getSimpleName() + " from " + result);
+		ResultT resultAnswer = s_gson.fromJson(result, answerType);
+		s_logger.info(resultAnswer.toString() + " contains " + 
+		s_gson.toJson(resultAnswer));
+		return resultAnswer;
+	}
 
-List<String> scriptArgs = new ArrayList<String>();
-scriptArgs.add(cmdName);
-
-String result = runPythonProcess(
-s_scriptPathAndName,
-scriptArgs.toArray(new String[0]),
-cmdData
-);
-s_logger.debug("Use Gson to create " +  answerType.getSimpleName() + " from " + result);
-ResultT resultAnswer = s_gson.fromJson(result, answerType);
-s_logger.info(resultAnswer.toString() + " contains " + 
-s_gson.toJson(resultAnswer));
-return resultAnswer;
-}
-
-public static String runPythonProcess(String pyScript, String[] args,  String jsonData){
-String output = "";
-// Launch script
-try {
-List<String> exeArgs = new ArrayList<String>();
-
-exeArgs.add(s_pythonExec);
-exeArgs.add(pyScript);
-
-for(String s: args)
-{
-exeArgs.add(s);
-}
-
-// when we launch from the shell, we need to use Cygwin's path to the exe, and 
-ProcessBuilder builder = new ProcessBuilder(exeArgs);
-builder.redirectErrorStream(true);  // TODO: may want to treat the two separately.
-Process proc = builder.start();
-
-// Write data to script's stdin
-OutputStream scriptInput = proc.getOutputStream();
-OutputStreamWriter siw = new OutputStreamWriter(scriptInput);
-BufferedWriter writer = new BufferedWriter(siw);
-writer.write(jsonData);
-writer.flush();
-writer.close();
-
-// Read data to stdout
-InputStream is = proc.getInputStream();
-InputStreamReader isr = new InputStreamReader(is);
-BufferedReader reader = new BufferedReader(isr);
-
-output = reader.readLine();
-reader.close();
-// TODO:  is waitfor() required?
-} catch (Exception ex) {
-s_logger.debug("Error calling " + pyScript + 
-	"while reading command process stream" + ex.getMessage() );
-}
-return output;
-}
-
+	public static String runPythonProcess(String pyScript, String[] args,  String jsonData){
+		String output = "";
+		// Launch script
+		try {
+			List<String> exeArgs = new ArrayList<String>();
+			
+			exeArgs.add(PythonUtils.s_pythonExec);
+			exeArgs.add(pyScript);
+			
+			for(String s: args) {
+				exeArgs.add(s);
+			}
+			
+			// when we launch from the shell, we need to use Cygwin's path to the exe, and 
+			ProcessBuilder builder = new ProcessBuilder(exeArgs);
+			builder.redirectErrorStream(true);  // TODO: may want to treat the two separately.
+			Process proc = builder.start();
+			
+			// Write data to script's stdin
+			OutputStream scriptInput = proc.getOutputStream();
+			OutputStreamWriter siw = new OutputStreamWriter(scriptInput);
+			BufferedWriter writer = new BufferedWriter(siw);
+			writer.write(jsonData);
+			writer.flush();
+			writer.close();
+			
+			// Read data to stdout
+			InputStream is = proc.getInputStream();
+			InputStreamReader isr = new InputStreamReader(is);
+			BufferedReader reader = new BufferedReader(isr);
+			
+			output = reader.readLine();
+			reader.close();
+			// TODO:  is waitfor() required?
+		} catch (Exception ex) {
+			s_logger.debug("Error calling " + pyScript + 
+				"while reading command process stream" + ex.getMessage() );
+		}
+		return output;
+	}
 }
