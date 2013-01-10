@@ -35,7 +35,6 @@ import javax.naming.ConfigurationException;
 import org.apache.log4j.Logger;
 
 import com.cloud.agent.IAgentControl;
-import com.cloud.agent.PythonLaunch;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.PingCommand;
@@ -309,7 +308,7 @@ public class HypervResource implements ServerResource {
     /*
      * Create volume based on KVM implementation.
      */
-    protected Answer execute(CreateCommand cmd) {
+    public Answer execute(CreateCommand cmd) {
         StorageFilerTO pool = cmd.getPool();
         DiskProfile dskch = cmd.getDiskCharacteristics();
         HypervStoragePool primaryPool = null;
