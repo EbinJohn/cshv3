@@ -82,7 +82,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
             HypervStoragePool poolArg) {
     	WindowsStoragePool pool = (WindowsStoragePool) poolArg;
 
-    	String diskPath = pool.getLocalPath() + File.pathSeparator + volumeUuid;
+    	String diskPath = pool.getLocalPath() + File.separator + volumeUuid;
     	String taskMsg = "Return HypervPhysical obj for volume uuid " + volumeUuid + " from pool " + pool.getUuid().toString();
         s_logger.debug(taskMsg);
         
@@ -126,12 +126,21 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         return pool;
     }
 
-    // TODO:  expand delete semantics to remove physical disks from folder 
     @Override
     public boolean deleteStoragePool(String uuid) {
+    	String taskMsg = "Delete pool " + uuid ;
+        s_logger.debug(taskMsg);
     	return true;
     }
 
+    @Override
+    public boolean deleteStoragePool(String uuid, String localPath) {
+    	String taskMsg = "Delete files in pool " + uuid + " at " + localPath;
+        s_logger.debug(taskMsg);
+    	this._storageLayer.deleteDir(localPath);
+    	return true;
+    }
+    
     @Override
     public HypervPhysicalDisk createPhysicalDisk(String name, HypervStoragePool poolArg,
             PhysicalDiskFormat format, long size) {
@@ -158,7 +167,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
 
     @Override
     public boolean deletePhysicalDisk(String uuid, HypervStoragePool pool) {
-    	String path = pool.getLocalPath() + File.pathSeparator + uuid;
+    	String path = pool.getLocalPath() + File.separator + uuid;
     	String taskMsg = "requested delete disk " + uuid + " in pool " + pool.getUuid() + " with path " + pool.getLocalPath();
         s_logger.debug(taskMsg);
 

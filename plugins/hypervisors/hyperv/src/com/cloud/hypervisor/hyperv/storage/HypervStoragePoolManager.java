@@ -64,10 +64,16 @@ public class HypervStoragePoolManager {
     }
 
     public boolean deleteStoragePool(String uuid) {
-        this._storageAdaptor.deleteStoragePool(uuid);
+    	HypervStoragePool pool = null;
         synchronized (_storagePools) {
+            if (!_storagePools.containsKey(uuid)) {
+                return true;
+            }
+            pool = _storagePools.get(uuid);
+
         	_storagePools.remove(uuid);
         }
+        this._storageAdaptor.deleteStoragePool(uuid, pool.getLocalPath());
         return true;
     }
 

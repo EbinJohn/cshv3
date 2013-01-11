@@ -33,6 +33,8 @@ public interface StorageAdaptor {
 
     public boolean deleteStoragePool(String uuid);
 
+    public boolean deleteStoragePool(String uuid, String localPath);
+
     public HypervPhysicalDisk createPhysicalDisk(String name, HypervStoragePool pool,
             PhysicalDiskFormat format, long size);
 

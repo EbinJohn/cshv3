@@ -30,7 +30,7 @@ public class PythonUtils {
 		String cmdName = cmd.getClass().getSimpleName();
 		String cmdData = s_gson.toJson(cmd, cmd.getClass());
 		s_logger.debug("Execute " + cmdName + " using script " + 
-				PythonUtils.s_scriptPathAndName + "passing" + cmdData);
+				PythonUtils.s_scriptPathAndName + " passing: " + cmdData);
 		
 		List<String> scriptArgs = new ArrayList<String>();
 		scriptArgs.add(cmdName);

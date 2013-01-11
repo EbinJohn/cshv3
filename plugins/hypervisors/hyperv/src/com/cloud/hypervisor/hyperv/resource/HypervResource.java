@@ -489,16 +489,11 @@ public class HypervResource implements ServerResource {
         return null;
     }
     
-    protected Answer execute(CreateStoragePoolCommand cmd) {
-        Answer result = ValidateStoragePoolCommand(cmd);
-        if (null != result) {
-        	return result;
-        }
-        
+    public Answer execute(CreateStoragePoolCommand cmd) {
         return new Answer(cmd, true, "success");
     }
 
-    protected Answer execute(ModifyStoragePoolCommand cmd) {
+    public Answer execute(ModifyStoragePoolCommand cmd) {
         Answer result = ValidateStoragePoolCommand(cmd);
         if (null != result) {
         	return result;
@@ -519,7 +514,7 @@ public class HypervResource implements ServerResource {
         return answer;
     }
 
-    protected Answer execute(DeleteStoragePoolCommand cmd) {
+    public Answer execute(DeleteStoragePoolCommand cmd) {
         try {
             _storagePoolMgr.deleteStoragePool(cmd.getPool().getUuid());
             return new Answer(cmd);
