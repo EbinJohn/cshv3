@@ -148,15 +148,18 @@ class VMOps(baseops.BaseOps):
         LOG.debug("get_info called for instance %s" % instance_name)
         vm = self._vmutils.lookup(self._conn, instance_name)
         if vm is None:
-            raise vmutils.HyperVException(_('InstanceNotFound %s') %
-                instance_name)
+            errMsg = _('InstanceNotFound %s') % instance_name
+            LOG.debug(errMsg)
+            raise vmutils.HyperVException(errMsg)
+            
         vm = self._conn.Msvm_ComputerSystem(
             ElementName=instance_name)[0]
-        vs_man_svc = self._conn.VirtualSystemManagementService()[0]
+        vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
         vmsettings = vm.associators(
                        wmi_association_class='Msvm_SettingsDefineState',
                        wmi_result_class='Msvm_VirtualSystemSettingData')
         settings_paths = [v.path_() for v in vmsettings]
+                  
         #See http://msdn.microsoft.com/en-us/library/cc160706%28v=vs.85%29.aspx
         summary_info = vs_man_svc.GetSummaryInformation(
                                        [constants.VM_SUMMARY_NUM_PROCS,

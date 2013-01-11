@@ -200,7 +200,12 @@ def GetVmStatsCommand(cmdData, opsObj):
     answers = {}
     for vmName in cmdData['vmNames']:
         # todo: get_info can throw if the instance is not found.  Catch.  How should this affect the resulting answer?
-        vmInfo=opsObj.get_info(vmName)
+        try:
+            vmInfo=opsObj.get_info(vmName)
+        except vmutils.HyperVException as e:
+            LOG.debug(vmName + ' cannot be found: ' + e.message)
+            continue
+            
         LOG.debug(vmName + ' info is ' + json.dumps(vmInfo))
 
         vmStat = {
