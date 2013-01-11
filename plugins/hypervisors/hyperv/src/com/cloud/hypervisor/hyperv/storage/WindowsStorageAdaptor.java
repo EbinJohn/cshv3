@@ -122,7 +122,12 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         // Determine the used / capacity stats, not sure how to derive these.
         pool.setCapacity(usableCapacity);
         pool.setUsed(0);
-  
+
+        // Clear the folder
+        // TODO: ensure that File operations include same synchronisation
+        // you see in core/src/com/cloud/storage/JavaStorageLayer.java
+        this._storageLayer.deleteDir(path);
+
         return pool;
     }
 
@@ -280,9 +285,48 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     }
 
     @Override
-    public HypervStoragePool getStoragePoolByURI(String uri) {
-        throw new CloudRuntimeException("Not implemented");
+    public HypervStoragePool getStoragePoolByURI(String uri, String uriLocalPath) {
+    	String taskMsg = "Creating pool over the uri " + uri;
+        s_logger.debug(taskMsg);
+
+        URI storageUri = null;
+
+        try {
+            storageUri = new URI(uri);
+        } catch (URISyntaxException e) {
+            throw new CloudRuntimeException(e.toString());
+        }
+
+        String sourcePath = null;
+        String uuid = null;
+        String sourceHost = "";
+        StoragePoolType protocal = null;
+        sourcePath = storageUri.getPath();
+        sourcePath = sourcePath.replace("//", "/");
+        
+        sourceHost = storageUri.getHost();
+        uuid = UUID.nameUUIDFromBytes(
+                    new String(sourceHost + sourcePath).getBytes()).toString();
+            
+        if (storageUri.getScheme().equalsIgnoreCase("nfs")) {
+            protocal = StoragePoolType.NetworkFilesystem;
+        }
+
+        // Generate local mount corresponding to NFS share.
+        protocal = StoragePoolType.Filesystem;
+        
+        if (!this._storageLayer.isDirectory(sourcePath)){
+        	String errMsg = "Not such path for task " + taskMsg;
+        	s_logger.debug(errMsg);
+        	throw new CloudRuntimeException(errMsg);
+        }
+        
+        WindowsStoragePool pool = new WindowsStoragePool(uuid, uri, protocal, this);
+        pool.setLocalPath(uriLocalPath);
+            
+        return pool;
     }
+
 
     @Override
     public HypervPhysicalDisk getPhysicalDiskFromURI(String uri) {
@@ -307,11 +351,6 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     	String path = pool.getLocalPath();
     	String taskMsg = "Remove all files from pool " + pool.getName() + " at " + path;
     	s_logger.debug(taskMsg);
-
-        // TODO: ensure that File operations include same synchronisation
-        // you see in core/src/com/cloud/storage/JavaStorageLayer.java
-        this._storageLayer.deleteDir(path);
-
         return true;
     }
 

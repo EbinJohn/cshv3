@@ -30,9 +30,11 @@ import com.cloud.storage.StorageLayer;
 public class HypervStoragePoolManager {
     private StorageAdaptor _storageAdaptor;
     private final Map<String, HypervStoragePool> _storagePools = new ConcurrentHashMap<String, HypervStoragePool>();
-
-    public HypervStoragePoolManager(StorageLayer storagelayer) {
+    private String _secondaryStorageMount;
+    
+    public HypervStoragePoolManager(StorageLayer storagelayer, String secondaryStorageMount) {
         this._storageAdaptor = new WindowsStorageAdaptor(storagelayer);
+        this._secondaryStorageMount = secondaryStorageMount;
     }
 
     public HypervStoragePool getStoragePool(String uuid) {
@@ -44,8 +46,9 @@ public class HypervStoragePoolManager {
         }
     }
 
+    // Non-persistent pool, not cleared when deleted or created
     public HypervStoragePool getStoragePoolByURI(String uri) {
-        return this._storageAdaptor.getStoragePoolByURI(uri);
+        return this._storageAdaptor.getStoragePoolByURI(uri, _secondaryStorageMount);
     }
 
     public HypervStoragePool createStoragePool(String name, String host, int port, String path,

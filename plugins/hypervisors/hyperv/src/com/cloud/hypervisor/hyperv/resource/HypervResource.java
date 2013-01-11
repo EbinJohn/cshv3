@@ -18,6 +18,7 @@ package com.cloud.hypervisor.hyperv.resource;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -147,6 +148,7 @@ public class HypervResource implements ServerResource {
 	private String _clusterId;
 	private String _localStoragePath;
 	private String _localStorageUUID;
+	private String _secondaryStorageLocalPath;
 
     @Override
     public void disconnected() {
@@ -260,33 +262,63 @@ public class HypervResource implements ServerResource {
         return new ReadyAnswer(cmd);
     }
 
-    /*
-     * Sample:
-     * contextMap	LinkedHashMap<K,V>  (id=111)	
-     * format	Storage$ImageFormat  (id=114)	
-     * localPath	"E:\\Disks\\Disks" (id=119)	
-     * name	"routing-9" (id=124)	
-     * poolId	201	
-     * poolUuid	"5fe2bad3-d785-394e-9949-89786b8a63d2" (id=125)	
-     * primaryStorageUrl	"nfs://10.70.176.29E:\\Disks\\Disks" (id=126)	
-     * secondaryStorageUrl	"nfs://10.70.176.4/CSHV3" (id=127)	
-     * secUrl	null	
-     * url	"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/" (id=128)	
-     * wait	10800	
-     * 
-     */
-    protected PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
-    	// For now, bypass template source.
-
-        String installPath = (String) getConfiguredProperty("prototype.vm.template.pathfilename", "e:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx");
-        String templateSizeStr = (String) getConfiguredProperty("prototype.vm.template.size", "2285895680");
-        long templateSize = Long.parseLong(templateSizeStr);
-
-        if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Prototype uses config settings for filename of " + installPath + " and size of " + templateSize);
+    public PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
+        String tmplturl = cmd.getUrl();
+        int index = tmplturl.lastIndexOf("/");
+        String mountpoint = tmplturl.substring(0, index);
+        String tmpltname = null;
+        if (index < tmplturl.length() - 1) {
+            tmpltname = tmplturl.substring(index + 1);
         }
-       
-        return new PrimaryStorageDownloadAnswer(installPath, templateSize);
+
+        HypervPhysicalDisk tmplVol = null;
+        HypervStoragePool secondaryPool = null;
+        try {
+        	// create transient storage pool.
+            secondaryPool = _storagePoolMgr.getStoragePoolByURI(mountpoint);
+
+            /* Get template vol */
+            if (tmpltname == null) {
+
+                List<HypervPhysicalDisk> disks = secondaryPool.listPhysicalDisks();
+                if (disks == null || disks.isEmpty()) {
+                    return new PrimaryStorageDownloadAnswer(
+                            "Failed to get volumes from pool: "
+                                    + secondaryPool.getUuid());
+                }
+                for (HypervPhysicalDisk disk : disks) {
+                    if (disk.getName().endsWith("vhd")) {
+                        tmplVol = disk;
+                        break;
+                    }
+                }
+                if (tmplVol == null) {
+                    return new PrimaryStorageDownloadAnswer(
+                            "Failed to get template from pool: "
+                                    + secondaryPool.getUuid());
+                }
+            } else {
+                tmplVol = secondaryPool.getPhysicalDisk(tmpltname);
+            }
+           
+	        /* Copy volume to primary storage */
+	        HypervStoragePool primaryPool = _storagePoolMgr.getStoragePool(cmd
+	                .getPoolUuid());
+	
+	        HypervPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(
+	                tmplVol, UUID.randomUUID().toString(), primaryPool);
+	
+            s_logger.debug("Created volume from secondary storage named " + primaryVol.getName() + " at " + primaryVol.getPath());
+
+	        return new PrimaryStorageDownloadAnswer(primaryVol.getName(),
+	                primaryVol.getSize());
+        } catch (CloudRuntimeException e) {
+            return new PrimaryStorageDownloadAnswer(e.toString());
+        } finally {
+            if (secondaryPool != null) {
+                secondaryPool.delete();
+            }
+        }
     }
 
     /*
@@ -596,7 +628,17 @@ public class HypervResource implements ServerResource {
         
         _dcId = getConfiguredProperty("zone", "1"); 
         
-        _storagePoolMgr = new HypervStoragePoolManager(_storage);
+        _secondaryStorageLocalPath = (String) getConfiguredProperty("local.secondary.storage.path", "C:\\Secondary");
+
+        File secondaryStorageLocalPathFile = new File(_secondaryStorageLocalPath);
+        if ( !secondaryStorageLocalPathFile.exists())
+        {
+        	String errMsg = "local.secondary.storage.path is invalid, value is " + _secondaryStorageLocalPath;
+        	ConfigurationException e = new ConfigurationException(errMsg);
+        	s_logger.error(errMsg);
+        	throw e;
+        }
+    	_storagePoolMgr = new HypervStoragePoolManager(_storage, _secondaryStorageLocalPath);
         
         return true;
     }

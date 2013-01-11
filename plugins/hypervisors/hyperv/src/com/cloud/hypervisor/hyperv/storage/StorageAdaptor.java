@@ -57,7 +57,7 @@ public interface StorageAdaptor {
     public HypervPhysicalDisk createDiskFromSnapshot(HypervPhysicalDisk snapshot,
             String snapshotName, String name, HypervStoragePool destPool);
 
-    public HypervStoragePool getStoragePoolByURI(String uri);
+    public HypervStoragePool getStoragePoolByURI(String uri, String uriLocalPath);
 
     public HypervPhysicalDisk getPhysicalDiskFromURI(String uri);
 
