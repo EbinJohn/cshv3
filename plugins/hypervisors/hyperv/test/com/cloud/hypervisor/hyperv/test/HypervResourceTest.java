@@ -16,6 +16,11 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.test;
 
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.Assert;
+
 import java.io.BufferedWriter;
 import java.io.BufferedReader;
 import java.io.File;
@@ -46,12 +51,15 @@ import javax.naming.ConfigurationException;
 import com.cloud.agent.api.Answer;
 
 import com.cloud.agent.api.Command;
+import com.cloud.agent.api.CreateStoragePoolCommand;
+import com.cloud.agent.api.DeleteStoragePoolCommand;
 import com.cloud.agent.api.GetHostStatsAnswer;
 import com.cloud.agent.api.GetHostStatsCommand;
 import com.cloud.agent.api.GetStorageStatsAnswer;
 import com.cloud.agent.api.GetStorageStatsCommand;
 import com.cloud.agent.api.GetVmStatsAnswer;
 import com.cloud.agent.api.GetVmStatsCommand;
+import com.cloud.agent.api.ModifyStoragePoolCommand;
 import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.StartCommand;
 import com.cloud.agent.api.StopAnswer;
@@ -65,25 +73,21 @@ import com.cloud.agent.api.storage.DestroyAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 
 import com.cloud.hypervisor.hyperv.resource.HypervResource;
+import com.cloud.hypervisor.hyperv.storage.HypervStoragePool;
 
 import org.apache.log4j.Logger;
 
 import com.cloud.serializer.GsonHelper;
+import com.cloud.storage.StoragePool;
+import com.cloud.storage.StoragePoolVO;
 import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.PropertiesUtil;
 import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.exception.CloudRuntimeException;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonDeserializationContext;
-import com.google.gson.JsonDeserializer;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonParseException;
-import com.google.gson.JsonSerializationContext;
-import com.google.gson.JsonSerializer;
-import com.google.gson.stream.JsonReader;
+
 
 
 /*
@@ -91,17 +95,18 @@ import com.google.gson.stream.JsonReader;
  *
  * mvn exec:java -Dexec.mainClass=com.cloud.agent.TestHyperv
  */
-public class TestHyperv {
-    private static final Logger s_logger = Logger.getLogger(TestHyperv.class.getName());
+public class HypervResourceTest {
+    private static final Logger s_logger = Logger.getLogger(HypervResourceTest.class.getName());
     
     // TODO:  make this a config parameter
     protected static final Gson s_gson = GsonHelper.getGson();
     protected static final HypervResource s_hypervresource = new HypervResource();
        
-    public TestHyperv() {
+    public HypervResourceTest() {
     }
     
-    public static void initialise() throws ConfigurationException
+    @Before
+    public void setUp() throws ConfigurationException
     {
        	// Seed /conf folder with log4j.xml into class path 
         final ComponentLocator locator = ComponentLocator.getLocator("agent");
@@ -113,10 +118,11 @@ public class TestHyperv {
     }
     
     public static void main(String[] args) throws ConfigurationException {
-    	initialise();
+    	HypervResourceTest tester = new HypervResourceTest();
+    	tester.setUp();
 //    	SampleJsonFromPrimaryStorageDownloadCommand();
     	TestGetHostStatsCommand();
-    	TestGetVmStatsCommand();
+    	tester.TestGetVmStatsCommand();
     	TestGetStorageStatsCommand();
     	TestCreateCommand();
     	TestStartCommand();
@@ -125,16 +131,80 @@ public class TestHyperv {
     	return;
     }
     
-    public static void TestGetVmStatsCommand()
+    @Test 
+    public void TestGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
     	List<String> vmNames = new ArrayList<String>();
     	vmNames.add("TestCentOS6.3");
+    	GetVmStatsCommand cmd = new GetVmStatsCommand(vmNames, "1", "localhost");
+
+    	s_hypervresource.execute(cmd);
+    }
+    
+    @Test 
+    public void TestBadGetVmStatsCommand()
+    {
+       	// Sample GetVmStatsCommand
+    	List<String> vmNames = new ArrayList<String>();
+    	vmNames.add("FakeVM");
     	GetVmStatsCommand vmStatsCmd = new GetVmStatsCommand(vmNames, "1", "localhost");
 
     	s_hypervresource.execute(vmStatsCmd);
     }
+    
+    @Test
+    public void TestCreateStoragePoolCommand()
+    {
+    	CreateStoragePoolCommand cmd = new CreateStoragePoolCommand();
 
+    	Answer ans = s_hypervresource.execute(cmd);
+    	Assert.assertTrue(ans.getResult());
+    }
+    
+    @Test
+    public void TestModifyStoragePoolCommand()
+    {
+    	// Create dummy folder
+    	String folderName = "." + File.separator + "Dummy";
+    	File folder = new File(folderName);
+    	if (!folder.exists()) {
+    		if (!folder.mkdir()) {
+    			Assert.assertTrue(false);
+    		}
+    	}
+    	
+    	// Use same spec for pool
+    	s_logger.info("Createing pool at : " + folderName );
+
+        StoragePoolVO pool = new StoragePoolVO(StoragePoolType.Filesystem, 
+        		"127.0.0.1", -1, folderName);
+
+    	ModifyStoragePoolCommand cmd = new ModifyStoragePoolCommand(
+    			true, pool, folderName);
+    	Answer ans = s_hypervresource.execute(cmd);
+    	Assert.assertTrue(ans.getResult());
+    	
+    	DeleteStoragePoolCommand delCmd = new DeleteStoragePoolCommand(pool, folderName);
+    	Answer ans2 = s_hypervresource.execute(delCmd);
+    	Assert.assertTrue(ans2.getResult());
+    }
+    
+    public static void TestCreateCommand()
+    {
+    	// TODO:  update when CreateStoragePool works.
+    	String sample = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"host\":\"10.70.176.29\"" +
+    					",\"path\":\"E:\\\\Disks\\\\Disks\",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
+    					"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-9\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
+    					"\"volumeId\":10,\"hyperType\":\"Hyperv\"},\"templateUrl\":\"e:\\\\Disks\\\\Disks\\\\SampleHyperVCentOS63VM.vhdx\"," +
+    					"\"contextMap\":{},\"wait\":0}";
+
+    	s_logger.info("Sample JSON: " + sample );
+
+    	CreateCommand cmd = s_gson.fromJson(sample, CreateCommand.class);
+    	s_hypervresource.execute(cmd);
+    }
+    
     public static void TestStartCommand()
     {
        	String sample = "{\"vm\":{\"id\":6,\"name\":\"i-2-6-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
@@ -169,21 +239,6 @@ public class TestHyperv {
     	s_logger.info("Sample JSON: " + sample );
 
     	StopCommand cmd = s_gson.fromJson(sample, StopCommand.class);
-    	s_hypervresource.execute(cmd);
-    }
-
-    public static void TestCreateCommand()
-    {
-    	// TODO:  update when CreateStoragePool works.
-    	String sample = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"host\":\"10.70.176.29\"" +
-    					",\"path\":\"E:\\\\Disks\\\\Disks\",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
-    					"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-9\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
-    					"\"volumeId\":10,\"hyperType\":\"Hyperv\"},\"templateUrl\":\"e:\\\\Disks\\\\Disks\\\\SampleHyperVCentOS63VM.vhdx\"," +
-    					"\"contextMap\":{},\"wait\":0}";
-
-    	s_logger.info("Sample JSON: " + sample );
-
-    	CreateCommand cmd = s_gson.fromJson(sample, CreateCommand.class);
     	s_hypervresource.execute(cmd);
     }
 
@@ -243,7 +298,7 @@ public class TestHyperv {
     	return toJson(answer);
    }
 
-    public static String SampleJsonFromPrimaryStorageDownloadCommand()
+/*    public static String SampleJsonFromPrimaryStorageDownloadCommand()
     {
     	PrimaryStorageDownloadCommand cmd = new PrimaryStorageDownloadCommand(
     			"routing-9",
@@ -256,7 +311,7 @@ public class TestHyperv {
     	String result = toJson(cmd);
     	s_logger.debug("Converting a " + cmd.getClass().getName() + " to JSON: " + result );
     	return result;
-    }
+    }*/
    
     // TODO: Unicode issues?
     public static String toJson(Command cmd) {
