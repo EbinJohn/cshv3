@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package com.cloud.hypervisor.hyperv;
+package com.cloud.hypervisor.hyperv.discoverer;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -62,6 +62,7 @@ import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceStateAdapter;
 import com.cloud.resource.ServerResource;
 import com.cloud.resource.UnableDeleteHostException;
+import com.cloud.resource.ResourceStateAdapter.DeleteHostAnswer;
 import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.component.Inject;
 
@@ -324,9 +325,22 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     }
 	@Override
     public DeleteHostAnswer deleteHost(HostVO host, boolean isForced, boolean isForceDeleteStorage) throws UnableDeleteHostException {
-			// TODO:  Implement ability to remove a host from a cluster.
+        if (host.getType() != Host.Type.Routing || host.getHypervisorType() != HypervisorType.KVM) {
             return null;
         }
+        
+        _resourceMgr.deleteRoutingHost(host, isForced, isForceDeleteStorage);
+        try {
+            ShutdownCommand cmd = new ShutdownCommand(ShutdownCommand.DeleteHost, null);
+            _agentMgr.send(host.getId(), cmd);
+        } catch (AgentUnavailableException e) {
+            s_logger.warn("Sending ShutdownCommand failed: ", e);
+        } catch (OperationTimedoutException e) {
+            s_logger.warn("Sending ShutdownCommand failed: ", e);
+        }
+        
+        return new DeleteHostAnswer(true);
+    }
 	// end of ResourceStateAdapter
 }
 

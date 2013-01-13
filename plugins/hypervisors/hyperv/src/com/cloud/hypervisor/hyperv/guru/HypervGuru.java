@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package com.cloud.hypervisor.guru;
+package com.cloud.hypervisor.hyperv.guru;
 
 import javax.ejb.Local;
 
@@ -33,7 +33,7 @@ import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineProfile;
 
 /**
- * Implementation of Hypervisor guru for Hyper-Vr
+ * Implementation of Hypervisor guru for Hyper-V
  **/
 
 // HypervisorGuruBase --> AdapterBase implements Adapter, adapter allow object to participate in plugin system (dynamic component loader)

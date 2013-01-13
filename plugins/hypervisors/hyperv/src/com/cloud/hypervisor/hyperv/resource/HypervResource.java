@@ -170,7 +170,7 @@ public class HypervResource implements ServerResource {
         } else if (cmd instanceof ReadyCommand) { 
         	result =  execute((ReadyCommand) cmd);
         } else if (cmd instanceof CleanupNetworkRulesCmd) {  // TODO:  provide proper implementation
-        	result =  Answer.createUnsupportedCommandAnswer(cmd);
+        	result =  execute((CleanupNetworkRulesCmd) cmd);
 		} else if (cmd instanceof GetHostStatsCommand) {
 			result =  execute((GetHostStatsCommand) cmd);
 		} else if (cmd instanceof GetStorageStatsCommand) {
@@ -229,6 +229,10 @@ public class HypervResource implements ServerResource {
     public Type getType() {
         return _type;
     }   
+    
+    private Answer execute(CleanupNetworkRulesCmd cmd) {
+        return new Answer(cmd, false, "can't bridge firewall, so notthing to clean up");
+    }
     
     protected Answer execute(CheckVirtualMachineCommand cmd) {
         if (s_logger.isDebugEnabled()) {
@@ -406,6 +410,7 @@ public class HypervResource implements ServerResource {
             // TODO:  Use WMI to query necessary usage stats.
             hostStats.setNetworkReadKBs(0);
             hostStats.setNetworkWriteKBs(0);
+            
             OperatingSystemMXBean mxb = ManagementFactory.getOperatingSystemMXBean();
             hostStats.setTotalMemoryKBs(Runtime.getRuntime().totalMemory());
             hostStats.setFreeMemoryKBs(Runtime.getRuntime().freeMemory());
