@@ -298,7 +298,7 @@ public class HypervResource implements ServerResource {
                     return new PrimaryStorageDownloadAnswer(errMsg);
                 }
                 for (HypervPhysicalDisk disk : disks) {
-                    if (disk.getName().endsWith("vhd")) {
+                    if (disk.getName().toLowerCase().endsWith(secondaryPool.getDefaultFormat().toString().toLowerCase())) {
                         tmplVol = disk;
                         break;
                     }
@@ -325,7 +325,8 @@ public class HypervResource implements ServerResource {
             }
 	
 	        HypervPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(
-	                tmplVol, UUID.randomUUID().toString(), primaryPool);
+	                tmplVol, UUID.randomUUID().toString() + "." + 
+	                tmplVol.getFormat().toString(), primaryPool);
             s_logger.debug("Created volume from secondary storage named " + 
             		primaryVol.getName() + " at " + primaryVol.getPath());
 
@@ -384,19 +385,21 @@ public class HypervResource implements ServerResource {
                 }
                 String tmpltname = tmplturl.substring(index + 1);
             	s_logger.debug("Template's name in primary store should be " + tmpltname);
-                
                 // TODO:  Does this always work, or do I need to download template at times?
                 HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(tmpltname);
-                vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, UUID
-                        .randomUUID().toString(), primaryPool);
+                String newVolumeName = UUID.randomUUID().toString() + "." 
+                						+ BaseVol.getFormat().toString();
+            	s_logger.debug("New volume will be named " + newVolumeName);
+                vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, newVolumeName, primaryPool);
 
                 if (vol == null) {
                     return new Answer(cmd, false,
                             " Can't create storage volume on storage pool");
                 }
             } else {
+            	// TODO:  if an empty disk is created, where is its format specified?
                 vol = primaryPool.createPhysicalDisk(UUID.randomUUID()
-                        .toString(), dskch.getSize());
+                        .toString() + primaryPool.getDefaultFormat().toString(), dskch.getSize());
             }            
             VolumeTO volume = new VolumeTO(cmd.getVolumeId(), dskch.getType(),
                     pool.getType(), pool.getUuid(), vol.getName(),

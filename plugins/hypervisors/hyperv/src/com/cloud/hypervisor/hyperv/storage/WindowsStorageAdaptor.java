@@ -93,8 +93,13 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         	s_logger.error(errMsg);
         	throw new CloudRuntimeException(errMsg);
         }
+        s_logger.debug("HypervPhysicalDisk " + diskPath);
+        s_logger.debug("HypervPhysicalDisk " + volumeUuid);
+        s_logger.debug("HypervPhysicalDisk " + pool.name);
         
         HypervPhysicalDisk disk = new HypervPhysicalDisk(diskPath, volumeUuid, pool);
+        s_logger.debug("HypervPhysicalDisk " + pool.name);
+
         // TODO:  AFAIK, usage stats for a volume come from WMI
         //disk.setSize(vol.getInfo().allocation);
         //disk.setVirtualSize(vol.getInfo().capacity);

@@ -16,9 +16,14 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.storage;
 
+import org.apache.log4j.Logger;
+
+import com.cloud.hypervisor.hyperv.resource.HypervResource;
+
 public class HypervPhysicalDisk {
-	
-	// Path does not include the filename, which is given by the 'name' parameter.
+    private static final Logger s_logger = Logger.getLogger(HypervPhysicalDisk.class);
+
+	// Path *does* include the filename, which is given by the 'name' parameter.
     private String path;
     private String name;
     private HypervStoragePool pool;
@@ -44,6 +49,16 @@ public class HypervPhysicalDisk {
         this.path = path;
         this.name = name;
         this.pool = pool;
+        String ext = name.substring(name.lastIndexOf(".")+1);
+        HypervPhysicalDisk.s_logger.debug("extension in " + name + " is " + ext);
+        
+        try {
+        	this.format = PhysicalDiskFormat.valueOf(ext.toUpperCase());
+        }
+        catch (IllegalArgumentException e)
+        {
+        	HypervPhysicalDisk.s_logger.error("Invalid disk format" + ext, e);
+        }
     }
 
     public void setFormat(PhysicalDiskFormat format) {
