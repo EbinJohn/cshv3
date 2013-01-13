@@ -125,11 +125,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         pool.setCapacity(usableCapacity);
         pool.setUsed(0);
 
-        // Clear the folder
-        // TODO: ensure that File operations include same synchronisation
-        // you see in core/src/com/cloud/storage/JavaStorageLayer.java
-        this._storageLayer.deleteDir(path);
-
+        // Do not clear the folder, admin responsible for this.
         return pool;
     }
 
@@ -235,21 +231,21 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     @Override
     public HypervPhysicalDisk copyPhysicalDisk(HypervPhysicalDisk disk, String name,
             HypervStoragePool destPool) {
-    	String taskMsg = "Use file system to make copy of disk " + disk.getPath() + " to " + destPool.getLocalPath();
-        s_logger.debug(taskMsg);
 
     	// Use file system to complete task.
         String sourcePath = disk.getPath();
         String destPath = destPool.getLocalPath();
-        
-        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destPath, name, destPool);
-        
+    	String taskMsg = "Use file system to make copy of disk " + disk.getPath() + " to " + 
+    			destPath + File.separator + name;
+    	s_logger.debug(taskMsg);
         // Warnings about performance issues lead to use of NIO for copy.
         // See http://stackoverflow.com/questions/106770/standard-concise-way-to-copy-a-file-in-java
         FileChannel src = null;
         FileChannel dest = null;
         File sourceFile = new File(sourcePath);
-        File destFile = new File(destPath + File.separator +  sourceFile.getName());
+        String destFilePath = destPath + File.separator +  sourceFile.getName();
+        File destFile = new File(destFilePath);
+        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destPath, name, destPool);
         
         try {
             src = new FileInputStream(sourceFile).getChannel();

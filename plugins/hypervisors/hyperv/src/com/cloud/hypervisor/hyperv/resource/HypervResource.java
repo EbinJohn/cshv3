@@ -242,7 +242,7 @@ public class HypervResource implements ServerResource {
         return new CheckVirtualMachineAnswer(cmd, State.Running, null);
     }
     
-    public GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
+    protected GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
     	// TODO:  add infrastructure to propagate failures.
     	GetVmStatsAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, GetVmStatsAnswer.class);
 
@@ -251,13 +251,13 @@ public class HypervResource implements ServerResource {
     }
 
     // TODO: create unit test
-    public Answer execute(DestroyCommand cmd) {
+    protected Answer execute(DestroyCommand cmd) {
     	DestroyAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, DestroyAnswer.class);
     	
         return new DestroyAnswer(cmd, pythonResult.getResult(), pythonResult.getDetails());
 	}
     
-    public Answer execute(StopCommand cmd) {
+    protected Answer execute(StopCommand cmd) {
     	StopAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, StopAnswer.class);
    	
         return new StopAnswer(cmd, pythonResult.getDetails(), pythonResult.getResult());
@@ -268,9 +268,12 @@ public class HypervResource implements ServerResource {
         return new ReadyAnswer(cmd);
     }
 
-    public PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
+    protected PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
         String tmplturl = cmd.getUrl();
         int index = tmplturl.lastIndexOf("/");
+        if (index < 0) {
+            index = tmplturl.lastIndexOf("\\");
+        }
         String mountpoint = tmplturl.substring(0, index);
         String tmpltname = null;
         if (index < tmplturl.length() - 1) {
@@ -340,7 +343,7 @@ public class HypervResource implements ServerResource {
     /*
      * Create VM.
      */
-    public synchronized StartAnswer execute(StartCommand cmd) {
+    protected synchronized StartAnswer execute(StartCommand cmd) {
         StartAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, StartAnswer.class);
     	
         if (s_logger.isDebugEnabled()) {
@@ -356,7 +359,7 @@ public class HypervResource implements ServerResource {
     /*
      * Create volume based on KVM implementation.
      */
-    public Answer execute(CreateCommand cmd) {
+    protected Answer execute(CreateCommand cmd) {
         StorageFilerTO pool = cmd.getPool();
         DiskProfile dskch = cmd.getDiskCharacteristics();
         HypervStoragePool primaryPool = null;
@@ -369,7 +372,21 @@ public class HypervResource implements ServerResource {
             // Distinguish between disk based on existing image or 
             // empty one created from scratch.
             if (cmd.getTemplateUrl() != null) {
-                HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(cmd.getTemplateUrl());
+                String tmplturl = cmd.getTemplateUrl();
+                int index = tmplturl.lastIndexOf("/");
+                if (index < 0) {
+                    index = tmplturl.lastIndexOf("\\");
+                }
+                if (index < 0) {
+                	String errMsg = "Template " + tmplturl + " does not name the volume";
+                	s_logger.error(errMsg);
+                	throw new RuntimeCloudException(errMsg);
+                }
+                String tmpltname = tmplturl.substring(index + 1);
+            	s_logger.debug("Template's name in primary store should be " + tmpltname);
+                
+                // TODO:  Does this always work, or do I need to download template at times?
+                HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(tmpltname);
                 vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, UUID
                         .randomUUID().toString(), primaryPool);
 
@@ -382,8 +399,8 @@ public class HypervResource implements ServerResource {
                         .toString(), dskch.getSize());
             }            
             VolumeTO volume = new VolumeTO(cmd.getVolumeId(), dskch.getType(),
-                    pool.getType(), pool.getUuid(), pool.getPath(),
-                    vol.getName(), vol.getName(), disksize, null);
+                    pool.getType(), pool.getUuid(), vol.getName(),
+                    vol.getPath(), vol.getPath(), disksize, null);
             return new CreateAnswer(cmd, volume);
         } catch (RuntimeCloudException e) {
             s_logger.debug("Failed to create volume: " + e.toString());
@@ -391,7 +408,7 @@ public class HypervResource implements ServerResource {
         }
     }
     
-    public GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
+    protected GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
         try {
             HypervStoragePool sp = _storagePoolMgr.getStoragePool(cmd
                     .getStorageId());
@@ -404,7 +421,7 @@ public class HypervResource implements ServerResource {
     }
     
     @SuppressWarnings("restriction")
-	public GetHostStatsAnswer execute(GetHostStatsCommand cmd) {
+    protected GetHostStatsAnswer execute(GetHostStatsCommand cmd) {
         try {
             HostStatsEntry hostStats = new HostStatsEntry(cmd.getHostId(), 0, 0, 0, "host", 0, 0, 0, 0);
             // TODO:  Use WMI to query necessary usage stats.
@@ -539,11 +556,11 @@ public class HypervResource implements ServerResource {
         return null;
     }
     
-    public Answer execute(CreateStoragePoolCommand cmd) {
+    protected Answer execute(CreateStoragePoolCommand cmd) {
         return new Answer(cmd, true, "success");
     }
 
-    public Answer execute(ModifyStoragePoolCommand cmd) {
+    protected Answer execute(ModifyStoragePoolCommand cmd) {
         Answer result = ValidateStoragePoolCommand(cmd);
         if (null != result) {
         	return result;
@@ -564,7 +581,7 @@ public class HypervResource implements ServerResource {
         return answer;
     }
 
-    public Answer execute(DeleteStoragePoolCommand cmd) {
+    protected Answer execute(DeleteStoragePoolCommand cmd) {
         try {
             _storagePoolMgr.deleteStoragePool(cmd.getPool().getUuid());
             return new Answer(cmd);

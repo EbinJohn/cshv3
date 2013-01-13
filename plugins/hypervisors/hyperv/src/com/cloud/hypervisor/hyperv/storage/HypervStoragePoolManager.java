@@ -94,9 +94,7 @@ public class HypervStoragePoolManager {
 
 	public HypervPhysicalDisk createDiskFromTemplate(
 			HypervPhysicalDisk template, String name, HypervStoragePool destPool) {
-		return this._storageAdaptor.createDiskFromTemplate(template, name,
-				HypervPhysicalDisk.PhysicalDiskFormat.VHD, template.getSize(),
-				destPool);
+		return this._storageAdaptor.copyPhysicalDisk(template, name, destPool);
 	}
 
 	public HypervPhysicalDisk createTemplateFromDisk(HypervPhysicalDisk disk,
