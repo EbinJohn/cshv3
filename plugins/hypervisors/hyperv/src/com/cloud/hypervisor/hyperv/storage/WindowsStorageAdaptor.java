@@ -83,7 +83,9 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     	WindowsStoragePool pool = (WindowsStoragePool) poolArg;
 
     	String diskPath = pool.getLocalPath() + File.separator + volumeUuid;
-    	String taskMsg = "Return HypervPhysical obj for volume uuid " + volumeUuid + " from pool " + pool.getUuid().toString();
+    	String taskMsg = "Get HypervPhysicalDisk for volume uuid " + volumeUuid + 
+    					" at " + diskPath +
+    					" from pool " + pool.getUuid().toString();
         s_logger.debug(taskMsg);
         
         if (!this._storageLayer.exists(diskPath)) {
@@ -187,9 +189,8 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         HypervStoragePool srcPool = template.getPool();
         HypervPhysicalDisk disk = null;
 
-        
         // TODO: Is disk from template outright copy or thin copy.
-        // Calls down to our createPhysicalDisk mehtod
+        // Calls down to our createPhysicalDisk method
         disk = destPool.createPhysicalDisk(newUuid, format, template.getVirtualSize());
 
         return disk;
@@ -248,7 +249,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         FileChannel src = null;
         FileChannel dest = null;
         File sourceFile = new File(sourcePath);
-        File destFile = new File(destPath);
+        File destFile = new File(destPath + File.separator +  sourceFile.getName());
         
         try {
             src = new FileInputStream(sourceFile).getChannel();
@@ -294,6 +295,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         try {
             storageUri = new URI(uri);
         } catch (URISyntaxException e) {
+            s_logger.debug("Invalid URI " + e.getMessage());
             throw new CloudRuntimeException(e.toString());
         }
 
@@ -315,8 +317,8 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         // Generate local mount corresponding to NFS share.
         protocal = StoragePoolType.Filesystem;
         
-        if (!this._storageLayer.isDirectory(sourcePath)){
-        	String errMsg = "Not such path for task " + taskMsg;
+        if (!this._storageLayer.isDirectory(uriLocalPath)){
+        	String errMsg = "No directory corresponding to " + uriLocalPath + " for task " + taskMsg;
         	s_logger.debug(errMsg);
         	throw new CloudRuntimeException(errMsg);
         }
@@ -326,8 +328,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
             
         return pool;
     }
-
-
+    
     @Override
     public HypervPhysicalDisk getPhysicalDiskFromURI(String uri) {
         // TODO Auto-generated method stub
@@ -349,7 +350,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     public boolean deleteStoragePool(HypervStoragePool poolArg) {
         WindowsStoragePool pool = (WindowsStoragePool) poolArg;
     	String path = pool.getLocalPath();
-    	String taskMsg = "Remove all files from pool " + pool.getName() + " at " + path;
+    	String taskMsg = "Delete call on storage pool " + pool.getName() + " at " + path;
     	s_logger.debug(taskMsg);
         return true;
     }

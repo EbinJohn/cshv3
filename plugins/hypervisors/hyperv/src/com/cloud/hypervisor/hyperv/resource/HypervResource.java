@@ -23,6 +23,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -180,11 +182,11 @@ public class HypervResource implements ServerResource {
 		} else if (cmd instanceof StopCommand) {
 			result =  execute((StopCommand) cmd);
         } else if (cmd instanceof CreateStoragePoolCommand) {
-            return execute((CreateStoragePoolCommand) cmd);
+        	result =  execute((CreateStoragePoolCommand) cmd);
         } else if (cmd instanceof ModifyStoragePoolCommand) {
-            return execute((ModifyStoragePoolCommand) cmd);
+        	result =  execute((ModifyStoragePoolCommand) cmd);
         } else if (cmd instanceof DeleteStoragePoolCommand) {
-            return execute((DeleteStoragePoolCommand) cmd);
+        	result =  execute((DeleteStoragePoolCommand) cmd);
 		} else if (cmd instanceof RebootCommand) {
 			result =  Answer.createUnsupportedCommandAnswer(cmd);
 		} else if (cmd instanceof GetVmStatsCommand) {
@@ -213,7 +215,7 @@ public class HypervResource implements ServerResource {
         
         if (s_logger.isDebugEnabled()) {
             String cmdData = s_gson.toJson(result, result.getClass());
-            s_logger.debug(result.getClass().getSimpleName() + " call using data:" + cmdData);
+            s_logger.debug(result.getClass().getSimpleName() + " call result is:" + cmdData);
         }
         return result;
     }
@@ -269,6 +271,7 @@ public class HypervResource implements ServerResource {
         String tmpltname = null;
         if (index < tmplturl.length() - 1) {
             tmpltname = tmplturl.substring(index + 1);
+        	s_logger.debug("Choose tmpltname " + tmpltname);
         }
 
         HypervPhysicalDisk tmplVol = null;
@@ -282,9 +285,10 @@ public class HypervResource implements ServerResource {
 
                 List<HypervPhysicalDisk> disks = secondaryPool.listPhysicalDisks();
                 if (disks == null || disks.isEmpty()) {
-                    return new PrimaryStorageDownloadAnswer(
-                            "Failed to get volumes from pool: "
-                                    + secondaryPool.getUuid());
+                	String errMsg = "Failed to get volumes from pool: "
+                            + secondaryPool.getUuid();
+                	s_logger.debug(errMsg);
+                    return new PrimaryStorageDownloadAnswer(errMsg);
                 }
                 for (HypervPhysicalDisk disk : disks) {
                     if (disk.getName().endsWith("vhd")) {
@@ -304,15 +308,23 @@ public class HypervResource implements ServerResource {
 	        /* Copy volume to primary storage */
 	        HypervStoragePool primaryPool = _storagePoolMgr.getStoragePool(cmd
 	                .getPoolUuid());
+	        
+	        if ( primaryPool == null)
+	        {
+	        	String errMsg = "Could not find primary storage pool " + cmd.getPoolUuid() + 
+                        "at " + cmd.getLocalPath();
+	        	s_logger.error(errMsg);
+                return new PrimaryStorageDownloadAnswer(errMsg);
+            }
 	
 	        HypervPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(
 	                tmplVol, UUID.randomUUID().toString(), primaryPool);
-	
-            s_logger.debug("Created volume from secondary storage named " + primaryVol.getName() + " at " + primaryVol.getPath());
+            s_logger.debug("Created volume from secondary storage named " + 
+            		primaryVol.getName() + " at " + primaryVol.getPath());
 
 	        return new PrimaryStorageDownloadAnswer(primaryVol.getName(),
 	                primaryVol.getSize());
-        } catch (CloudRuntimeException e) {
+        } catch (RuntimeCloudException e) {
             return new PrimaryStorageDownloadAnswer(e.toString());
         } finally {
             if (secondaryPool != null) {
@@ -350,6 +362,8 @@ public class HypervResource implements ServerResource {
             primaryPool = _storagePoolMgr.getStoragePool(pool.getUuid());
             disksize = dskch.getSize();
 
+            // Distinguish between disk based on existing image or 
+            // empty one created from scratch.
             if (cmd.getTemplateUrl() != null) {
                 HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(cmd.getTemplateUrl());
                 vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, UUID
@@ -362,7 +376,7 @@ public class HypervResource implements ServerResource {
             } else {
                 vol = primaryPool.createPhysicalDisk(UUID.randomUUID()
                         .toString(), dskch.getSize());
-            }
+            }            
             VolumeTO volume = new VolumeTO(cmd.getVolumeId(), dskch.getType(),
                     pool.getType(), pool.getUuid(), pool.getPath(),
                     vol.getName(), vol.getName(), disksize, null);
@@ -374,41 +388,40 @@ public class HypervResource implements ServerResource {
     }
     
     public GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
-        if (s_logger.isDebugEnabled()) {
-            String cmdData = s_gson.toJson(cmd, cmd.getClass());
-            s_logger.debug("GetHostStatsCommand call using data:" + cmdData);
+        try {
+            HypervStoragePool sp = _storagePoolMgr.getStoragePool(cmd
+                    .getStorageId());
+            // TODO:  may want to ask storage pool to refresh itself, as cap / used are static.
+            return new GetStorageStatsAnswer(cmd, sp.getCapacity(),
+                    sp.getUsed());
+        } catch (RuntimeCloudException e) {
+            return new GetStorageStatsAnswer(cmd, e.toString());
         }
-
-        String capacityStr = (String) getConfiguredProperty(
-                "local.storage.capacity", "10000000000");
-        String availableStr = (String) getConfiguredProperty(
-                "local.storage.avail", "5000000000");
-
-        long capacity = Long.parseLong(capacityStr);
-        long used = Long.parseLong(availableStr);
-        return new GetStorageStatsAnswer(cmd, capacity, used);
     }
     
-    /**
-     * This is the method called for getting the HOST stats
-     * 
-     * @param cmd
-     * @return
-     */
-    public GetHostStatsAnswer execute(GetHostStatsCommand cmd) {
-        if (s_logger.isDebugEnabled()) {
-            String cmdData = s_gson.toJson(cmd, cmd.getClass());
-            s_logger.debug("GetHostStatsCommand call using data:" + cmdData);
-        }
-
+    @SuppressWarnings("restriction")
+	public GetHostStatsAnswer execute(GetHostStatsCommand cmd) {
         try {
             HostStatsEntry hostStats = new HostStatsEntry(cmd.getHostId(), 0, 0, 0, "host", 0, 0, 0, 0);
             // TODO:  Use WMI to query necessary usage stats.
             hostStats.setNetworkReadKBs(0);
             hostStats.setNetworkWriteKBs(0);
-            hostStats.setTotalMemoryKBs(0);
-            hostStats.setFreeMemoryKBs(0);
+            OperatingSystemMXBean mxb = ManagementFactory.getOperatingSystemMXBean();
+            hostStats.setTotalMemoryKBs(Runtime.getRuntime().totalMemory());
+            hostStats.setFreeMemoryKBs(Runtime.getRuntime().freeMemory());
+            
+            // CPU utilisation difficult to access direct from Java
+            // See http://stackoverflow.com/questions/25552/using-java-to-get-os-level-system-information
             hostStats.setCpuUtilization(0);
+            try {
+            	com.sun.management.OperatingSystemMXBean mxb2 = (com.sun.management.OperatingSystemMXBean)mxb;
+            	hostStats.setCpuUtilization(mxb2.getSystemCpuLoad());
+            }
+            catch (Exception e)
+            {
+                String msg = "CPU utilisation only available with Oracle JVM" + e.toString();
+                s_logger.warn(msg, e);
+            }
             return new GetHostStatsAnswer(cmd, hostStats);
         } catch (Exception e) {
             String msg = "Unable to get Host stats" + e.toString();
@@ -618,7 +631,6 @@ public class HypervResource implements ServerResource {
         setParams(params);
         
         _localStoragePath = (String) getConfiguredProperty("local.storage.path", "E:\\Disks\\Disks");
-        
         _localStorageUUID = (String) params.get("local.storage.uuid");
         if (_localStorageUUID == null) {
         	throw new ConfigurationException("local.storage.uuid is not set! Please set this to a valid UUID");

@@ -67,6 +67,9 @@ import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.VmStatsEntry;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
+import com.cloud.agent.api.storage.AbstractDownloadCommand;
+
+
 import com.cloud.agent.api.storage.CreateAnswer;
 import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.DestroyAnswer;
@@ -101,30 +104,47 @@ public class HypervResourceTest {
     // TODO:  make this a config parameter
     protected static final Gson s_gson = GsonHelper.getGson();
     protected static final HypervResource s_hypervresource = new HypervResource();
+    
+    protected static final String testLocalStoreUUID = "5fe2bad3-d785-394e-9949-89786b8a63d2";
        
     public HypervResourceTest() {
+       	// Seed /conf folder with log4j.xml into class path 
+        final ComponentLocator locator = ComponentLocator.getLocator("agent");
+
+        try {
+            // Obtain script locations from agent.properties
+            final Map<String, Object> params = PropertiesUtil.toMap(loadProperties());
+        	s_hypervresource.configure("hypervresource",  params);
+        
+	        // Used to create existing StoragePool in preparation for the ModifyStoragePool
+	        params.put("local.storage.uuid", testLocalStoreUUID);
+	        String testStorePool = ".\\var\\test\\storagepool";
+	        params.put("local.storage.path", testStorePool);
+	        File testPoolDir = new File(testStorePool);
+	        if (!testPoolDir.exists())
+	        {
+	        	testPoolDir.mkdir();
+	        }
+	        s_hypervresource.initialize();
+        }
+        catch (Exception e) {
+        	s_logger.info("Exception during ctor" + e.getMessage());
+        }
     }
     
     @Before
     public void setUp() throws ConfigurationException
     {
-       	// Seed /conf folder with log4j.xml into class path 
-        final ComponentLocator locator = ComponentLocator.getLocator("agent");
-
-        // Obtain script locations from agent.properties
-        final Map<String, Object> params = PropertiesUtil.toMap(loadProperties());
-        
-        s_hypervresource.configure("hypervresource",  params);
     }
     
     public static void main(String[] args) throws ConfigurationException {
     	HypervResourceTest tester = new HypervResourceTest();
     	tester.setUp();
 //    	SampleJsonFromPrimaryStorageDownloadCommand();
-    	TestGetHostStatsCommand();
+    	tester.TestGetHostStatsCommand();
     	tester.TestGetVmStatsCommand();
-    	TestGetStorageStatsCommand();
-    	TestCreateCommand();
+    	tester.TestGetStorageStatsCommand();
+    	tester.TestCreateCommand();
     	TestStartCommand();
     	TestStopCommand();
     	TestDestroyCommand();
@@ -139,10 +159,12 @@ public class HypervResourceTest {
     	vmNames.add("TestCentOS6.3");
     	GetVmStatsCommand cmd = new GetVmStatsCommand(vmNames, "1", "localhost");
 
-    	s_hypervresource.execute(cmd);
+    	s_hypervresource.executeRequest(cmd);
+    	Answer ans = s_hypervresource.execute(cmd);
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
     
-    @Test 
+    //@Test 
     public void TestBadGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
@@ -153,7 +175,7 @@ public class HypervResourceTest {
     	s_hypervresource.execute(vmStatsCmd);
     }
     
-    @Test
+    //@Test
     public void TestCreateStoragePoolCommand()
     {
     	CreateStoragePoolCommand cmd = new CreateStoragePoolCommand();
@@ -162,7 +184,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getResult());
     }
     
-    @Test
+    //@Test
     public void TestModifyStoragePoolCommand()
     {
     	// Create dummy folder
@@ -189,10 +211,57 @@ public class HypervResourceTest {
     	Answer ans2 = s_hypervresource.execute(delCmd);
     	Assert.assertTrue(ans2.getResult());
     }
-    
-    public static void TestCreateCommand()
+
+    // @Test
+    public void TestModifyStoragePoolCommand2()
+    {
+    	// Should return existing pool
+    	// Create dummy folder
+    	String folderName = "." + File.separator + "Dummy";
+    	File folder = new File(folderName);
+    	if (!folder.exists()) {
+    		if (!folder.mkdir()) {
+    			Assert.assertTrue(false);
+    		}
+    	}
+    	
+    	// Use same spec for pool
+    	s_logger.info("Createing pool at : " + folderName );
+
+        StoragePoolVO pool = new StoragePoolVO(StoragePoolType.Filesystem, 
+        		"127.0.0.1", -1, folderName);
+        pool.setUuid(testLocalStoreUUID);
+
+    	ModifyStoragePoolCommand cmd = new ModifyStoragePoolCommand(
+    			true, pool, folderName);
+    	Answer ans = s_hypervresource.execute(cmd);
+    	Assert.assertTrue(ans.getResult());
+    	
+    	DeleteStoragePoolCommand delCmd = new DeleteStoragePoolCommand(pool, folderName);
+    	Answer ans2 = s_hypervresource.execute(delCmd);
+    	Assert.assertTrue(ans2.getResult());
+    }
+    //@Test
+    public void PrimaryStorageDownloadCommand()
+    {
+    	PrimaryStorageDownloadCommand cmd = this.SamplePrimaryStorageDownloadCommand();
+
+    	Answer ans = s_hypervresource.execute(cmd);
+    	if ( !ans.getResult()){
+    		s_logger.error(ans.getDetails());
+    	}
+    	else {
+    		s_logger.debug(ans.getDetails());
+    	}
+    		
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    }
+
+    //@Test
+    public void TestCreateCommand()
     {
     	// TODO:  update when CreateStoragePool works.
+    	// TODO:  the instruction below seems incorrect, because templateUrl is meant to be a UUID, or at least have one.
     	String sample = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"host\":\"10.70.176.29\"" +
     					",\"path\":\"E:\\\\Disks\\\\Disks\",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
     					"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-9\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
@@ -256,7 +325,8 @@ public class HypervResourceTest {
     	s_hypervresource.execute(cmd);
     }
 
-    public static void TestGetStorageStatsCommand()
+    @Test
+    public void TestGetStorageStatsCommand()
     {
     	// TODO:  Update sample data to unsure it is using correct info.
     	String sample = "{\"id\":\"5fe2bad3-d785-394e-9949-89786b8a63d2\",\"localPath\":\"E:\\\\Disks\\\\Disks\"," +
@@ -266,16 +336,20 @@ public class HypervResourceTest {
 
     	GetStorageStatsCommand cmd = s_gson.fromJson(sample, GetStorageStatsCommand.class);
     	s_hypervresource.execute(cmd);
+    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
     
-    public static void TestGetHostStatsCommand()
+    @Test
+    public void TestGetHostStatsCommand()
     {
     	String sample = "{\"hostGuid\":\"B4AE5970-FCBF-4780-9F8A-2D2E04FECC34-HypervResource\",\"hostName\":\"CC-SVR11\",\"hostId\":5,\"contextMap\":{},\"wait\":0}";
     
     	s_logger.info("Sample JSON: " + sample );
 
     	GetHostStatsCommand cmd = s_gson.fromJson(sample, GetHostStatsCommand.class);
-    	s_hypervresource.execute(cmd);
+    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
 
     public static String SampleJsonFromGetVmStatsAnswer()
@@ -297,21 +371,37 @@ public class HypervResourceTest {
 
     	return toJson(answer);
    }
-
-/*    public static String SampleJsonFromPrimaryStorageDownloadCommand()
+    
+    public static String SampleJsonFromPrimaryStorageDownloadCommand()
     {
+    	String test = null;
+    	ImageFormat format = null;
     	PrimaryStorageDownloadCommand cmd = new PrimaryStorageDownloadCommand(
-    			"routing-9",
+    			"routing-9",	
     			"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/",
     			ImageFormat.VHD,
-        		1, 
-        		201, 
-        		"5fe2bad3-d785-394e-9949-89786b8a63d2", 
+        		1L, 
+        		201L, 
+        		testLocalStoreUUID, 
         		10800);
     	String result = toJson(cmd);
     	s_logger.debug("Converting a " + cmd.getClass().getName() + " to JSON: " + result );
     	return result;
-    }*/
+    }
+    
+    public PrimaryStorageDownloadCommand SamplePrimaryStorageDownloadCommand() {
+    	PrimaryStorageDownloadCommand cmd = new PrimaryStorageDownloadCommand(
+    			"SampleTemplate_CentOS.vhdx",	
+    			"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/SampleTemplate_CentOS.vhdx",
+    			ImageFormat.VHD,
+        		1L, 
+        		201L, 
+        		testLocalStoreUUID, 
+        		10800);
+    	cmd.setPrimaryStorageUrl("nfs://10.70.176.29E:\\Disks\\Disks");
+    	cmd.setSecondaryStorageUrl("nfs://10.70.176.4/CSHV3");
+    	return cmd;
+    }
    
     // TODO: Unicode issues?
     public static String toJson(Command cmd) {
