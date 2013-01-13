@@ -248,9 +248,9 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         FileChannel src = null;
         FileChannel dest = null;
         File sourceFile = new File(sourcePath);
-        String destFilePath = destPath + File.separator +  sourceFile.getName();
+        String destFilePath = destPath + File.separator +  name;
         File destFile = new File(destFilePath);
-        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destPath, name, destPool);
+        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destFilePath, name, destPool);
         
         try {
             src = new FileInputStream(sourceFile).getChannel();
@@ -258,13 +258,13 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
             dest.transferFrom(src, 0, src.size());
         }
         catch (FileNotFoundException e) {
-        	String errMsg = e.toString() + " for task to " + taskMsg + "";
-            s_logger.debug(errMsg);
+        	String errMsg = "Failed in " + taskMsg + " due to " + e.toString();
+        	s_logger.debug(errMsg);
             throw new RuntimeCloudException(errMsg, e);
         }
         catch (IOException e) {
-        	String errMsg = e.toString() + " for task to " + taskMsg + "";
-            s_logger.debug(errMsg);
+        	String errMsg = "Failed in " + taskMsg + " due to " + e.toString();
+            s_logger.error(errMsg, e);
             throw new RuntimeCloudException(errMsg, e);
         }
         finally {
