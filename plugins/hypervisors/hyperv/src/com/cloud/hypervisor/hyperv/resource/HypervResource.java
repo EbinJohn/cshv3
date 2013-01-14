@@ -663,10 +663,9 @@ public class HypervResource implements ServerResource {
         
         _clusterId = getConfiguredProperty("cluster", "1");
         
-        _dcId = getConfiguredProperty("zone", "1"); 
-        
-        _secondaryStorageLocalPath = (String) getConfiguredProperty("local.secondary.storage.path", "C:\\Secondary");
+        _dcId = getConfiguredProperty("zone", "1");
 
+        _secondaryStorageLocalPath = (String) getConfiguredProperty("local.secondary.storage.path", "C:\\Secondary");
         File secondaryStorageLocalPathFile = new File(_secondaryStorageLocalPath);
         if ( !secondaryStorageLocalPathFile.exists())
         {

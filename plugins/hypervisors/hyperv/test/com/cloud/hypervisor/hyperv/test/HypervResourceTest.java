@@ -69,7 +69,6 @@ import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
 import com.cloud.agent.api.storage.AbstractDownloadCommand;
 
-
 import com.cloud.agent.api.storage.CreateAnswer;
 import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.DestroyAnswer;
@@ -91,8 +90,6 @@ import com.cloud.utils.exception.CloudRuntimeException;
 
 import com.google.gson.Gson;
 
-
-
 /*
  * General mechanism for calling Hyper-V agent command processing methods.
  *
@@ -108,6 +105,8 @@ public class HypervResourceTest {
     protected static final String testLocalStoreUUID = "5fe2bad3-d785-394e-9949-89786b8a63d2";
     protected static final String testLocalStorePath = "." + File.separator + 
     		"var" + File.separator + "test" + File.separator + "storagepool";
+    protected static final String testSecondaryStoreLocalPath = "." + File.separator + 
+    		"var" + File.separator + "test" + File.separator + "secondary";
     protected static final String testSampleTemplateUUID = "FakeTemplateUUID.vhdx";
     protected static final String testSampleTemplateURL = testLocalStorePath + 
     		File.separator + testSampleTemplateUUID;
@@ -128,6 +127,8 @@ public class HypervResourceTest {
             
 	        params.put("local.storage.uuid", testLocalStoreUUID);
 	        params.put("local.storage.path", testLocalStorePath);
+	        params.put("local.secondary.storage.path", testSecondaryStoreLocalPath);
+	        
 	        File testPoolDir = new File(testLocalStorePath);
 	        if (!testPoolDir.exists())
 	        {
@@ -252,12 +253,25 @@ public class HypervResourceTest {
     	Answer ans2 = s_hypervresource.executeRequest(delCmd);
     	Assert.assertTrue(ans2.getResult());
     }
-    //@Test
-    public void PrimaryStorageDownloadCommand()
+    
+    @Test
+    public void TestPrimaryStorageDownloadCommand()
     {
-    	PrimaryStorageDownloadCommand cmd = this.SamplePrimaryStorageDownloadCommand();
-
-    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	String cmdJson = "{\"localPath\":" +testLocalStorePathJSON + 
+    			",\"poolUuid\":" +testLocalStoreUUID + ",\"poolId\":201,"+ 
+    			"\"secondaryStorageUrl\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage\"," +
+    			"\"primaryStorageUrl\":\"nfs://10.70.176.29E:\\Disks\\Disks\"," + 
+    			"\"url\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage/template/tmpl//2/204//af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx\","+
+    			"\"format\":\"VHDX\",\"accountId\":2,\"name\":\"204-2-5a1db1ac-932b-3e7e-a0e8-5684c72cb862\"" +
+    			",\"contextMap\":{},\"wait\":10800}";
+    	PrimaryStorageDownloadCommand cmd = s_gson.fromJson(cmdJson, 
+    			PrimaryStorageDownloadCommand.class);
+    	
+    	String tmpltFileName = cmd.getUrl().substring(cmd.getUrl().lastIndexOf("/"));
+    	File tmpltFile = new File(testSecondaryStoreLocalPath + File.separator + tmpltFileName);
+    	Assert.assertTrue("template disk image should exist at " + tmpltFileName, tmpltFile.exists());
+    	
+    	PrimaryStorageDownloadAnswer ans = (PrimaryStorageDownloadAnswer)s_hypervresource.executeRequest(cmd);
     	if ( !ans.getResult()){
     		s_logger.error(ans.getDetails());
     	}
@@ -268,7 +282,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
 
-    @Test
+    //@Test
     public void TestCreateCommand()
     {
     	// TODO:  update when CreateStoragePool works.
@@ -370,8 +384,9 @@ public class HypervResourceTest {
 
     	GetStorageStatsCommand cmd = s_gson.fromJson(sample, GetStorageStatsCommand.class);
     	s_hypervresource.executeRequest(cmd);
-    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	GetStorageStatsAnswer ans = (GetStorageStatsAnswer)s_hypervresource.executeRequest(cmd);
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    	Assert.assertTrue(ans.getByteUsed() != ans.getCapacityBytes());
     }
     
     //@Test
@@ -405,38 +420,7 @@ public class HypervResourceTest {
 
     	return toJson(answer);
    }
-    
-    public static String SampleJsonFromPrimaryStorageDownloadCommand()
-    {
-    	String test = null;
-    	ImageFormat format = null;
-    	PrimaryStorageDownloadCommand cmd = new PrimaryStorageDownloadCommand(
-    			"routing-9",	
-    			"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/",
-    			ImageFormat.VHD,
-        		1L, 
-        		201L, 
-        		testLocalStoreUUID, 
-        		10800);
-    	String result = toJson(cmd);
-    	s_logger.debug("Converting a " + cmd.getClass().getName() + " to JSON: " + result );
-    	return result;
-    }
-    
-    public PrimaryStorageDownloadCommand SamplePrimaryStorageDownloadCommand() {
-    	PrimaryStorageDownloadCommand cmd = new PrimaryStorageDownloadCommand(
-    			"SampleTemplate_CentOS.vhdx",	
-    			"nfs://10.70.176.4/CSHV3/template/tmpl/1/9/SampleTemplate_CentOS.vhdx",
-    			ImageFormat.VHD,
-        		1L, 
-        		201L, 
-        		testLocalStoreUUID, 
-        		10800);
-    	cmd.setPrimaryStorageUrl("nfs://10.70.176.29E:\\Disks\\Disks");
-    	cmd.setSecondaryStorageUrl("nfs://10.70.176.4/CSHV3");
-    	return cmd;
-    }
-   
+
     // TODO: Unicode issues?
     public static String toJson(Command cmd) {
         String result = s_gson.toJson(cmd, cmd.getClass());
