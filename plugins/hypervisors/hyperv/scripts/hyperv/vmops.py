@@ -240,13 +240,14 @@ class VMOps(baseops.BaseOps):
             disks = cmdData["vm"]["disks"]
             for disk in disks:
                 if disk["type"] == "ROOT":
-                    # todo: stop using hardcoded path
-                    vhdfile = 'E:\\Disks\\Disks\\' + instance_name + '.vhdx'
-                    shutil.copy2('E:\\Disks\\Disks\\SampleHyperVCentOS63VM.vhdx', vhdfile)
-                    self._attach_ide_drive(instance['name'], vhdfile, 0, long(disk["deviceId"]), constants.IDE_DISK)
+                    vhdfile = disk["path"]
+                    self._attach_ide_drive(instance['name'], vhdfile, 0, 0, constants.IDE_DISK)
                 elif disk["type"] == "ISO":
-                    #todo:  are parameter 0,0 correct?
-                    self._attach_ide_drive(disk['name'], "d:\\", 0, long(disk["deviceId"]), constants.IDE_DVD)
+                    try:
+                        vhdfile = disk["path"]
+                    except KeyError:
+                        vhdfile = None
+                    self._attach_ide_drive(instance['name'], vhdfile, 1, 0, constants.IDE_DVD)
                 else:
                     errorMsg = _('Unknown disk type %s, for disk %s') % (disk["type"], disk["name"])
                     LOG.exception(errorMsg)
@@ -342,6 +343,10 @@ class VMOps(baseops.BaseOps):
         vm = vms[0]
 
         ctrller = self._get_ide_controller(vm, ctrller_addr)
+        if not len(ctrller) > 0:
+            raise vmutils.HyperVException(
+                ('Cannot find Emulated IDE Controller at controller\
+                    address %(ctrller_addr)s for %(ctrller_addr)s') % locals())
 
         if drive_type == constants.IDE_DISK:
             resSubType = 'Microsoft Synthetic Disk Drive'
@@ -349,15 +354,25 @@ class VMOps(baseops.BaseOps):
             resSubType = 'Microsoft Synthetic DVD Drive'
 
         #Find the default disk drive object for the vm and clone it.
-        drivedflt = self._conn.query(
-            "SELECT * FROM Msvm_ResourceAllocationSettingData \
+        drivedflt_query = "SELECT * FROM Msvm_ResourceAllocationSettingData \
             WHERE ResourceSubType LIKE '%(resSubType)s'\
-            AND InstanceID LIKE '%%Default%%'" % locals())[0]
+            AND InstanceID LIKE '%%Default%%'" % locals()
+            
+        LOG.debug('Query for default disk driver object using: %(drivedflt_query)s' % locals())
+        drivedflt = self._conn.query(drivedflt_query)[0]
+        if drivedflt is None:
+            raise vmutils.HyperVException(
+                ('Failed to find Msvm_ResourceAllocationSettingData corresponding to %s') % drivedflt_query)
+
         drive = self._vmutils.clone_wmi_obj(self._conn,
                 'Msvm_ResourceAllocationSettingData', drivedflt)
+        
         #Set the IDE ctrller as parent.
         drive.Parent = ctrller[0].path_()
         drive.Address = drive_addr
+        LOG.debug('For disk, parent is %s, and drive address is %s'
+                % (ctrller[0].path_(), drive_addr))
+        
         #Add the cloned disk drive object to the vm.
         new_resources = self._vmutils.add_virt_resource(self._conn,
             drive, vm)
@@ -373,6 +388,11 @@ class VMOps(baseops.BaseOps):
             resSubType = 'Microsoft Virtual Hard Disk'
         elif drive_type == constants.IDE_DVD:
             resSubType = 'Microsoft Virtual CD/DVD Disk'
+        
+        #Unless there is an ISO to put the in drive, we are done.
+        if (path is None):
+            LOG.debug('No disk to add to drive, we are done')
+            return
 
         #Find the default VHD disk object.
         drivedefault = self._conn.query(

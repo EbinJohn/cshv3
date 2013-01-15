@@ -185,6 +185,8 @@ class VMUtils(object):
         if success:
             return new_resources
         else:
+            LOG.debug('AddVirtualSystemResources failed, settings %s , path %s' % 
+                      (res_setting_data.GetText_(1), target_vm.path_()))
             return None
 
     def remove_virt_resource(self, conn, res_setting_data, target_vm):
