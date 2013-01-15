@@ -330,6 +330,8 @@ public class HypervResource implements ServerResource {
             s_logger.debug("Created volume from secondary storage named " + 
             		primaryVol.getName() + " at " + primaryVol.getPath());
 
+            // NB:  location of downloaded template is used as template URL
+            // in subsequent CreateCommand calls.
 	        return new PrimaryStorageDownloadAnswer(primaryVol.getName(),
 	                primaryVol.getSize());
         } catch (RuntimeCloudException e) {
@@ -373,20 +375,17 @@ public class HypervResource implements ServerResource {
             // Distinguish between disk based on existing image or 
             // empty one created from scratch.
             if (cmd.getTemplateUrl() != null) {
+            	
                 String tmplturl = cmd.getTemplateUrl();
-                int index = tmplturl.lastIndexOf("/");
-                if (index < 0) {
-                    index = tmplturl.lastIndexOf("\\");
-                }
-                if (index < 0) {
-                	String errMsg = "Template " + tmplturl + " does not name the volume";
+                if (tmplturl.lastIndexOf("/") >= 0 ||  tmplturl.lastIndexOf("\\") >= 0) {
+                	String errMsg = "Problem with templateURL " + tmplturl + 
+                			" the URL should be volume UUID in primary storage created by previous PrimaryStorageDownloadCommand";
                 	s_logger.error(errMsg);
                 	throw new RuntimeCloudException(errMsg);
                 }
-                String tmpltname = tmplturl.substring(index + 1);
-            	s_logger.debug("Template's name in primary store should be " + tmpltname);
+            	s_logger.debug("Template's name in primary store should be " + tmplturl);
                 // TODO:  Does this always work, or do I need to download template at times?
-                HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(tmpltname);
+                HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(tmplturl);
                 String newVolumeName = UUID.randomUUID().toString() + "." 
                 						+ BaseVol.getFormat().toString();
             	s_logger.debug("New volume will be named " + newVolumeName);
