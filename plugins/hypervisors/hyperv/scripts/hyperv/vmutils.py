@@ -36,7 +36,7 @@ if sys.platform == 'win32':
 from log import _ as _
 LOG = logging.getLogger(__name__)
 
-class BaseException(Exception):
+class BaseHyperVException(Exception):
     """Base Exception
 
     To correctly use this class, inherit from it and define
@@ -51,7 +51,6 @@ class BaseException(Exception):
 
     def __init__(self, message=None, **kwargs):
         self.kwargs = kwargs
-
         if 'code' not in self.kwargs:
             try:
                 self.kwargs['code'] = self.code
@@ -65,18 +64,19 @@ class BaseException(Exception):
             except Exception as e:
                 # kwargs doesn't match a variable in the message
                 # log the issue and the kwargs
-                LOG.exception(_('Exception in string format operation'))
+                LOG.error(_('Exception in string format operation'))
                 for name, value in kwargs.iteritems():
                     LOG.error("%s: %s" % (name, value))
                 # at least get the core message out if something happened
                 message = self.message
+        
+        # Allows except blocks to assume 'message' contains accurate info
+        self.message = message
+        super(BaseHyperVException, self).__init__(message)
 
-        super(BaseException, self).__init__(message)
-
-class HyperVException(BaseException):
+class HyperVException(BaseHyperVException):
     def __init__(self, message=None):
         super(HyperVException, self).__init__(message)
-
 
 class VMUtils(object):
     def lookup(self, conn, i):
@@ -111,23 +111,23 @@ class VMUtils(object):
                 err_sum_desc = job.ErrorSummaryDescription
                 err_desc = job.ErrorDescription
                 err_code = job.ErrorCode
-                LOG.debug(_("WMI job failed with status %(job_state)d. "
+                err_msg = _("WMI job failed with status %(job_state)d. "
                     "Error details: %(err_sum_desc)s - %(err_desc)s - "
-                    "Error code: %(err_code)d") % locals())
+                    "Error code: %(err_code)d") % locals()
             else:
                 (error, ret_val) = job.GetError()
                 if not ret_val and error:
-                    LOG.debug(_("WMI job failed with status %(job_state)d. "
-                        "Error details: %(error)s") % locals())
+                    err_msg = _("WMI job failed with status %(job_state)d. "
+                        "Error details: %(error)s") % locals()
                 else:
-                    LOG.debug(_("WMI job failed with status %(job_state)d. "
-                        "No error description available") % locals())
-            return False
+                    err_msg = _("WMI job failed with status %(job_state)d. "
+                        "No error description available") % locals()
+            LOG.debug(err_msg)
+            return (False, err_msg)
         desc = job.Description
         elap = job.ElapsedTime
-        LOG.debug(_("WMI job succeeded: %(desc)s, Elapsed=%(elap)s")
-                % locals())
-        return True
+        result_msg = _("WMI job succeeded: %(desc)s, Elapsed=%(elap)s") % locals()
+        return (True, result_msg)
 
     def get_instance_path(self, instance_name):
  #TODO       instance_path = os.path.join(CONF.instances_path, instance_name)
@@ -174,20 +174,24 @@ class VMUtils(object):
     def add_virt_resource(self, conn, res_setting_data, target_vm):
         """Add a new resource (disk/nic) to the VM"""
         vs_man_svc = conn.Msvm_VirtualSystemManagementService()[0]
+        
+        # Multiple results returned due to [OUT] parameters on 
+        # AddVirtualSystemResources, but notice the order!
         (job, new_resources, ret_val) = vs_man_svc.\
                     AddVirtualSystemResources([res_setting_data.GetText_(1)],
                                                 target_vm.path_())
         success = True
         if ret_val == constants.WMI_JOB_STATUS_STARTED:
-            success = self.check_job_status(job)
+            success, msg = self.check_job_status(job)
         else:
             success = (ret_val == 0)
+            msg = "Return value was %(ret_val)s" % locals()
         if success:
-            return new_resources
+            return new_resources, msg
         else:
-            LOG.debug('AddVirtualSystemResources failed, settings %s , path %s' % 
-                      (res_setting_data.GetText_(1), target_vm.path_()))
-            return None
+            return None, msg
+       
+        
 
     def remove_virt_resource(self, conn, res_setting_data, target_vm):
         """Remove a resource (disk/nic) from the VM"""
