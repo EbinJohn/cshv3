@@ -21,30 +21,16 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.Assert;
 
-import java.io.BufferedWriter;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.lang.Process;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.UUID;
 
 import javax.naming.ConfigurationException;
 
@@ -67,7 +53,6 @@ import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.VmStatsEntry;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
-import com.cloud.agent.api.storage.AbstractDownloadCommand;
 
 import com.cloud.agent.api.storage.CreateAnswer;
 import com.cloud.agent.api.storage.CreateCommand;
@@ -75,14 +60,11 @@ import com.cloud.agent.api.storage.DestroyAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 
 import com.cloud.hypervisor.hyperv.resource.HypervResource;
-import com.cloud.hypervisor.hyperv.storage.HypervStoragePool;
 
 import org.apache.log4j.Logger;
 
 import com.cloud.serializer.GsonHelper;
-import com.cloud.storage.StoragePool;
 import com.cloud.storage.StoragePoolVO;
-import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.PropertiesUtil;
 import com.cloud.utils.component.ComponentLocator;
@@ -103,13 +85,23 @@ public class HypervResourceTest {
     protected static final HypervResource s_hypervresource = new HypervResource();
     
     protected static final String testLocalStoreUUID = "5fe2bad3-d785-394e-9949-89786b8a63d2";
-    protected static final String testLocalStorePath = "." + File.separator + 
+    protected static String testLocalStorePath = "." + File.separator + 
     		"var" + File.separator + "test" + File.separator + "storagepool";
     protected static final String testSecondaryStoreLocalPath = "." + File.separator + 
     		"var" + File.separator + "test" + File.separator + "secondary";
-    protected static final String testSampleTemplateUUID = "FakeTemplateUUID.vhdx";
-    protected static final String testSampleTemplateURL = testLocalStorePath + 
-    		File.separator + testSampleTemplateUUID;
+    protected static final String testSampleTemplateUUID = "TestCopiedLocalTemplate.vhdx";
+    
+    // TODO: differentiate between NFS and HTTP template URLs.
+    protected static final String testSampleTemplateURL = testSampleTemplateUUID;
+    
+    // test volumes are both a minimal size vhdx.  Changing the extension to .vhd makes on corrupt.
+    protected static final String testSampleVolumeWorkingUUID = "TestVolumeLegit.vhdx";
+    protected static final String testSampleVolumeCorruptUUID = "TestVolumeCorrupt.vhd";
+    protected static final String testSampleVolumeTempUUID = "TestVolumeTemp.vhdx";
+    protected static String testSampleVolumeWorkingURIJSON;
+    protected static String testSampleVolumeCorruptURIJSON;
+    protected static String testSampleVolumeTempURIJSON;
+    
     protected static String testSampleTemplateURLJSON;
     protected static String testLocalStorePathJSON;
     
@@ -126,17 +118,46 @@ public class HypervResourceTest {
 	        // Used to create existing StoragePool in preparation for the ModifyStoragePool
             
 	        params.put("local.storage.uuid", testLocalStoreUUID);
-	        params.put("local.storage.path", testLocalStorePath);
+	        
+	        {
+	        	File testPoolDir = new File(testLocalStorePath);
+	        	Assert.assertTrue("To simulate local file system Storage Pool, you need folder at "  
+	        			+ testPoolDir.getPath(), testPoolDir.exists());
+	        	testLocalStorePath = testPoolDir.getAbsolutePath();
+	        	params.put("local.storage.path", testLocalStorePath);
+	        }
+	        
 	        params.put("local.secondary.storage.path", testSecondaryStoreLocalPath);
 	        
-	        File testPoolDir = new File(testLocalStorePath);
-	        if (!testPoolDir.exists())
 	        {
-	        	testPoolDir.mkdir();
+		        File testVolCorrupt = new File(testLocalStorePath + File.separator + testSampleVolumeCorruptUUID);
+		        Assert.assertTrue("Create a corrupt virtual disk (by changing extension of vhdx to vhd) at "
+		        					+ testVolCorrupt.getPath(), testVolCorrupt.exists());
+		        testSampleVolumeCorruptURIJSON  = s_gson.toJson(testVolCorrupt.getAbsolutePath());
 	        }
-	        File fakeTemplate = new File(testSampleTemplateURL);
+	        {
+		        File testVolWorks = new File(testLocalStorePath + File.separator + testSampleVolumeWorkingUUID);
+		        Assert.assertTrue("Create a corrupt virtual disk (by changing extension of vhdx to vhd) at "
+		        					+ testVolWorks.getPath(), testVolWorks.exists());
+		        testSampleVolumeWorkingURIJSON  = s_gson.toJson(testVolWorks.getAbsolutePath());
+	        }
+	        {
+		        File testVolWorks = new File(testLocalStorePath + File.separator + testSampleVolumeWorkingUUID);
+		        File testVolTemp = new File(testLocalStorePath + File.separator + testSampleVolumeTempUUID);
+		        if (!testVolTemp.exists()) {
+			        try {
+			        	Files.copy(testVolWorks.toPath(), testVolTemp.toPath());
+			        }
+			        catch (IOException e){
+			        }
+		        }
+		        Assert.assertTrue("Should be a temporary file created from the valid volume) at "
+		        					+ testVolTemp.getPath(), testVolTemp.exists());
+		        testSampleVolumeTempURIJSON  = s_gson.toJson(testVolTemp.getAbsolutePath());
+	        }
+	        
+	        File fakeTemplate = new File(testLocalStorePath + File.separator + testSampleTemplateURL);
 	        Assert.assertTrue("Create a vhdx at "+ fakeTemplate, fakeTemplate.exists());
-        	s_logger.info("JSON encode...");
 
 	        testSampleTemplateURLJSON = s_gson.toJson(testSampleTemplateURL);
 	        testLocalStorePathJSON = s_gson.toJson(testLocalStorePath);
@@ -149,21 +170,18 @@ public class HypervResourceTest {
         			+ " sample template at " + testSampleTemplateURLJSON);
     }
     
+    // Alternative to JUnit is to launch as stand alone application.
     public static void main(String[] args) throws ConfigurationException {
+    	
     	HypervResourceTest tester = new HypervResourceTest();
     	tester.setUp();
-//    	SampleJsonFromPrimaryStorageDownloadCommand();
+    	
+    	// Add tests you want to run, e.g.
     	tester.TestGetHostStatsCommand();
-    	tester.TestGetVmStatsCommand();
-    	tester.TestGetStorageStatsCommand();
-    	tester.TestCreateCommand();
-    	TestStartCommand();
-    	TestStopCommand();
-    	TestDestroyCommand();
     	return;
     }
     
-    //@Test 
+    @Test 
     public void TestGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
@@ -172,22 +190,22 @@ public class HypervResourceTest {
     	GetVmStatsCommand cmd = new GetVmStatsCommand(vmNames, "1", "localhost");
 
     	s_hypervresource.executeRequest(cmd);
-    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	GetVmStatsAnswer ans = (GetVmStatsAnswer)s_hypervresource.executeRequest(cmd);
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
     
-    //@Test 
+    @Test 
     public void TestBadGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
     	List<String> vmNames = new ArrayList<String>();
     	vmNames.add("FakeVM");
     	GetVmStatsCommand vmStatsCmd = new GetVmStatsCommand(vmNames, "1", "localhost");
-
-    	s_hypervresource.executeRequest(vmStatsCmd);
+    	GetVmStatsAnswer ans = (GetVmStatsAnswer)s_hypervresource.executeRequest(vmStatsCmd);
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
     
-    //@Test
+    @Test
     public void TestCreateStoragePoolCommand()
     {
     	CreateStoragePoolCommand cmd = new CreateStoragePoolCommand();
@@ -254,13 +272,15 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans2.getResult());
     }
     
+    // TODO:  updated implementation of PrimaryStorageDownloadAnswer such that NFS and HTTP URLs are distinguished.	
+    // TODO:  update test according to the above.
     @Test
     public void TestPrimaryStorageDownloadCommand()
     {
     	String cmdJson = "{\"localPath\":" +testLocalStorePathJSON + 
     			",\"poolUuid\":" +testLocalStoreUUID + ",\"poolId\":201,"+ 
     			"\"secondaryStorageUrl\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage\"," +
-    			"\"primaryStorageUrl\":\"nfs://10.70.176.29E:\\Disks\\Disks\"," + 
+    			"\"primaryStorageUrl\":\"nfs://10.70.176.29E:\\\\Disks\\\\Disks\"," + 
     			"\"url\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage/template/tmpl//2/204//af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx\","+
     			"\"format\":\"VHDX\",\"accountId\":2,\"name\":\"204-2-5a1db1ac-932b-3e7e-a0e8-5684c72cb862\"" +
     			",\"contextMap\":{},\"wait\":10800}";
@@ -280,24 +300,31 @@ public class HypervResourceTest {
     	}
     		
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    	
+    	// Test that returned URL works.
+    	CreateCommand createCmd = CreateCommandSample();
+    	CreateCommand testCreateCmd = new CreateCommand(createCmd.getDiskCharacteristics(), ans.getInstallPath(), createCmd.getPool());
+    	CreateAnswer ans2 = (CreateAnswer)s_hypervresource.executeRequest(testCreateCmd);
+    	Assert.assertTrue(ans2.getDetails(), ans2.getResult());
     }
-
-    //@Test
+    
+	public CreateCommand CreateCommandSample()
+	{
+		String sample = "{\"volId\":17,\"pool\":{\"id\":201,\"uuid\":\""+testLocalStoreUUID+"\",\"host\":\"10.70.176.29\"" +
+						",\"path\":"+testLocalStorePathJSON+",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
+						"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-15\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
+						"\"volumeId\":17,\"hyperType\":\"Hyperv\"},\"templateUrl\":"+testSampleTemplateURLJSON+",\"wait\":0}";
+    	CreateCommand cmd = s_gson.fromJson(sample, CreateCommand.class);
+    	return cmd;
+	}
+	
+    @Test
     public void TestCreateCommand()
     {
-    	// TODO:  update when CreateStoragePool works.
-    	// TODO:  the instruction below seems incorrect, because templateUrl is meant to be a UUID, or at least have one.
     	String sample = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\""+testLocalStoreUUID+"\",\"host\":\"10.70.176.29\"" +
     					",\"path\":"+testLocalStorePathJSON+",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
     					"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-9\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
-    					"\"volumeId\":10,\"hyperType\":\"Hyperv\"},\"templateUrl\":"+this.testSampleTemplateURLJSON+"," +
-    					"\"contextMap\":{},\"wait\":0}";
-
-    	String sample2= "{\"volId\":13,\"pool\":{\"id\":201,\"uuid\":\""+testLocalStoreUUID+"\",\"host\":\"10.70.176.29\"" +
-    					",\"path\":"+testLocalStorePathJSON+",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
-    					"\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-11\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
-    					"\"volumeId\":13,\"hyperType\":\"Hyperv\"},\"templateUrl\":"+this.testSampleTemplateURLJSON+"," +
-    					"\"wait\":0}";
+    					"\"volumeId\":10,\"hyperType\":\"Hyperv\"},\"templateUrl\":"+testSampleTemplateURLJSON+",\"contextMap\":{},\"wait\":0}";
 
     	File destDir = new File(testLocalStorePath);
     	Assert.assertTrue(destDir.isDirectory());
@@ -313,67 +340,134 @@ public class HypervResourceTest {
     		s_logger.debug(ans.getDetails());
     	}
 
-    	s_logger.debug(" test local store has " + destDir.listFiles().length + "files");
-
-    	Assert.assertTrue(fileCount+1 == destDir.listFiles().length);
+    	Assert.assertTrue("CreateCommand should add a file to the folder", fileCount+1 == destDir.listFiles().length);
     	File newFile = new File(ans.getVolume().getPath());
-    	Assert.assertTrue(newFile.length() > 0);
+    	Assert.assertTrue("The new file should have a size greater than zero", newFile.length() > 0);
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     	newFile.delete();
     }
-    
-    public static void TestStartCommand()
-    {
-       	String sample = "{\"vm\":{\"id\":6,\"name\":\"i-2-6-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
-       	             "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
-       	             "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
-       	             "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"7e24c0da0e848ad4\"," +
-       	             "\"params\":{},\"uuid\":\"3ff475a7-0ee8-44d6-970d-64fe776beb92\"," +
-       	             "\"disks\":[" +
-       	                     "{\"id\":6,\"name\":"+testLocalStorePathJSON+",\"mountPoint\":\"FakeVolume\"," +
-       	             "\"path\":\"FakeVolume\",\"size\":0,\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\"," +
-       	             "\"storagePoolUuid\":\""+testLocalStoreUUID+"\",\"deviceId\":0}," +
-       	                     "{\"id\":6,\"name\":\"Hyper-V Sample1\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}" +
-       	                     "]," +
-       	             "\"nics\":[" +
-       	                     "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":" +
-       	             "\"e146bb95-4ee4-4b9f-8d61-62cb21f7224e\",\"ip\":\"10.1.1.164\",\"netmask\":\"255.255.255.0\"," +
-       	             "\"gateway\":\"10.1.1.1\",\"mac\":\"02:00:67:06:00:04\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\"," +
-       	             "\"type\":\"Guest\",\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\"," +
-       	             "\"isSecurityGroupEnabled\":false}" +
-       	                     "]" +
-       	             "},\"contextMap\":{},\"wait\":0}";
-        s_logger.info("Sample JSON: " + sample );
 
-       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
-    	s_hypervresource.executeRequest(cmd);
-    }
-    
-    public static void TestStopCommand()
+    @Test
+    public void TestStartCommandCorruptDiskImage()
     {
-    	String sample = "{\"isProxy\":false,\"vmName\":\"i-2-6-VM\",\"contextMap\":{},\"wait\":0}";
-    
-    	s_logger.info("Sample JSON: " + sample );
+    	String sampleStart =  "{\"vm\":{\"id\":16,\"name\":\"i-3-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+              	",\"disks\":[" +
+                  	"{\"id\":18,\"name\":\"" + testSampleVolumeCorruptUUID + "\"," +
+                  		"\"mountPoint\":" + testSampleVolumeCorruptURIJSON + "," +
+                  		"\"path\":" + testSampleVolumeCorruptURIJSON + ",\"size\":0,"+
+                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
+                  		",\"deviceId\":0}," + 
+                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
+              	"\"nics\":[" +
+                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
+                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
+                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
+                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                  "]},\"contextMap\":{},\"wait\":0}";
 
-    	StopCommand cmd = s_gson.fromJson(sample, StopCommand.class);
-    	s_hypervresource.executeRequest(cmd);
+    	{
+	       	StartCommand cmd = s_gson.fromJson(sampleStart, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertFalse(ans.getDetails(), ans.getResult());
+    	}
     }
 
-    public static void TestDestroyCommand()
+    @Test
+    public void TestStartStopCommand()
     {
-    	// TODO:  update when CreateStoragePool works.
-    	// TODO:  how does the command vary when we are only deleting a volume?
-    	String sample = "{\"vmName\":\"i-2-6-VM\",\"volume\":{\"id\":9,\"name\":\"ROOT-8\",\"mountPoint\":"+testLocalStorePathJSON+"," +
-    					"\"path\":\"FakeVolume\",\"size\":0,\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\"," +
-    					"\"storagePoolUuid\":\""+testLocalStoreUUID+"\",\"deviceId\":0},\"contextMap\":{},\"wait\":0}";
-
-    	s_logger.info("Sample JSON: " + sample );
-
-    	DestroyCommand cmd = s_gson.fromJson(sample, DestroyCommand.class);
-    	s_hypervresource.executeRequest(cmd);
+       	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+              	",\"disks\":[" +
+                  	"{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                  		"\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
+                  		"\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0,"+
+                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
+                  		",\"deviceId\":0}," + 
+                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
+              	"\"nics\":[" +
+                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
+                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
+                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
+                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                  "]},\"contextMap\":{},\"wait\":0}";
+       	{
+	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+       	}
+    	{
+	    	String sampleStop =  "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
+	       	StopCommand cmd = s_gson.fromJson(sampleStop, StopCommand.class);
+	       	StopAnswer ans = (StopAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    	}
+    }
+   
+    @Test
+    public void TestStartStartCommand()
+    {
+       	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+              	",\"disks\":[" +
+                  	"{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                  		"\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
+                  		"\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0,"+
+                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
+                  		",\"deviceId\":0}," + 
+                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
+              	"\"nics\":[" +
+                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
+                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
+                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
+                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                  "]},\"contextMap\":{},\"wait\":0}";
+       	{
+	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+       	}
+       	{
+	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertFalse(ans.getDetails(), ans.getResult());
+       	}
+    	{
+	    	String sampleStop =  "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
+	       	StopCommand cmd = s_gson.fromJson(sampleStop, StopCommand.class);
+	       	StopAnswer ans = (StopAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    	}
     }
 
-    //@Test
+    @Test
+    public void TestDestroyCommand()
+    {
+    	// TODO:  how does the command vary when we are only deleting a vm versus deleting a volume?
+    	//String sample = "{\"vmName\":\"i-2-6-VM\",\"volume\":{\"id\":9,\"name\":\"ROOT-8\",\"mountPoint\":"+testLocalStorePathJSON+"," +
+    	//				"\"path\":\"FakeVolume\",\"size\":0,\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\"," +
+    	//				"\"storagePoolUuid\":\""+testLocalStoreUUID+"\",\"deviceId\":0},\"contextMap\":{},\"wait\":0}";
+
+        String sample2 = "{\"volume\":{\"name\":\"" + testSampleVolumeWorkingUUID + 
+        		"\",\"storagePoolType\":\"Filesystem\",\"mountPoint\":"+testLocalStorePathJSON+
+        		",\"path\":" + testSampleVolumeTempURIJSON +
+        		",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"," + 
+        		"\"type\":\"ROOT\",\"id\":9,\"size\":0}}";
+    	DestroyCommand cmd = s_gson.fromJson(sample2, DestroyCommand.class);
+    	DestroyAnswer ans = (DestroyAnswer)s_hypervresource.executeRequest(cmd);
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    }
+
+    @Test
     public void TestGetStorageStatsCommand()
     {
     	// TODO:  Update sample data to unsure it is using correct info.
@@ -389,7 +483,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getByteUsed() != ans.getCapacityBytes());
     }
     
-    //@Test
+    @Test
     public void TestGetHostStatsCommand()
     {
     	String sample = "{\"hostGuid\":\"B4AE5970-FCBF-4780-9F8A-2D2E04FECC34-HypervResource\",\"hostName\":\"CC-SVR11\",\"hostId\":5,\"contextMap\":{},\"wait\":0}";
@@ -397,31 +491,10 @@ public class HypervResourceTest {
     	s_logger.info("Sample JSON: " + sample );
 
     	GetHostStatsCommand cmd = s_gson.fromJson(sample, GetHostStatsCommand.class);
-    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	GetHostStatsAnswer ans = (GetHostStatsAnswer)s_hypervresource.executeRequest(cmd);
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
 
-    public static String SampleJsonFromGetVmStatsAnswer()
-    {
-    	// Sample GetVmStatsCommand
-    	List<String> vmNames = new ArrayList<String>();
-    	vmNames.add("TestCentOS6.3");
-    	vmNames.add("otherVM");
-    	GetVmStatsCommand vmStatsCmd = new GetVmStatsCommand(vmNames, "1", "localhost");
-
-    	VmStatsEntry vmInfo = new VmStatsEntry(69, 69.9, 69.9, 1, "vm");
-    	VmStatsEntry vmInfo2 = new VmStatsEntry(100, 100.0, 100.0, 2, "vm");
-    	
-    	HashMap<String, VmStatsEntry> vmStatsMap = new HashMap<String, VmStatsEntry>();
-    	vmStatsMap.put("TestCentOS6.3", vmInfo);
-    	vmStatsMap.put("otherVM", vmInfo2);
-    	
-    	GetVmStatsAnswer answer = new GetVmStatsAnswer(vmStatsCmd, vmStatsMap);
-
-    	return toJson(answer);
-   }
-
-    // TODO: Unicode issues?
     public static String toJson(Command cmd) {
         String result = s_gson.toJson(cmd, cmd.getClass());
     	s_logger.debug("Converting a " + cmd.getClass().getName() + " to JSON: " + result );
