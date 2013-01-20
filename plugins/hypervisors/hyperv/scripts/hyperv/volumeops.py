@@ -83,7 +83,7 @@ class VolumeOps(baseops.BaseOps):
             #Attaching to the same slot as the VHD disk file
             self._attach_volume_to_controller(ctrller, 0, mounted_disk, vm)
         except Exception as exn:
-            LOG.exception(_('Attach boot from volume failed: %s'), exn)
+            LOG.error(_('Attach boot from volume failed: %s') % exn)
             self._volutils.logout_storage_target(target_iqn)
             raise vmutils.HyperVException(
                 _('Unable to attach boot volume to instance %s')
@@ -114,7 +114,7 @@ class VolumeOps(baseops.BaseOps):
                 ctrller, self._get_free_controller_slot(ctrller[0]),
                     mounted_disk, vm)
         except Exception as exn:
-            LOG.exception(_('Attach volume failed: %s'), exn)
+            LOG.error(_('Attach volume failed: %s') % exn)
             raise vmutils.HyperVException(
                 _('Unable to attach volume to instance %s')
                     % instance_name)
