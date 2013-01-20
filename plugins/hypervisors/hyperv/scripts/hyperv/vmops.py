@@ -223,12 +223,12 @@ class VMOps(baseops.BaseOps):
                 elif vm.EnabledState == constants.VmPowerState.RUNNING:
                     #Report VM already running, answer false
                     errorMsg = _('VM %s is running on host') % instance_name
-                    LOG.exception(errorMsg)
+                    LOG.debug(errorMsg)
                     raise vmutils.HyperVException(errorMsg)
                 else:
                     # Report existing VM, answer false
-                    errorMsg = _('There is already a VM having the name %s') % instance_name
-                    LOG.exception(errorMsg)
+                    errorMsg = 'The VM having the name %s has EnabledState value of %s' %(instance_name, vm.EnabledState)
+                    LOG.debug(errorMsg)
                     raise vmutils.HyperVException(errorMsg)
         
         try:
@@ -250,7 +250,7 @@ class VMOps(baseops.BaseOps):
                     self._attach_ide_drive(instance['name'], vhdfile, 1, 0, constants.IDE_DVD)
                 else:
                     errorMsg = _('Unknown disk type %s, for disk %s') % (disk["type"], disk["name"])
-                    LOG.exception(errorMsg)
+                    LOG.debug(errorMsg)
                     raise vmutils.HyperVException(errorMsg)
 
             # Add NIC to VM
@@ -263,7 +263,7 @@ class VMOps(baseops.BaseOps):
             self._set_vm_state(instance['name'], 'Enabled')
             LOG.info(_('Started VM %s '), instance_name)
         except Exception as exn:
-            LOG.exception(_('spawn vm failed: %s'), exn)
+            LOG.error(_('spawn vm failed: %s') % exn)
             self.destroy(instance)
             raise exn
 
@@ -358,7 +358,7 @@ class VMOps(baseops.BaseOps):
             WHERE ResourceSubType LIKE '%(resSubType)s'\
             AND InstanceID LIKE '%%Default%%'" % locals()
             
-        LOG.debug('Query for default disk driver object using: %(drivedflt_query)s' % locals())
+        #LOG.debug('Query for default disk driver object using: %(drivedflt_query)s' % locals())
         drivedflt = self._conn.query(drivedflt_query)[0]
         if drivedflt is None:
             raise vmutils.HyperVException(
@@ -370,19 +370,19 @@ class VMOps(baseops.BaseOps):
         #Set the IDE ctrller as parent.
         drive.Parent = ctrller[0].path_()
         drive.Address = drive_addr
-        LOG.debug('For disk, parent is %s, and drive address is %s'
-                % (ctrller[0].path_(), drive_addr))
+        #LOG.debug('For disk, parent is %s, and drive address is %s'
+        #        % (ctrller[0].path_(), drive_addr))
         
         #Add the cloned disk drive object to the vm.
-        new_resources = self._vmutils.add_virt_resource(self._conn,
-            drive, vm)
+        new_resources, result_msg = self._vmutils.add_virt_resource(self._conn,
+                                                            drive, vm)
         if new_resources is None:
-            raise vmutils.HyperVException(
-                _('Failed to add drive to VM %s') %
-                    vm_name)
+            raise vmutils.HyperVException(_('Failed to add drive to VM %s, feedback was %s', ) %
+                    vm_name, result_msg)
+
         drive_path = new_resources[0]
-        LOG.debug(_('New %(drive_type)s drive path is %(drive_path)s') %
-            locals())
+        #LOG.debug(_('New %(drive_type)s drive path is %(drive_path)s') %
+        #    locals())
 
         if drive_type == constants.IDE_DISK:
             resSubType = 'Microsoft Virtual Hard Disk'
@@ -391,7 +391,7 @@ class VMOps(baseops.BaseOps):
         
         #Unless there is an ISO to put the in drive, we are done.
         if (path is None):
-            LOG.debug('No disk to add to drive, we are done')
+            LOG.debug(resSubType + ' requires no disk to be added to drive, we are done')
             return
 
         #Find the default VHD disk object.
@@ -408,10 +408,9 @@ class VMOps(baseops.BaseOps):
         res.Connection = [path]
 
         #Add the new vhd object as a virtual hard disk to the vm.
-        new_resources = self._vmutils.add_virt_resource(self._conn, res, vm)
+        new_resources, result_msg = self._vmutils.add_virt_resource(self._conn, res, vm)
         if new_resources is None:
-            raise vmutils.HyperVException(
-                _('Failed to add %(drive_type)s image to VM %(vm_name)s') %
+            raise vmutils.HyperVException(_('Failed to add %(drive_type)s image to VM %(vm_name)s, feedback was %(result_msg)s') %
                     locals())
         LOG.info(_('Created drive type %(drive_type)s for %(vm_name)s') %
             locals())
@@ -456,11 +455,11 @@ class VMOps(baseops.BaseOps):
         new_nic_data.StaticMacAddress = 'True'
         new_nic_data.VirtualSystemIdentifiers = ['{' + str(uuid.uuid4()) + '}']
         #Add the new nic to the vm.
-        new_resources = self._vmutils.add_virt_resource(self._conn,
+        new_resources, result_msg = self._vmutils.add_virt_resource(self._conn,
             new_nic_data, vm)
         if new_resources is None:
-            raise vmutils.HyperVException(_('Failed to add nic to VM %s') %
-                    vm_name)
+            raise vmutils.HyperVException(_('Failed to add nic to VM %(vm_name)s, feedback was %(result_msg)s', ) %
+                    locals())
         LOG.info(_("Created nic for %s "), vm_name)
 
     def _find_external_network(self):
@@ -500,10 +499,10 @@ class VMOps(baseops.BaseOps):
         vm = self._conn.Msvm_ComputerSystem(ElementName=instance_name)[0]
         vs_man_svc = self._conn.Msvm_VirtualSystemManagementService()[0]
         #Stop the VM first.
-        LOG.debug(_("destroy vm %s, Stop the VM"), instance_name)
+        LOG.debug(_("Stop vm %s"), instance_name)
         self._set_vm_state(instance_name, 'Disabled')
         #Nuke the VM. Does not destroy disks.
-        LOG.debug(_("destroy vm %s, Nuke the VM"), instance_name)
+        LOG.debug(_("Destroy vm %s, but not volumes"), instance_name)
         (job, ret_val) = vs_man_svc.DestroyVirtualSystem(vm.path_())
         if ret_val == constants.WMI_JOB_STATUS_STARTED:
             success = self._vmutils.check_job_status(job)
