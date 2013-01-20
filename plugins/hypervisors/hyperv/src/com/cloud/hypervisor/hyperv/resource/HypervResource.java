@@ -250,20 +250,16 @@ public class HypervResource implements ServerResource {
         return new GetVmStatsAnswer(cmd, pythonResult.getVmStatsMap());
     }
 
-    // TODO: create unit test
     protected Answer execute(DestroyCommand cmd) {
     	DestroyAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, DestroyAnswer.class);
-    	
         return new DestroyAnswer(cmd, pythonResult.getResult(), pythonResult.getDetails());
 	}
     
     protected Answer execute(StopCommand cmd) {
     	StopAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, StopAnswer.class);
-   	
         return new StopAnswer(cmd, pythonResult.getDetails(), pythonResult.getResult());
     }
     
-    // TODO:  identify startup steps that should be triggered by a ReadyCommand
     protected Answer execute(ReadyCommand cmd) {
         return new ReadyAnswer(cmd);
     }
@@ -349,10 +345,6 @@ public class HypervResource implements ServerResource {
     protected synchronized StartAnswer execute(StartCommand cmd) {
         StartAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, StartAnswer.class);
     	
-        if (s_logger.isDebugEnabled()) {
-            String ansData = s_gson.toJson(pythonResult, pythonResult.getClass());
-            s_logger.debug("StartCommand call result was " +  ansData);
-        }
     	if (pythonResult.getResult())
     		return new StartAnswer(cmd);
     	else

@@ -40,10 +40,8 @@ public class PythonUtils {
 							scriptArgs.toArray(new String[0]),
 							cmdData
 							);
-		s_logger.debug("Use Gson to create " +  answerType.getSimpleName() + " from " + result);
 		ResultT resultAnswer = s_gson.fromJson(result, answerType);
-		s_logger.info(resultAnswer.toString() + " contains " + 
-		s_gson.toJson(resultAnswer));
+		s_logger.info(resultAnswer.toString() + " contains " + s_gson.toJson(resultAnswer));
 		return resultAnswer;
 	}
 
@@ -79,6 +77,18 @@ public class PythonUtils {
 			BufferedReader reader = new BufferedReader(isr);
 			
 			output = reader.readLine();
+
+			// Capture additional information that might be causing problems.
+			StringBuilder extraOut = new StringBuilder();
+			String extraLine;
+		    while ((extraLine = reader.readLine()) != null) {
+		    	extraOut.append(extraLine + System.lineSeparator());
+		    } 
+		    
+		    if (extraOut.length() > 0){
+		    	s_logger.debug( output + System.lineSeparator() + extraOut.toString() );
+		    }
+		    	
 			reader.close();
 			// TODO:  is waitfor() required?
 		} catch (Exception ex) {
