@@ -33,9 +33,9 @@ class VmPowerState:
     # VM is offline and not using any resources
     HALTED = HYPERV_VM_STATE_DISABLED
     # Running
-    RUNNING = HYPERV_VM_STATE_ENABLED,
+    RUNNING = HYPERV_VM_STATE_ENABLED
     # All resources have been allocated but the VM itself is paused and its vCPUs are not running
-    PAUSED = HYPERV_VM_STATE_PAUSED,
+    PAUSED = HYPERV_VM_STATE_PAUSED
     # VM state has been saved to disk and it is nolonger running. Note that disks remain in-use while the VM is suspended.
     SUSPENDED = HYPERV_VM_STATE_SUSPENDED
     # The value does not belong to this enumeration
