@@ -25,6 +25,8 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -150,7 +152,7 @@ public class HypervResource implements ServerResource {
 	private String _clusterId;
 	private String _localStoragePath;
 	private String _localStorageUUID;
-	private String _secondaryStorageLocalPath;
+	private String _nfsLocalPath;
 
     @Override
     public void disconnected() {
@@ -169,7 +171,7 @@ public class HypervResource implements ServerResource {
         	result =  execute((CheckNetworkCommand) cmd);
         } else if (cmd instanceof ReadyCommand) { 
         	result =  execute((ReadyCommand) cmd);
-        } else if (cmd instanceof CleanupNetworkRulesCmd) {  // TODO:  provide proper implementation
+        } else if (cmd instanceof CleanupNetworkRulesCmd) {
         	result =  execute((CleanupNetworkRulesCmd) cmd);
 		} else if (cmd instanceof GetHostStatsCommand) {
 			result =  execute((GetHostStatsCommand) cmd);
@@ -243,10 +245,8 @@ public class HypervResource implements ServerResource {
     }
     
     protected GetVmStatsAnswer execute(GetVmStatsCommand cmd) {
-    	// TODO:  add infrastructure to propagate failures.
     	GetVmStatsAnswer pythonResult = PythonUtils.callHypervPythonModule(cmd, GetVmStatsAnswer.class);
 
-    	// TODO:  why is there a ctor that takes the original command?
         return new GetVmStatsAnswer(cmd, pythonResult.getVmStatsMap());
     }
 
@@ -265,52 +265,14 @@ public class HypervResource implements ServerResource {
     }
 
     protected PrimaryStorageDownloadAnswer execute(final PrimaryStorageDownloadCommand cmd) {
-        String tmplturl = cmd.getUrl();
-        int index = tmplturl.lastIndexOf("/");
-        if (index < 0) {
-            index = tmplturl.lastIndexOf("\\");
-        }
-        String mountpoint = tmplturl.substring(0, index);
-        String tmpltname = null;
-        if (index < tmplturl.length() - 1) {
-            tmpltname = tmplturl.substring(index + 1);
-        	s_logger.debug("Choose tmpltname " + tmpltname);
-        }
-
         HypervPhysicalDisk tmplVol = null;
-        HypervStoragePool secondaryPool = null;
         try {
-        	// create transient storage pool.
-            secondaryPool = _storagePoolMgr.getStoragePoolByURI(mountpoint);
-
-            /* Get template vol */
-            if (tmpltname == null) {
-
-                List<HypervPhysicalDisk> disks = secondaryPool.listPhysicalDisks();
-                if (disks == null || disks.isEmpty()) {
-                	String errMsg = "Failed to get volumes from pool: "
-                            + secondaryPool.getUuid();
-                	s_logger.debug(errMsg);
-                    return new PrimaryStorageDownloadAnswer(errMsg);
-                }
-                for (HypervPhysicalDisk disk : disks) {
-                    if (disk.getName().toLowerCase().endsWith(secondaryPool.getDefaultFormat().toString().toLowerCase())) {
-                        tmplVol = disk;
-                        break;
-                    }
-                }
-                if (tmplVol == null) {
-                    return new PrimaryStorageDownloadAnswer(
-                            "Failed to get template from pool: "
-                                    + secondaryPool.getUuid());
-                }
-            } else {
-                tmplVol = secondaryPool.getPhysicalDisk(tmpltname);
-            }
-           
-	        /* Copy volume to primary storage */
-	        HypervStoragePool primaryPool = _storagePoolMgr.getStoragePool(cmd
-	                .getPoolUuid());
+        	// Transient storage pool will throw on unsupported schema types.
+        	// E.g. if NFS and HTTP are the only ones supported, it will throw.
+            // TODO:  update PrimaryStorageDownloadCommand tests to include HTTP URL, use the systemVM repo.
+        	
+	        HypervStoragePool primaryPool = _storagePoolMgr.getStoragePool(
+	        		cmd.getPoolUuid());
 	        
 	        if ( primaryPool == null)
 	        {
@@ -319,10 +281,18 @@ public class HypervResource implements ServerResource {
 	        	s_logger.error(errMsg);
                 return new PrimaryStorageDownloadAnswer(errMsg);
             }
-	
-	        HypervPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(
-	                tmplVol, UUID.randomUUID().toString() + "." + 
-	                tmplVol.getFormat().toString(), primaryPool);
+
+	        int startOfExt = cmd.getUrl().lastIndexOf(".") +1;
+	        if (startOfExt <= 0) {
+	        	String errorMessage = "PrimaryStorageDownloadCommand URL " + cmd.getUrl() 
+	        			+ " missing file extension.";
+	        	s_logger.error(errorMessage);
+	            return new PrimaryStorageDownloadAnswer(errorMessage);
+	        }
+	        String fileExt = cmd.getUrl().substring(startOfExt);
+        
+	        HypervPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(new URI(cmd.getUrl()), 
+	                UUID.randomUUID().toString() + "." + fileExt, primaryPool);
             s_logger.debug("Created volume from secondary storage named " + 
             		primaryVol.getName() + " at " + primaryVol.getPath());
 
@@ -331,12 +301,15 @@ public class HypervResource implements ServerResource {
 	        return new PrimaryStorageDownloadAnswer(primaryVol.getName(),
 	                primaryVol.getSize());
         } catch (RuntimeCloudException e) {
-            return new PrimaryStorageDownloadAnswer(e.toString());
-        } finally {
-            if (secondaryPool != null) {
-                secondaryPool.delete();
-            }
-        }
+        	String errorMessage = "PrimaryStorageDownloadCommand with URL " + cmd.getUrl() 
+        			+ " failed due to " + e.toString();
+        	s_logger.error(errorMessage);
+            return new PrimaryStorageDownloadAnswer(errorMessage);
+        } catch (URISyntaxException e) {
+        	String errorMessage = "PrimaryStorageDownloadCommand URL \"" + cmd.getUrl() +"\" malformed";
+        	s_logger.error(errorMessage);
+            return new PrimaryStorageDownloadAnswer(errorMessage);
+		}
     }
 
     /*
@@ -406,7 +379,7 @@ public class HypervResource implements ServerResource {
         try {
             HypervStoragePool sp = _storagePoolMgr.getStoragePool(cmd
                     .getStorageId());
-            // TODO:  may want to ask storage pool to refresh itself, as cap / used are static.
+            sp.refresh();
             return new GetStorageStatsAnswer(cmd, sp.getCapacity(),
                     sp.getUsed());
         } catch (RuntimeCloudException e) {
@@ -656,16 +629,14 @@ public class HypervResource implements ServerResource {
         
         _dcId = getConfiguredProperty("zone", "1");
 
-        _secondaryStorageLocalPath = (String) getConfiguredProperty("local.secondary.storage.path", "C:\\Secondary");
-        File secondaryStorageLocalPathFile = new File(_secondaryStorageLocalPath);
-        if ( !secondaryStorageLocalPathFile.exists())
+        _nfsLocalPath = (String) getConfiguredProperty("local.secondary.storage.path", "C:\\Secondary");
+        File nfsLocalPathFile = new File(_nfsLocalPath);
+        if ( !nfsLocalPathFile.exists())
         {
-        	String errMsg = "local.secondary.storage.path is invalid, value is " + _secondaryStorageLocalPath;
-        	ConfigurationException e = new ConfigurationException(errMsg);
-        	s_logger.error(errMsg);
-        	throw e;
+        	String errMsg = "local.secondary.storage.path is invalid, NFS URLs will not work, current value is " + _nfsLocalPath;
+        	s_logger.warn(errMsg);
         }
-    	_storagePoolMgr = new HypervStoragePoolManager(_storage, _secondaryStorageLocalPath);
+    	_storagePoolMgr = new HypervStoragePoolManager(_storage, _nfsLocalPath);
         
         return true;
     }
