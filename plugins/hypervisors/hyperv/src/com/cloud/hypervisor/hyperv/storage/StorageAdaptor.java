@@ -16,6 +16,7 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.storage;
 
+import java.net.URI;
 import java.util.List;
 
 import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk.PhysicalDiskFormat;
@@ -52,12 +53,13 @@ public interface StorageAdaptor {
             HypervStoragePool pool);
 
     public HypervPhysicalDisk copyPhysicalDisk(HypervPhysicalDisk disk, String name,
-            HypervStoragePool destPools);
+            HypervStoragePool destPool);
 
+    public HypervPhysicalDisk copyPhysicalDisk(URI disk, String name,
+            HypervStoragePool destPool);
+    
     public HypervPhysicalDisk createDiskFromSnapshot(HypervPhysicalDisk snapshot,
             String snapshotName, String name, HypervStoragePool destPool);
-
-    public HypervStoragePool getStoragePoolByURI(String uri, String uriLocalPath);
 
     public HypervPhysicalDisk getPhysicalDiskFromURI(String uri);
 
@@ -68,5 +70,4 @@ public interface StorageAdaptor {
     public boolean createFolder(String uuid, String path);
 
     public boolean deleteVbdByPath(String path);
-
 }
