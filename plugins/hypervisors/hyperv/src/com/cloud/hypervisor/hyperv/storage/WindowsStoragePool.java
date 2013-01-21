@@ -16,6 +16,7 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.storage;
 
+import java.io.File;
 import java.util.List;
 
 import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk.PhysicalDiskFormat;
@@ -117,6 +118,18 @@ public class WindowsStoragePool implements HypervStoragePool {
 
     @Override
     public boolean refresh() {
+        @Override
+        public boolean refresh(HypervStoragePool pool) {
+        	// TODO:  add test to verify capacity statistics change
+            File dir = new File(pool.getLocalPath());
+            long currCapacity = dir.getUsableSpace();
+            long origCapacity = pool.getCapacity();
+            
+            long consumedCapacity = origCapacity - currCapacity;
+            return true;
+        }
+
+
         return this._storageAdaptor.refresh(this);
     }
 
