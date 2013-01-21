@@ -16,9 +16,12 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.storage;
 
+import java.io.File;
+
 import org.apache.log4j.Logger;
 
 import com.cloud.hypervisor.hyperv.resource.HypervResource;
+import com.cloud.utils.exception.CloudRuntimeException;
 
 public class HypervPhysicalDisk {
     private static final Logger s_logger = Logger.getLogger(HypervPhysicalDisk.class);
@@ -57,7 +60,18 @@ public class HypervPhysicalDisk {
         }
         catch (IllegalArgumentException e)
         {
-        	HypervPhysicalDisk.s_logger.error("Invalid disk format" + ext, e);
+        	// TODO:  Test with trigger through DownloadPrimaryStorageCommand that uses an invalid file extension.
+        	String errMsg = "Invalid disk format for " + name+ " at " + path;
+        	HypervPhysicalDisk.s_logger.error(errMsg, e);
+        	throw new CloudRuntimeException(errMsg);
+        }
+        
+        int startOfNameInPath = path.lastIndexOf(File.separator) + 1;
+        String nameInPath =  startOfNameInPath > 0 ? path.substring(startOfNameInPath) : "";
+        if (!nameInPath.equals(name)) {
+        	String errMsg = "Invalid disk name " + name+ " does not match path at " + path;
+        	HypervPhysicalDisk.s_logger.error(errMsg);
+        	throw new CloudRuntimeException(errMsg);
         }
     }
 
