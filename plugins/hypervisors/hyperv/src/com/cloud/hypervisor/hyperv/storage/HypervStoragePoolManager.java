@@ -16,11 +16,13 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.storage;
 
+import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.log4j.Logger;
 
+import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.hypervisor.hyperv.resource.HypervResource;
 import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk.PhysicalDiskFormat;
 import com.cloud.storage.Storage.StoragePoolType;
@@ -34,12 +36,10 @@ public class HypervStoragePoolManager {
     private static final Logger s_logger = Logger.getLogger(HypervStoragePoolManager.class);
 	private StorageAdaptor _storageAdaptor;
 	private final Map<String, HypervStoragePool> _storagePools = new ConcurrentHashMap<String, HypervStoragePool>();
-	private String _secondaryStorageMount;
 
 	public HypervStoragePoolManager(StorageLayer storagelayer,
-			String secondaryStorageMount) {
-		this._storageAdaptor = new WindowsStorageAdaptor(storagelayer);
-		this._secondaryStorageMount = secondaryStorageMount;
+			String nfsLocalPath) {
+		this._storageAdaptor = new WindowsStorageAdaptor(storagelayer, nfsLocalPath);
 	}
 
 	public HypervStoragePool getStoragePool(String uuid) {
@@ -49,12 +49,6 @@ public class HypervStoragePoolManager {
 			}
 			return _storagePools.get(uuid);
 		}
-	}
-
-	// Non-persistent pool, not cleared when deleted or created
-	public HypervStoragePool getStoragePoolByURI(String uri) {
-		return this._storageAdaptor.getStoragePoolByURI(uri,
-				_secondaryStorageMount);
 	}
 
 	public HypervStoragePool createStoragePool(String uuid, String host,
@@ -109,6 +103,12 @@ public class HypervStoragePoolManager {
 		return this._storageAdaptor.copyPhysicalDisk(disk, name, destPool);
 	}
 
+    public HypervPhysicalDisk copyPhysicalDisk(URI disk, String name,
+            HypervStoragePool destPool) {
+		return this._storageAdaptor.copyPhysicalDisk(disk, name, destPool);
+    }
+
+	
 	public HypervPhysicalDisk createDiskFromSnapshot(
 			HypervPhysicalDisk snapshot, String snapshotName, String name,
 			HypervStoragePool destPool) {
