@@ -16,14 +16,21 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.storage;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -34,11 +41,14 @@ import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.ManageSnapshotCommand;
 import com.cloud.agent.api.storage.CreateAnswer;
 import com.cloud.agent.api.storage.CreateCommand;
+import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.agent.api.to.VolumeTO;
 import com.cloud.hypervisor.hyperv.resource.PythonUtils;
 import com.cloud.hypervisor.hyperv.storage.HypervPhysicalDisk.PhysicalDiskFormat;
 import com.cloud.hypervisor.hyperv.storage.HypervStoragePool;
 import com.cloud.exception.InternalErrorException;
+import com.cloud.offering.ServiceOffering;
+import com.cloud.offering.ServiceOffering.StorageType;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageLayer;
 import com.cloud.storage.StoragePool;
@@ -56,12 +66,12 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
             .getLogger(WindowsStorageAdaptor.class);
     private StorageLayer _storageLayer;
     
-    // TODO: need to fix mount point
-    // Mount point used in cases where Pool models secondary storage.
-    private String _mountPoint = "/mnt";
+    // Local path for NFS schemes.
+    private String _nfsLocalPath;
 
-    public WindowsStorageAdaptor(StorageLayer storage) {
+    public WindowsStorageAdaptor(StorageLayer storage, String nfsLocalPath) {
         _storageLayer = storage;
+        _nfsLocalPath = nfsLocalPath;
     }
 
     // Method used by pools modelling secondary storage to create folders
@@ -236,18 +246,24 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
     	// Use file system to complete task.
         String sourcePath = disk.getPath();
         String destPath = destPool.getLocalPath();
-    	String taskMsg = "Use file system to make copy of disk " + disk.getPath() + " to " + 
-    			destPath + File.separator + name;
+        String destFilePath = destPath + File.separator +  name;
+        
+    	copyDiskViaNIO(sourcePath, destFilePath);
+        
+        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destFilePath, name, destPool);
+        return newDisk;
+    }
+
+	private void copyDiskViaNIO(String sourcePath, String destFilePath) {
+		String taskMsg = "Use file system to make copy of disk " + sourcePath + " to " + 
+    			destFilePath;
     	s_logger.debug(taskMsg);
         // Warnings about performance issues lead to use of NIO for copy.
         // See http://stackoverflow.com/questions/106770/standard-concise-way-to-copy-a-file-in-java
         FileChannel src = null;
         FileChannel dest = null;
         File sourceFile = new File(sourcePath);
-        String destFilePath = destPath + File.separator +  name;
         File destFile = new File(destFilePath);
-        HypervPhysicalDisk newDisk = new HypervPhysicalDisk(destFilePath, name, destPool);
-        
         try {
             src = new FileInputStream(sourceFile).getChannel();
             dest = new FileOutputStream(destFile).getChannel();
@@ -278,59 +294,123 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
                 throw new RuntimeCloudException(errMsg, e);
             }
         }
-        
-        return newDisk;
-    }
-
-    @Override
-    public HypervStoragePool getStoragePoolByURI(String uri, String uriLocalPath) {
-    	String taskMsg = "Creating pool over the uri " + uri;
-        s_logger.debug(taskMsg);
-
-        URI storageUri = null;
-
-        try {
-            storageUri = new URI(uri);
-        } catch (URISyntaxException e) {
-            s_logger.debug("Invalid URI " + e.getMessage());
-            throw new CloudRuntimeException(e.toString());
-        }
-
-        String sourcePath = null;
-        String uuid = null;
-        String sourceHost = "";
-        StoragePoolType protocal = null;
-        sourcePath = storageUri.getPath();
-        sourcePath = sourcePath.replace("//", "/");
-        
-        sourceHost = storageUri.getHost();
-        uuid = UUID.nameUUIDFromBytes(
-                    new String(sourceHost + sourcePath).getBytes()).toString();
-            
-        if (storageUri.getScheme().equalsIgnoreCase("nfs")) {
-            protocal = StoragePoolType.NetworkFilesystem;
-        }
-
-        // Generate local mount corresponding to NFS share.
-        protocal = StoragePoolType.Filesystem;
-        
-        if (!this._storageLayer.isDirectory(uriLocalPath)){
-        	String errMsg = "No directory corresponding to " + uriLocalPath + " for task " + taskMsg;
-        	s_logger.debug(errMsg);
-        	throw new CloudRuntimeException(errMsg);
-        }
-        
-        WindowsStoragePool pool = new WindowsStoragePool(uuid, uri, protocal, this);
-        pool.setLocalPath(uriLocalPath);
-            
-        return pool;
-    }
+	}
     
     @Override
+    // TODO: caller must preserve the extension if that is the intent.
+    public HypervPhysicalDisk copyPhysicalDisk(URI srcDiskURI, String newVolumeUUID,
+            HypervStoragePool destPool){
+    	// The HypervPhysicalDisk returned should have the same extension as the URI.
+    	// Make sure other copy commands are consistent with this analysis.
+    	// Otherwise the extension will grow.
+    	
+    	// TODO: revise variable names where they are UUIDandExtension
+        int index = srcDiskURI.getPath().lastIndexOf("/");
+        String destFilePath = destPool.getLocalPath() + File.separator + newVolumeUUID;
+        String templateUUIDandExtension = srcDiskURI.getPath().substring(index + 1);
+
+    	// TODO: Test HTTP URIs and NFS URIs
+    	if (srcDiskURI.getScheme().equalsIgnoreCase("nfs"))
+    	{
+        	String srcDiskPath = this._nfsLocalPath + File.separator + templateUUIDandExtension;
+        	String taskMsg = "Copy NFS url in " + srcDiskURI.toString() +
+        			" at " + srcDiskPath + " to pool " + destPool.getUuid();
+            s_logger.debug(taskMsg);
+            
+            if (!this._storageLayer.exists(srcDiskPath)) {
+            	String errMsg = "No file at " + srcDiskPath + " for disk, failed task" + taskMsg;
+            	s_logger.error(errMsg);
+            	throw new CloudRuntimeException(errMsg);
+            }
+        	copyDiskViaNIO(srcDiskPath, destFilePath);
+    	}
+    	else if (srcDiskURI.getScheme().equalsIgnoreCase("http"))
+    	{
+        	// for HTTP, use NIO streams to download.
+    		URL srcUrl;
+			try {
+				srcUrl = new URL(srcDiskURI.toString());
+			} catch (MalformedURLException e1) {
+            	String errMsg = "Malformed URI " + srcDiskURI.toString();
+            	s_logger.error(errMsg, e1);
+            	throw new CloudRuntimeException(errMsg);
+			}
+
+    		FileOutputStream fos = null;
+			try {
+				fos = new FileOutputStream(destFilePath);
+			} catch (FileNotFoundException e1) {
+            	String errMsg = "Cannot create file " + destFilePath;
+            	s_logger.error(errMsg, e1);
+            	throw new CloudRuntimeException(errMsg);
+			}
+			
+			InputStream inStream;
+			try {
+				inStream = srcUrl.openStream();
+			} catch (IOException e1) {
+            	String errMsg = "Cannot reach file " + srcUrl.toString();
+            	s_logger.error(errMsg, e1);
+            	throw new CloudRuntimeException(errMsg);
+			} finally {
+				try {
+					fos.close();
+				}
+				catch(IOException e) {
+	            	String errMsg = "Also, could not close InputStream for file " + srcUrl.toString();
+	            	s_logger.error(errMsg, e);
+				}
+			}
+
+    		BufferedOutputStream outStrm = null;
+    		BufferedInputStream inStrm = null;
+			try {
+				// TODO:  May be possible to optimise with NIO calls provided size of file can be determined
+				// See http://stackoverflow.com/questions/921262/how-to-download-and-save-a-file-from-internet-using-java/921400#921400
+				inStrm = new BufferedInputStream(inStream);
+				outStrm = new BufferedOutputStream(fos,1 << 10);
+				byte buffer[] = new byte[1 << 10];
+				int byteCount;
+				while((byteCount = inStrm.read(buffer,0,1 << 10))>=0) {
+					outStrm.write(buffer, 0, byteCount);
+				}
+			} catch (IOException e) {
+            	String errMsg = "Failed to write " + srcUrl.toString() + " to " + destFilePath;
+            	s_logger.error(errMsg, e);
+            	throw new CloudRuntimeException(errMsg);
+			} finally {
+				try {
+					if (inStrm != null) {
+						inStrm.close();
+					}
+				} catch (IOException e) {
+	            	String errMsg = "Failed to clean up BufferedInputStream for " + srcUrl.toString();
+	            	s_logger.error(errMsg);
+				}
+				try {
+					if (outStrm != null) {
+						outStrm.close();
+					}
+				} catch (IOException e) {
+	            	String errMsg = "Failed to clean up BufferedOutputStream for " + destFilePath;
+	            	s_logger.error(errMsg);
+				}
+			}
+    	}
+    	else
+    	{
+        	String errMsg = "Invalid schema in URI " + srcDiskURI.toString();
+        	s_logger.error(errMsg);
+        	throw new CloudRuntimeException(errMsg);
+		}
+    	return new HypervPhysicalDisk(destFilePath, newVolumeUUID, destPool);
+    }
+
+    @Override
     public HypervPhysicalDisk getPhysicalDiskFromURI(String uri) {
-        // TODO Auto-generated method stub
         return null;
     }
+    
 
     @Override
     public HypervPhysicalDisk createDiskFromSnapshot(HypervPhysicalDisk snapshot,
@@ -340,6 +420,16 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
 
     @Override
     public boolean refresh(HypervStoragePool pool) {
+    	WindowsStoragePool winPool = (WindowsStoragePool)pool;
+    	
+    	// TODO:  add test to verify capacity statistics change
+        File dir = new File(pool.getLocalPath());
+        long currCapacity = dir.getUsableSpace();
+        long origCapacity = winPool.getCapacity();
+        
+        long consumedCapacity = origCapacity - currCapacity;
+        s_logger.debug("Pool " + pool.getUuid() + " used capacity refreshed to " + consumedCapacity );
+        winPool.setUsed(consumedCapacity);
         return true;
     }
 
