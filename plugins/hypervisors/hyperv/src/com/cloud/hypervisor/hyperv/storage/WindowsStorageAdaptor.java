@@ -351,15 +351,14 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
 			} catch (IOException e1) {
             	String errMsg = "Cannot reach file " + srcUrl.toString();
             	s_logger.error(errMsg, e1);
-            	throw new CloudRuntimeException(errMsg);
-			} finally {
 				try {
 					fos.close();
 				}
 				catch(IOException e) {
-	            	String errMsg = "Also, could not close InputStream for file " + srcUrl.toString();
-	            	s_logger.error(errMsg, e);
+	            	String errMsg2 = "Also, could not close InputStream for file " + srcUrl.toString();
+	            	s_logger.error(errMsg2, e);
 				}
+            	throw new CloudRuntimeException(errMsg);
 			}
 
     		BufferedOutputStream outStrm = null;
@@ -368,10 +367,10 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
 				// TODO:  May be possible to optimise with NIO calls provided size of file can be determined
 				// See http://stackoverflow.com/questions/921262/how-to-download-and-save-a-file-from-internet-using-java/921400#921400
 				inStrm = new BufferedInputStream(inStream);
-				outStrm = new BufferedOutputStream(fos,1 << 10);
-				byte buffer[] = new byte[1 << 10];
+				outStrm = new BufferedOutputStream(fos,1 << 20);
+				byte buffer[] = new byte[1 << 20];
 				int byteCount;
-				while((byteCount = inStrm.read(buffer,0,1 << 10))>=0) {
+				while((byteCount = inStrm.read(buffer,0,1 << 20))>=0) {
 					outStrm.write(buffer, 0, byteCount);
 				}
 			} catch (IOException e) {
