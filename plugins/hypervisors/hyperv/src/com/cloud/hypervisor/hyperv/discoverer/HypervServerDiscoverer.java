@@ -325,7 +325,7 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     }
 	@Override
     public DeleteHostAnswer deleteHost(HostVO host, boolean isForced, boolean isForceDeleteStorage) throws UnableDeleteHostException {
-        if (host.getType() != Host.Type.Routing || host.getHypervisorType() != HypervisorType.KVM) {
+        if (host.getType() != Host.Type.Routing || host.getHypervisorType() != HypervisorType.Hyperv) {
             return null;
         }
         
