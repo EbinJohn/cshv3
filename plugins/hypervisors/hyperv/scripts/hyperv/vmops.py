@@ -22,8 +22,6 @@ Management class for basic VM operations.
 import os
 import uuid
 import log as logging
-import shutil
-
 import baseops
 import constants
 import vmutils
