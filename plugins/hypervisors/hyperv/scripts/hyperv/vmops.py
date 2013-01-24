@@ -202,6 +202,11 @@ class VMOps(baseops.BaseOps):
         network_info = instance["nics"]
         for nic in network_info:
             nic["address"] = nic["mac"]
+            
+            if nic.has_key("isolationUri") and nic["isolationUri"] is not None and nic["isolationUri"].startswith("vlan://"):
+                nic["vlan"] = nic["isolationUri"].strip("vlan://")
+            else:
+                nic["vlan"] = None
 
         LOG.debug("Create VM %s , %s vcpus, %s MB RAM",
                    instance_name, instance['vcpus'],instance['memory_mb'])
@@ -256,7 +261,8 @@ class VMOps(baseops.BaseOps):
             # Add NIC to VM
             for vif in network_info:
                 mac_address = vif['address'].replace(':', '')
-                self._create_nic(instance['name'], mac_address)
+                vlan = nic["vlan"]
+                self._create_nic(instance['name'], mac_address, vlan)
 
             LOG.debug(_('Starting VM %s '), instance_name)
             
@@ -415,27 +421,15 @@ class VMOps(baseops.BaseOps):
         LOG.info(_('Created drive type %(drive_type)s for %(vm_name)s') %
             locals())
 
-    def _create_nic(self, vm_name, mac):
+    def _create_nic(self, vm_name, mac, vlan):
         """Create a (synthetic) nic and attach it to the vm"""
         LOG.debug(_('Creating nic for %s '), vm_name)
         #Find the vswitch that is connected to the physical nic.
-        vms = self._conn.Msvm_ComputerSystem(ElementName=vm_name)
         extswitch = self._find_external_network()
         if extswitch is None:
             raise vmutils.HyperVException(_('Cannot find vSwitch attached to external network'))
-
-        vm = vms[0]
-        switch_svc = self._conn.Msvm_VirtualSwitchManagementService()[0]
-        #Find the default nic and clone it to create a new nic for the vm.
-        #Use Msvm_SyntheticEthernetPortSettingData for Windows or Linux with
-        #Linux Integration Components installed.
-        syntheticnics_data = self._conn.Msvm_SyntheticEthernetPortSettingData()
-        default_nic_data = [n for n in syntheticnics_data
-                            if n.InstanceID.rfind('Default') > 0]
-        new_nic_data = self._vmutils.clone_wmi_obj(self._conn,
-                'Msvm_SyntheticEthernetPortSettingData',
-                default_nic_data[0])
         #Create a port on the vswitch.
+        switch_svc = self._conn.Msvm_VirtualSwitchManagementService()[0]
         (new_port, ret_val) = switch_svc.CreateSwitchPort(
             Name=str(uuid.uuid4()),
             FriendlyName=vm_name,
@@ -445,9 +439,41 @@ class VMOps(baseops.BaseOps):
             LOG.error(_('Failed creating a port on the external vswitch'))
             raise vmutils.HyperVException(_('Failed creating port for %s') %
                     vm_name)
+            
+        # if we need a vlan, get and set the VLANEndpointSettingData
+        if vlan is not None:
+            LOG.debug(_('Setting VLAN to %s'), vlan)
+            # new_port is a reference, and not the object.
+            switches = self._conn.Msvm_SwitchPort()
+            found = False
+            for switch in switches:
+                if switch.path_() == new_port:
+                    LOG.debug(_('Found switch port'))
+                    found = True
+                    break
+            
+            if (not found):
+                errmsg = 'Failed to find switch port for %s' % new_port
+                LOG.error(errmsg)
+                raise vmutils.HyperVException(_('Failed creating port for %s') %
+                    vm_name)
+                    
+            vlansettings =switch.associators(wmi_result_class='Msvm_VLANEndpoint')[0]\
+                .associators(wmi_result_class='Msvm_VLANEndpointSettingData')[0]
+            vlansettings.AccessVLAN = vlan
+        
         ext_path = extswitch.path_()
         LOG.debug(_("Created switch port %(vm_name)s on switch %(ext_path)s")
                 % locals())
+        #Find the default nic and clone it to create a new nic for the vm.
+        #Use Msvm_SyntheticEthernetPortSettingData for Windows or Linux with
+        #Linux Integration Components installed.
+        syntheticnics_data = self._conn.Msvm_SyntheticEthernetPortSettingData()
+        default_nic_data = [n for n in syntheticnics_data
+                            if n.InstanceID.rfind('Default') > 0]
+        new_nic_data = self._vmutils.clone_wmi_obj(self._conn,
+                'Msvm_SyntheticEthernetPortSettingData',
+                default_nic_data[0])
         #Connect the new nic to the new port.
         new_nic_data.Connection = [new_port]
         new_nic_data.ElementName = vm_name + ' nic'
@@ -455,6 +481,8 @@ class VMOps(baseops.BaseOps):
         new_nic_data.StaticMacAddress = 'True'
         new_nic_data.VirtualSystemIdentifiers = ['{' + str(uuid.uuid4()) + '}']
         #Add the new nic to the vm.
+        vms = self._conn.Msvm_ComputerSystem(ElementName=vm_name)
+        vm = vms[0]
         new_resources, result_msg = self._vmutils.add_virt_resource(self._conn,
             new_nic_data, vm)
         if new_resources is None:
