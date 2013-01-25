@@ -35,6 +35,7 @@ import java.util.Properties;
 
 import javax.naming.ConfigurationException;
 
+import com.cloud.agent.AgentShell;
 import com.cloud.agent.api.Answer;
 
 import com.cloud.agent.api.Command;
@@ -60,6 +61,7 @@ import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.DestroyAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 
+import com.cloud.hypervisor.hyperv.discoverer.HypervServerDiscoverer;
 import com.cloud.hypervisor.hyperv.resource.HypervResource;
 
 import org.apache.log4j.Logger;
@@ -504,6 +506,24 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     	Assert.assertTrue(ans.getByteUsed() != ans.getCapacityBytes());
     }
+    
+    @Test 
+    public void TestAgentGuidCreation()
+    {
+    	AgentShell shell = new AgentShell();
+        try {
+			shell.init(new String[0]);
+	        String guidConf = shell.getProperty(null, "guid");
+	        if (guidConf.equals("generate_from_private.ip.address")) {
+		        String privateIp = shell.getProperty(null, "private.ip.address");
+		        String expectedGuid = HypervServerDiscoverer.CalcServerResourceGuid(privateIp);
+		        Assert.assertTrue("Expected GUID is " + expectedGuid + " but we got " + shell.getGuid(), shell.getGuid().equals(expectedGuid));
+	        }
+		} catch (ConfigurationException e) {
+			Assert.fail(e.toString());
+		}
+    }
+    
     
     @Test
     public void TestGetHostStatsCommand()
