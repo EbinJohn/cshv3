@@ -31,7 +31,7 @@ public class TestAgentShell extends Log4jEnabledTestCase {
         File file = null;
         try {
             file = File.createTempFile("wget", ".html");
-            AgentShell.wget("http://www.google.com/", file);
+//            AgentShell.wget("http://www.google.com/", file);
             
             if (s_logger.isDebugEnabled()) {
                 s_logger.debug("file saved to " + file.getAbsolutePath());
