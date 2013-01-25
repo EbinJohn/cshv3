@@ -70,7 +70,7 @@ import com.cloud.utils.component.Inject;
 public class HypervServerDiscoverer extends DiscovererBase implements Discoverer, 
 		Listener, ResourceStateAdapter {
     private static final Logger s_logger = Logger.getLogger(HypervServerDiscoverer.class);
-    private int _waitTime = 1;
+    private int _waitTime = 1; /*Change to wait for 5 minutes */
 
     @Inject HostDao _hostDao = null;
     // TODO:  What is the difference between each table?
@@ -189,7 +189,8 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     		String hostname = uri.getHost();
     		InetAddress ia = InetAddress.getByName(hostname);
     		agentIp = ia.getHostAddress();
-    		String guid = UUID.nameUUIDFromBytes(agentIp.getBytes()).toString();
+    		String uuidSeed = agentIp;
+    		String guid = CalcServerResourceGuid(uuidSeed);
     		String guidWithTail = guid + "-HypervResource";/*tail added by agent.java*/
     		if (_resourceMgr.findHostByGuid(guidWithTail) != null) {
     			s_logger.debug("Skipping " + agentIp + " because " + guidWithTail + " is already in the database.");
@@ -218,17 +219,40 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 			params.put("agentIp", agentIp);
             resource.configure("Hyperv agent", params);
 			resources.put(resource, details);
+			
+			HostVO connectedHost = waitForHostConnect(dcId, podId, clusterId, guidWithTail);
+			if (connectedHost == null)
+				return null;
+			
+			details.put("guid", guidWithTail);
+			
 			 // place a place holder guid derived from cluster ID
 			if (cluster.getGuid() == null) {
 			    cluster.setGuid(UUID.nameUUIDFromBytes(String.valueOf(clusterId).getBytes()).toString());
 			    _clusterDao.update(clusterId, cluster);
 			}
 			
+			//correct zone/dc/cluster ids
+			_hostDao.loadDetails(connectedHost);
+			long oldClusterId = connectedHost.getClusterId();
+			long oldPodId = connectedHost.getPodId();
+			long oldDataCenterId = connectedHost.getDataCenterId();
+			
+    		s_logger.debug("Changing Host " + guidWithTail + " zone/pod/cluster of " 
+			    		+ oldDataCenterId + "/"+oldPodId + "/"+ oldClusterId
+			    		+ " to " 
+			    		+ dcId + "/"+podId + "/"+ clusterId);
+
+			connectedHost.setClusterId(clusterId);
+			connectedHost.setDataCenterId(dcId);
+			connectedHost.setPodId(podId);
+			_hostDao.saveDetails(connectedHost);
+
             return resources;
-/*        } catch (ConfigurationException e) {
+        } catch (ConfigurationException e) {
             _alertMgr.sendAlert(AlertManager.ALERT_TYPE_HOST, dcId, podId, "Unable to add " + uri.getHost(), "Error is " + e.getMessage());
             s_logger.warn("Unable to instantiate " + uri.getHost(), e);
-*/        } catch (UnknownHostException e) {
+        } catch (UnknownHostException e) {
             _alertMgr.sendAlert(AlertManager.ALERT_TYPE_HOST, dcId, podId, "Unable to add " + uri.getHost(), "Error is " + e.getMessage());
             s_logger.warn("Unable to instantiate " + uri.getHost(), e);
         } catch (Exception e) {
@@ -238,8 +262,12 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
         return null;
     }
 
+	public static String CalcServerResourceGuid(String uuidSeed) {
+		String guid = UUID.nameUUIDFromBytes(uuidSeed.getBytes()).toString();
+		return guid;
+	}
+
 	// Watches database for confirmation that agent has called in.
-    @SuppressWarnings("unused")
 	private HostVO waitForHostConnect(long dcId, long podId, long clusterId, String guid) {
         for (int i = 0; i < _waitTime *2; i++) {
             List<HostVO> hosts = _resourceMgr.listAllUpAndEnabledHosts(Host.Type.Routing, clusterId, podId, dcId);
@@ -305,8 +333,8 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 		// Sanity check
 		StartupCommand firstCmd = cmd[0];
 		if (!(firstCmd instanceof StartupRoutingCommand)) {
-		return null;
-	}
+			return null;
+		}
     
 		StartupRoutingCommand ssCmd = ((StartupRoutingCommand) firstCmd);
 		if (ssCmd.getHypervisorType() != HypervisorType.Hyperv) {

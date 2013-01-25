@@ -24,6 +24,7 @@ import org.junit.Assert;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -34,6 +35,7 @@ import java.util.Properties;
 
 import javax.naming.ConfigurationException;
 
+import com.cloud.agent.AgentShell;
 import com.cloud.agent.api.Answer;
 
 import com.cloud.agent.api.Command;
@@ -59,6 +61,7 @@ import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.DestroyAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 
+import com.cloud.hypervisor.hyperv.discoverer.HypervServerDiscoverer;
 import com.cloud.hypervisor.hyperv.resource.HypervResource;
 
 import org.apache.log4j.Logger;
@@ -89,9 +92,9 @@ public class HypervResourceTest {
     		"var" + File.separator + "test" + File.separator + "storagepool";
     protected static final String testSecondaryStoreLocalPath = "." + File.separator + 
     		"var" + File.separator + "test" + File.separator + "secondary";
-    protected static final String testSampleTemplateUUID = "TestCopiedLocalTemplate.vhdx";
     
     // TODO: differentiate between NFS and HTTP template URLs.
+    protected static final String testSampleTemplateUUID = "TestCopiedLocalTemplate.vhdx";
     protected static final String testSampleTemplateURL = testSampleTemplateUUID;
     
     // test volumes are both a minimal size vhdx.  Changing the extension to .vhd makes on corrupt.
@@ -116,50 +119,42 @@ public class HypervResourceTest {
             // Obtain script locations from agent.properties
             final Map<String, Object> params = PropertiesUtil.toMap(loadProperties());
 	        // Used to create existing StoragePool in preparation for the ModifyStoragePool
-            
+	        params.put("local.secondary.storage.path", testSecondaryStoreLocalPath);
 	        params.put("local.storage.uuid", testLocalStoreUUID);
 	        
-	        {
-	        	File testPoolDir = new File(testLocalStorePath);
-	        	Assert.assertTrue("To simulate local file system Storage Pool, you need folder at "  
-	        			+ testPoolDir.getPath(), testPoolDir.exists());
-	        	testLocalStorePath = testPoolDir.getAbsolutePath();
-	        	params.put("local.storage.path", testLocalStorePath);
-	        }
+	        // Clean up old test files in local storage folder:
 	        
-	        params.put("local.secondary.storage.path", testSecondaryStoreLocalPath);
+	        File testPoolDir = new File(testLocalStorePath);
+	        Assert.assertTrue("To simulate local file system Storage Pool, you need folder at "  
+	        			+ testPoolDir.getPath(), testPoolDir.exists() && testPoolDir.isDirectory());
+	        testLocalStorePath = testPoolDir.getAbsolutePath();
+	        params.put("local.storage.path", testLocalStorePath);
 	        
-	        {
-		        File testVolCorrupt = new File(testLocalStorePath + File.separator + testSampleVolumeCorruptUUID);
-		        Assert.assertTrue("Create a corrupt virtual disk (by changing extension of vhdx to vhd) at "
-		        					+ testVolCorrupt.getPath(), testVolCorrupt.exists());
-		        testSampleVolumeCorruptURIJSON  = s_gson.toJson(testVolCorrupt.getAbsolutePath());
-	        }
-	        {
-		        File testVolWorks = new File(testLocalStorePath + File.separator + testSampleVolumeWorkingUUID);
-		        Assert.assertTrue("Create a corrupt virtual disk (by changing extension of vhdx to vhd) at "
-		        					+ testVolWorks.getPath(), testVolWorks.exists());
-		        testSampleVolumeWorkingURIJSON  = s_gson.toJson(testVolWorks.getAbsolutePath());
-	        }
-	        {
-		        File testVolWorks = new File(testLocalStorePath + File.separator + testSampleVolumeWorkingUUID);
-		        File testVolTemp = new File(testLocalStorePath + File.separator + testSampleVolumeTempUUID);
-		        if (!testVolTemp.exists()) {
-			        try {
-			        	Files.copy(testVolWorks.toPath(), testVolTemp.toPath());
-			        }
-			        catch (IOException e){
-			        }
-		        }
-		        Assert.assertTrue("Should be a temporary file created from the valid volume) at "
-		        					+ testVolTemp.getPath(), testVolTemp.exists());
-		        testSampleVolumeTempURIJSON  = s_gson.toJson(testVolTemp.getAbsolutePath());
-	        }
+	        File testVolWorks = new File(testLocalStorePath + File.separator + testSampleVolumeWorkingUUID);
+	        Assert.assertTrue("Create a corrupt virtual disk (by changing extension of vhdx to vhd) at "
+	        					+ testVolWorks.getPath(), testVolWorks.exists());
+	        testSampleVolumeWorkingURIJSON  = s_gson.toJson(testVolWorks.getAbsolutePath());
 	        
-	        File fakeTemplate = new File(testLocalStorePath + File.separator + testSampleTemplateURL);
-	        Assert.assertTrue("Create a vhdx at "+ fakeTemplate, fakeTemplate.exists());
+	        FilenameFilter vhdsFilt = new FilenameFilter(){
+	        	public boolean accept(File directory, String fileName) {
+	        	    return fileName.endsWith(".vhdx") || fileName.endsWith(".vhd");
+	        	}
+	        };
+	        for (File file : testPoolDir.listFiles(vhdsFilt)) {
+	        	if (file.getName().equals(testVolWorks.getName()))
+	        		continue;
+	        	Assert.assertTrue("Should have deleted file "+file.getPath(), file.delete());
+	        	s_logger.info("Cleaned up by delete file " + file.getPath() );
+	        }
 
-	        testSampleTemplateURLJSON = s_gson.toJson(testSampleTemplateURL);
+	        testSampleVolumeTempURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testSampleVolumeTempUUID);
+        	s_logger.info("Created " + testSampleVolumeTempURIJSON );
+	        testSampleVolumeCorruptURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testSampleVolumeCorruptUUID);
+        	s_logger.info("Created " + testSampleVolumeCorruptURIJSON );
+        	CreateTestDiskImageFromExistingImage(testVolWorks, testSampleTemplateUUID);
+	        testSampleTemplateURLJSON = testSampleTemplateUUID;
+        	s_logger.info("Created " + testSampleTemplateURLJSON + " in local storage.");
+	        
 	        testLocalStorePathJSON = s_gson.toJson(testLocalStorePath);
 
         	s_hypervresource.configure("hypervresource",  params);
@@ -169,6 +164,23 @@ public class HypervResourceTest {
         	s_logger.info("setUp complete, sample StoragePool at " + testLocalStorePathJSON 
         			+ " sample template at " + testSampleTemplateURLJSON);
     }
+
+	private String CreateTestDiskImageFromExistingImage(File srcFile,
+			String dstFileName) {
+		String newFileURIJSON;
+		{
+		    File testVolTemp = new File(testLocalStorePath + File.separator + dstFileName);
+		    try {
+		        	Files.copy(srcFile.toPath(), testVolTemp.toPath());
+		        }
+		        catch (IOException e){
+		        }
+		    Assert.assertTrue("Should be a temporary file created from the valid volume) at "
+		    					+ testVolTemp.getPath(), testVolTemp.exists());
+		    newFileURIJSON  = s_gson.toJson(testVolTemp.getAbsolutePath());
+		}
+		return newFileURIJSON;
+	}
     
     // Alternative to JUnit is to launch as stand alone application.
     public static void main(String[] args) throws ConfigurationException {
@@ -214,7 +226,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getResult());
     }
     
-    //@Test
+    @Test
     public void TestModifyStoragePoolCommand()
     {
     	// Create dummy folder
@@ -343,22 +355,19 @@ public class HypervResourceTest {
 
     	File destDir = new File(testLocalStorePath);
     	Assert.assertTrue(destDir.isDirectory());
+	    File testSampleTemplateURLFile = new File(testLocalStorePath + File.separator + s_gson.fromJson(testSampleTemplateURLJSON, String.class));
+    	Assert.assertTrue("The template that create should make volumes from is missing from path " + testSampleTemplateURLFile.getPath(),
+    			testSampleTemplateURLFile.exists());
+
     	int fileCount = destDir.listFiles().length;
     	s_logger.debug(" test local store has " + fileCount + "files");
     	// Test requires there to be a template at the tempalteUrl, which is its location in the local file system.
     	CreateCommand cmd = s_gson.fromJson(sample, CreateCommand.class);
     	CreateAnswer ans =(CreateAnswer)s_hypervresource.executeRequest(cmd);
-    	if ( !ans.getResult()){
-    		s_logger.error(ans.getDetails());
-    	}
-    	else {
-    		s_logger.debug(ans.getDetails());
-    	}
-
+    	Assert.assertTrue(ans.getDetails(), ans.getResult());
     	Assert.assertTrue("CreateCommand should add a file to the folder", fileCount+1 == destDir.listFiles().length);
     	File newFile = new File(ans.getVolume().getPath());
     	Assert.assertTrue("The new file should have a size greater than zero", newFile.length() > 0);
-    	Assert.assertTrue(ans.getDetails(), ans.getResult());
     	newFile.delete();
     }
 
@@ -497,6 +506,24 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     	Assert.assertTrue(ans.getByteUsed() != ans.getCapacityBytes());
     }
+    
+    @Test 
+    public void TestAgentGuidCreation()
+    {
+    	AgentShell shell = new AgentShell();
+        try {
+			shell.init(new String[0]);
+	        String guidConf = shell.getProperty(null, "guid");
+	        if (guidConf.equals("generate_from_private.ip.address")) {
+		        String privateIp = shell.getProperty(null, "private.ip.address");
+		        String expectedGuid = HypervServerDiscoverer.CalcServerResourceGuid(privateIp);
+		        Assert.assertTrue("Expected GUID is " + expectedGuid + " but we got " + shell.getGuid(), shell.getGuid().equals(expectedGuid));
+	        }
+		} catch (ConfigurationException e) {
+			Assert.fail(e.toString());
+		}
+    }
+    
     
     @Test
     public void TestGetHostStatsCommand()

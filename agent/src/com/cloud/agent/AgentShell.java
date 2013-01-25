@@ -358,15 +358,37 @@ public class AgentShell implements IAgentShell {
         String value = getProperty(null, "developer");
         boolean developer = Boolean.parseBoolean(value);
 
-        if (guid != null)
+        if (guid != null){
             _guid = guid;
-        else
-            _guid = getProperty(null, "guid");
+            s_logger.info("agent guid set in args to " + _guid);
+        }
+        else {
+        	_guid = this.getProperty(null, "guid");
+            final String redirect_prefix = "generate_from_";
+            if (_guid.startsWith(redirect_prefix)){
+            	String key = _guid.substring(redirect_prefix.length());
+                if (key == null) {
+                	String errMsg = "guid set to " + _guid + " but referenced setting not available";
+                    s_logger.error(errMsg);
+                    throw new ConfigurationException(errMsg);
+                }
+                s_logger.info("agent guid should set guid from value for " + key);
+                String uuid_seed = getProperty(null, key);
+                if (uuid_seed == null) {
+                	String errMsg = "guid set using " + redirect_prefix + " directive, but there is no key.  Using something like \"" +redirect_prefix+"private.ip.address\"";
+                    s_logger.error(errMsg);
+                    throw new ConfigurationException(errMsg);
+                }
+                _guid = UUID.nameUUIDFromBytes(uuid_seed.getBytes()).toString();
+                s_logger.info("agent guid set to " + _guid + " generated from value " + uuid_seed + " of settting for " + key);
+            }
+        }
         if (_guid == null) {
             if (!developer) {
                 throw new ConfigurationException("Unable to find the guid");
             }
             _guid = UUID.randomUUID().toString();
+            s_logger.info("agent guid set to randomUUID " + _guid);
         }
 
         return true;
