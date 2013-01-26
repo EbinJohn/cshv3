@@ -194,6 +194,10 @@
           podCount: function(data) {
             $.ajax({
               url: createURL('listPods'),
+							data: {
+							  page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
+							},
               success: function(json) {
                 dataFns.clusterCount($.extend(data, {
                   podCount: json.listpodsresponse.count ?
@@ -206,20 +210,24 @@
           clusterCount: function(data) {
             $.ajax({
               url: createURL('listClusters'),
-              success: function(json) {
-                /*
+							data: {
+							  page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
+							},
+              success: function(json) {                
 								dataFns.hostCount($.extend(data, {
                   clusterCount: json.listclustersresponse.count ?
                     json.listclustersresponse.count : 0
                 }));
-								*/
+																
+								//comment the 4 lines above and uncomment the following 4 lines if listHosts API still responds slowly.
 								
-								//uncomment the 4 lines above and remove the following 4 lines after "count" in listHosts API is fixed.
+								/*
 								dataFns.primaryStorageCount($.extend(data, {
                   clusterCount: json.listclustersresponse.count ?
                     json.listclustersresponse.count : 0
                 }));
-								
+								*/
               }
             });
           },
@@ -228,7 +236,9 @@
             $.ajax({
               url: createURL('listHosts'),
               data: {
-                type: 'routing'
+                type: 'routing',
+								page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
               },
               success: function(json) {
                 dataFns.primaryStorageCount($.extend(data, {
@@ -242,20 +252,24 @@
           primaryStorageCount: function(data) {
             $.ajax({
               url: createURL('listStoragePools'),
-              success: function(json) {
-                /*
+							data: {
+							  page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
+							},
+              success: function(json) {                
 								dataFns.secondaryStorageCount($.extend(data, {
                   primaryStorageCount: json.liststoragepoolsresponse.count ?
                     json.liststoragepoolsresponse.count : 0
                 }));
-								*/
+																
+								//comment the 4 lines above and uncomment the following 4 lines if listHosts API still responds slowly.
 								
-								//uncomment the 4 lines above and remove the following 4 lines after "count" in listHosts API is fixed.
+								/*
 								dataFns.systemVmCount($.extend(data, {
                   primaryStorageCount: json.liststoragepoolsresponse.count ?
                     json.liststoragepoolsresponse.count : 0
                 }));
-								
+								*/
               }
             });
           },
@@ -264,7 +278,9 @@
             $.ajax({
               url: createURL('listHosts'),
               data: {
-                type: 'SecondaryStorage'
+                type: 'SecondaryStorage',
+								page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
               },
               success: function(json) {
                 dataFns.systemVmCount($.extend(data, {
@@ -278,6 +294,10 @@
           systemVmCount: function(data) {
             $.ajax({
               url: createURL('listSystemVms'),
+							data: {
+							  page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
+							},
               success: function(json) {
                 dataFns.virtualRouterCount($.extend(data, {
                   systemVmCount: json.listsystemvmsresponse.count ?
@@ -291,14 +311,18 @@
             $.ajax({
               url: createURL('listRouters'),
               data: {
-                projectid: -1
+                projectid: -1,
+								page: 1,
+								pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
               },
               success: function(json) {
                 var total1 = json.listroutersresponse.count ? json.listroutersresponse.count : 0;								
 								$.ajax({
 								  url: createURL('listRouters'),
 									data: {
-									  listAll: true
+									  listAll: true,
+										page: 1,
+								    pagesize: 1  //specifying pagesize as 1 because we don't need any embedded objects to be returned here. The only thing we need from API response is "count" property.
 									},
 									success: function(json) {
 									  var total2 = json.listroutersresponse.count ? json.listroutersresponse.count : 0;		
@@ -1121,12 +1145,17 @@
                             label: 'label.scope',
                             docID: 'helpGuestNetworkZoneScope',
                             select: function(args) {
-                              var array1 = [];
-															array1.push({id: 'zone-wide', description: 'All'});
-															array1.push({id: 'domain-specific', description: 'Domain'});
-															array1.push({id: 'account-specific', description: 'Account'});
-															array1.push({id: 'project-specific', description: 'Project'});
-
+                              var array1 = [];															
+															if(args.context.zones[0].networktype == "Advanced" && args.context.zones[0].securitygroupsenabled	== true) {
+															  array1.push({id: 'account-specific', description: 'Account'});
+																array1.push({id: 'zone-wide', description: 'All'});
+															}
+															else {															
+																array1.push({id: 'zone-wide', description: 'All'});
+																array1.push({id: 'domain-specific', description: 'Domain'});
+																array1.push({id: 'account-specific', description: 'Account'});
+																array1.push({id: 'project-specific', description: 'Project'});
+															}
                               args.response.success({data: array1});
 
                               args.$select.change(function() {
@@ -1293,8 +1322,17 @@
                                   networkOfferingObjs = json.listnetworkofferingsresponse.networkoffering;
                                   if (networkOfferingObjs != null && networkOfferingObjs.length > 0) {
                                     for (var i = 0; i < networkOfferingObjs.length; i++) {
-																			//if args.scope == "account-specific" or "project-specific", exclude Isolated network offerings with SourceNat service (bug 12869)
-																			if(args.scope == "account-specific" || args.scope == "project-specific") {
+
+                                                  if(args.scope=="account-specific" && args.context.zones[0].securitygroupsenabled == true) { //BUG - CLOUDSTACK-1063
+                                                          var serviceObjArray = networkOfferingObjs[i].name;
+                                                          if(serviceObjArray == "DefaultSharedNetworkOfferingWithSGService"){
+                                                               continue;
+                                                              }
+                                                   }
+																			
+																			//comment out the following 12 lines because of CS-16718
+																			/*
+																			if(args.scope == "account-specific" || args.scope == "project-specific") { //if args.scope == "account-specific" or "project-specific", exclude Isolated network offerings with SourceNat service (bug 12869)
 																			  var includingSourceNat = false;
                                         var serviceObjArray = networkOfferingObjs[i].service;
                                         for(var k = 0; k < serviceObjArray.length; k++) {
@@ -1306,6 +1344,7 @@
                                         if(includingSourceNat == true)
                                           continue; //skip to next network offering
 																			}
+																			*/																			
 
                                       networkOfferingArray.push({id: networkOfferingObjs[i].id, description: networkOfferingObjs[i].displaytext});
                                     }
@@ -3572,25 +3611,27 @@
                       defaultValue: '300',
                       docID: 'helpSRXTimeout'
                     },
-                    inline: {
-                      label: 'Mode',
-                      docID: 'helpSRXMode',
-                      select: function(args) {
-                        var items = [];
-                        items.push({id: "false", description: "side by side"});
-                        items.push({id: "true", description: "inline"});
-                        args.response.success({data: items});
-                      }
-                    },
+                    // inline: {
+                    //   label: 'Mode',
+                    //   docID: 'helpSRXMode',
+                    //   select: function(args) {
+                    //     var items = [];
+                    //     items.push({id: "false", description: "side by side"});
+                    //     items.push({id: "true", description: "inline"});
+                    //     args.response.success({data: items});
+                    //   }
+                    // },
                     publicnetwork: {
                       label: 'label.public.network',
                       defaultValue: 'untrusted',
-                      docID: 'helpSRXPublicNetwork'
+                      docID: 'helpSRXPublicNetwork',
+                      isDisabled:true
                     },
                     privatenetwork: {
                       label: 'label.private.network',
                       defaultValue: 'trusted',
-                      docID: 'helpSRXPrivateNetwork'
+                      docID: 'helpSRXPrivateNetwork',
+                      isDisabled:true
                     },
                     capacity: {
                       label: 'label.capacity',
@@ -4216,6 +4257,84 @@
                       }
                     });
                   }
+                },
+
+              enableS3: {
+                label: 'label.enable.s3',
+                isHeader: true,
+                addRow: false,
+
+                preFilter: function(args) {
+                  var s3Enabled = false;
+                  $.ajax({
+                    url: createURL('listConfigurations'),
+                    data: {
+                      name: 's3.enable'
+                    },
+                    async: false,
+                    success: function(json) {
+                      s3Enabled = json.listconfigurationsresponse.configuration[0].value == 'true' && !havingS3 ?
+                      true : false;
+                    },
+                    error: function(json) {
+                      cloudStack.dialog.notice({ message: parseXMLHttpResponse(json) });
+                    }
+                 });
+
+                 return s3Enabled;
+              },
+
+              messages: {
+                notification: function(args) {
+                  return 'label.enable.s3';
+                }
+              },
+
+              createForm: {
+                desc: 'confirm.enable.s3',
+                fields: {
+                  accesskey: { label: 'label.s3.access_key', validation: { required: true } },
+                  secretkey: { label: 'label.s3.secret_key', validation: { required: true} },
+                  bucket: { label: 'label.s3.bucket', validation: { required: true} },
+                  endpoint: { label: 'label.s3.endpoint' },
+                  usehttps: { 
+                    label: 'label.s3.use_https', 
+                    isEditable: true,
+                    isBoolean: true,
+                    isChecked: true,
+                    converter:cloudStack.converters.toBooleanText 
+                  },
+                  connectiontimeout: { label: 'label.s3.connection_timeout' },
+                  maxerrorretry: { label: 'label.s3.max_error_retry' },
+                  sockettimeout: { label: 'label.s3.socket_timeout' }
+                }
+              },
+              action: function(args) {
+                $.ajax({
+                  url: createURL('addS3'),
+                  data: {
+                        accesskey: args.data.accesskey,
+                        secretkey: args.data.secretkey,
+                        bucket: args.data.bucket,
+                        endpoint: args.data.endpoint,
+                        usehttps: (args.data.usehttps != null && args.data.usehttps == 'on' ? 'true' : 'false'),
+                        connectiontimeout: args.data.connectiontimeout,
+                        maxerrorretry: args.data.maxerrorretry,
+                        sockettimeout: args.data.sockettimeout
+                      },
+                      success: function(json) {
+                        havingS3 = true;
+                        args.response.success();
+
+                        cloudStack.dialog.notice({
+                          message: 'message.after.enable.s3'
+                        });
+                      },
+                      error: function(json) {
+                        args.response.error(parseXMLHttpResponse(json));
+                      }
+                    });
+                  }
                 }
               },
 
@@ -4315,8 +4434,11 @@
                       array1.push("&name="  +todb(args.data.name));
                       array1.push("&dns1=" + todb(args.data.dns1));
                       array1.push("&dns2=" + todb(args.data.dns2));  //dns2 can be empty ("") when passed to API
-                      if(selectedZoneObj.networktype == "Advanced"){
-                      array1.push("&guestcidraddress=" +todb(args.data.guestcidraddress)); }                                                                         
+                      
+                      if (selectedZoneObj.networktype == "Advanced" && args.data.guestcidraddress) {
+                        array1.push("&guestcidraddress=" + todb(args.data.guestcidraddress));
+                      }
+                      
                       array1.push("&internaldns1=" + todb(args.data.internaldns1));
                       array1.push("&internaldns2=" + todb(args.data.internaldns2));  //internaldns2 can be empty ("") when passed to API
                       array1.push("&domain=" + todb(args.data.domain));
@@ -6075,7 +6197,7 @@
                     label: 'label.numretries',
                     defaultValue: '2'
                   },
-                  inline: {
+                 /* inline: {
                     label: 'Mode',
                     select: function(args) {
                       var items = [];
@@ -6083,7 +6205,7 @@
                       items.push({id: "true", description: "inline"});
                       args.response.success({data: items});
                     }
-                  },
+                  },*/
                   dedicated: {
                     label: 'label.dedicated',
                     isBoolean: true,
@@ -6482,11 +6604,13 @@
                   // },
                   publicnetwork: {
                     label: 'label.public.network',
-                    defaultValue: 'untrusted'
+                    defaultValue: 'untrusted',
+                    isDisabled:true
                   },
                   privatenetwork: {
                     label: 'label.private.network',
-                    defaultValue: 'trusted'
+                    defaultValue: 'trusted',
+                    isDisabled:true
                   },
                   capacity: {
                     label: 'label.capacity',
@@ -8134,54 +8258,69 @@
               },
 
               action: function(args) {
-                var array1 = [];
-                array1.push("&zoneid=" + args.data.zoneid);
-                array1.push("&podid=" + args.data.podId);
-                array1.push("&clusterid=" + args.data.clusterId);
-                array1.push("&hypervisor=" + todb(selectedClusterObj.hypervisortype));
-                var clustertype = selectedClusterObj.clustertype;
-                array1.push("&clustertype=" + todb(clustertype));
-                array1.push("&hosttags=" + todb(args.data.hosttags));
+                var data = {
+								  zoneid: args.data.zoneid,
+									podid: args.data.podId,
+									clusterid: args.data.clusterId,
+									hypervisor: selectedClusterObj.hypervisortype,
+									clustertype: selectedClusterObj.clustertype,
+									hosttags: args.data.hosttags
+								};								               
 
                 if(selectedClusterObj.hypervisortype == "VMware") {
-                  array1.push("&username=");
-                  array1.push("&password=");
+								  $.extend(data,{
+									  username: '',
+										password: ''										
+									});
+								                  
                   var hostname = args.data.vcenterHost;
                   var url;
                   if(hostname.indexOf("http://")==-1)
                     url = "http://" + hostname;
                   else
                     url = hostname;
-                  array1.push("&url=" + todb(url));
+										
+									$.extend(data, {
+									  url: url
+									});	                  
                 }
                 else {
-                  array1.push("&username=" + todb(args.data.username));
-                  array1.push("&password=" + todb(args.data.password));
-
+								  $.extend(data, {
+									  username: args.data.username,
+										password: args.data.password
+									});
+								
                   var hostname = args.data.hostname;
-
                   var url;
                   if(hostname.indexOf("http://")==-1)
                     url = "http://" + hostname;
                   else
                     url = hostname;
-                  array1.push("&url="+todb(url));
-
+										
+									$.extend(data, {
+                    url: url
+                  });									
+                 
                   if (selectedClusterObj.hypervisortype == "BareMetal") {
-                    array1.push("&cpunumber=" + todb(args.data.baremetalCpuCores));
-                    array1.push("&cpuspeed=" + todb(args.data.baremetalCpu));
-                    array1.push("&memory=" + todb(args.data.baremetalMemory));
-                    array1.push("&hostmac=" + todb(args.data.baremetalMAC));
+									  $.extend(data, {
+										  cpunumber: args.data.baremetalCpuCores,
+											cpuspeed: args.data.baremetalCpu,
+											memory: args.data.baremetalMemory,
+											hostmac: args.data.baremetalMAC
+										});									
                   }
                   else if(selectedClusterObj.hypervisortype == "Ovm") {
-                    array1.push("&agentusername=" + todb(args.data.agentUsername));
-                    array1.push("&agentpassword=" + todb(args.data.agentPassword));
+									  $.extend(data, {
+										  agentusername: args.data.agentUsername,
+											agentpassword: args.data.agentPassword
+										});									
                   }
                 }
 
                 $.ajax({
-                  url: createURL("addHost" + array1.join("")),
-                  dataType: "json",
+                  url: createURL("addHost"),
+                  type: "POST",
+									data: data,
                   success: function(json) {
                     var item = json.addhostresponse.host[0];
                     args.response.success({
@@ -8711,19 +8850,24 @@
                           //$('li[input_group="nfs"]', $dialogAddPool).show();
                           $form.find('.form-item[rel=path]').css('display', 'inline-block');
                           //$dialogAddPool.find("#add_pool_path_container").find("label").text(g_dictionary["label.path"]+":");
-						              var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
+                          var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
                           $form.find('.form-item[rel=path]').find(".name").find("label").text("Path:").prepend($required);
 
                           //$('li[input_group="iscsi"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
                         else if(protocol == "ocfs2") {//ocfs2 is the same as nfs, except no server field.
                           //$dialogAddPool.find("#add_pool_server_container").hide();
@@ -8734,19 +8878,24 @@
                           //$('li[input_group="nfs"]', $dialogAddPool).show();
                           $form.find('.form-item[rel=path]').css('display', 'inline-block');
                           //$dialogAddPool.find("#add_pool_path_container").find("label").text(g_dictionary["label.path"]+":");
-						              var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
+                          var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
                           $form.find('.form-item[rel=path]').find(".name").find("label").text("Path:").prepend($required);
 
                           //$('li[input_group="iscsi"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
                         else if(protocol == "PreSetup") {
                           //$dialogAddPool.find("#add_pool_server_container").hide();
@@ -8757,19 +8906,24 @@
                           //$('li[input_group="nfs"]', $dialogAddPool).show();
                           $form.find('.form-item[rel=path]').css('display', 'inline-block');
                           //$dialogAddPool.find("#add_pool_path_container").find("label").text(g_dictionary["label.SR.name"]+":");                          
-						              var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
+                          var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
                           $form.find('.form-item[rel=path]').find(".name").find("label").text("SR Name-Label:").prepend($required);
 
                           //$('li[input_group="iscsi"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
                         else if(protocol == "iscsi") {
                           //$dialogAddPool.find("#add_pool_server_container").show();
@@ -8784,33 +8938,43 @@
                           $form.find('.form-item[rel=iqn]').css('display', 'inline-block');
                           $form.find('.form-item[rel=lun]').css('display', 'inline-block');
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
-												else if($(this).val() == "clvm") {
-													//$("#add_pool_server_container", $dialogAddPool).hide();
-													$form.find('.form-item[rel=server]').hide();
-													//$dialogAddPool.find("#add_pool_nfs_server").val("localhost");
-													$form.find('.form-item[rel=server]').find(".value").find("input").val("localhost");
+                        else if($(this).val() == "clvm") {
+                          //$("#add_pool_server_container", $dialogAddPool).hide();
+                          $form.find('.form-item[rel=server]').hide();
+                          //$dialogAddPool.find("#add_pool_nfs_server").val("localhost");
+                          $form.find('.form-item[rel=server]').find(".value").find("input").val("localhost");
 
-													//$('li[input_group="nfs"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=path]').hide();
+                          //$('li[input_group="nfs"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=path]').hide();
 
-													//$('li[input_group="iscsi"]', $dialogAddPool).hide();
-													 $form.find('.form-item[rel=iqn]').hide();
+                          //$('li[input_group="iscsi"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).show();
-													$form.find('.form-item[rel=volumegroup]').css('display', 'inline-block');
+                          //$('li[input_group="clvm"]', $dialogAddPool).show();
+                          $form.find('.form-item[rel=volumegroup]').css('display', 'inline-block');
 
-													//$('li[input_group="vmfs"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=vCenterDataCenter]').hide();
+                          //$('li[input_group="vmfs"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
-												}
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
+                        }
                         else if(protocol == "vmfs") {
                           //$dialogAddPool.find("#add_pool_server_container").show();
                           $form.find('.form-item[rel=server]').css('display', 'inline-block');
@@ -8824,12 +8988,17 @@
                           $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).show();
                           $form.find('.form-item[rel=vCenterDataCenter]').css('display', 'inline-block');
                           $form.find('.form-item[rel=vCenterDataStore]').css('display', 'inline-block');
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
                         else if(protocol == "SharedMountPoint") {  //"SharedMountPoint" show the same fields as "nfs" does.
                           //$dialogAddPool.find("#add_pool_server_container").hide();
@@ -8839,19 +9008,24 @@
 
                           //$('li[input_group="nfs"]', $dialogAddPool).show();
                           $form.find('.form-item[rel=path]').css('display', 'inline-block');
-						              var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
+                          var $required = $form.find('.form-item[rel=path]').find(".name").find("label span");
                           $form.find('.form-item[rel=path]').find(".name").find("label").text("Path:").prepend($required);
 
                           //$('li[input_group="iscsi"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
                         else if(protocol == "rbd") {
                           $form.find('.form-item[rel=rbdmonitor]').css('display', 'inline-block');
@@ -8884,12 +9058,17 @@
                           $form.find('.form-item[rel=iqn]').hide();
                           $form.find('.form-item[rel=lun]').hide();
 
-													//$('li[input_group="clvm"]', $dialogAddPool).hide();
-													$form.find('.form-item[rel=volumegroup]').hide();
+                          //$('li[input_group="clvm"]', $dialogAddPool).hide();
+                          $form.find('.form-item[rel=volumegroup]').hide();
 
                           //$('li[input_group="vmfs"]', $dialogAddPool).hide();
                           $form.find('.form-item[rel=vCenterDataCenter]').hide();
                           $form.find('.form-item[rel=vCenterDataStore]').hide();
+
+                          $form.find('.form-item[rel=rbdmonitor]').hide();
+                          $form.find('.form-item[rel=rbdpool]').hide();
+                          $form.find('.form-item[rel=rbdid]').hide();
+                          $form.find('.form-item[rel=rbdsecret]').hide();
                         }
                       });
 
@@ -10329,7 +10508,7 @@
     return allowedActions;
   }
 
-  var routerActionfilter = function(args) {
+  var routerActionfilter = cloudStack.sections.system.routerActionFilter = function(args) {
     var jsonObj = args.context.item;
     var allowedActions = [];
 
@@ -10405,28 +10584,6 @@
 			jsonObj.state = jsonObj.managedstate; //jsonObj.state == Unmanaged, PrepareUnmanaged, PrepareUnmanagedError
 		}
   }
-	
-	var addExtraPropertiesToGuestNetworkObject = function(jsonObj) {  
-		jsonObj.networkdomaintext = jsonObj.networkdomain;
-		jsonObj.networkofferingidText = jsonObj.networkofferingid;
-
-		if(jsonObj.acltype == "Domain") {
-			if(jsonObj.domainid == rootAccountId)
-				jsonObj.scope = "All";
-			else
-				jsonObj.scope = "Domain (" + jsonObj.domain + ")";
-		}
-		else if (jsonObj.acltype == "Account"){
-			if(jsonObj.project != null)
-				jsonObj.scope = "Account (" + jsonObj.domain + ", " + jsonObj.project + ")";
-			else
-				jsonObj.scope = "Account (" + jsonObj.domain + ", " + jsonObj.account + ")";
-		}
-
-		if(jsonObj.vlan == null && jsonObj.broadcasturi != null) {
-			jsonObj.vlan = jsonObj.broadcasturi.replace("vlan://", "");   	
-		}
-  }	
 	
 	var addExtraPropertiesToRouterInstanceObject = function(jsonObj) {  		
 		if(jsonObj.isredundantrouter == true)

@@ -44,28 +44,14 @@
     <!-- required deps for the systemvm -->
     <dependency>
       <groupId>org.apache.cloudstack</groupId>
-      <artifactId>cloud-core</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.cloudstack</groupId>
       <artifactId>cloud-agent</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.cloudstack</groupId>
-      <artifactId>cloud-api</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.cloudstack</groupId>
-      <artifactId>cloud-utils</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.cloudstack</groupId>
       <artifactId>cloud-patches</artifactId>
       <version>${project.version}</version>
+      <type>pom</type>
     </dependency>
   </dependencies>
   <build>
@@ -149,6 +135,8 @@
           </execution>
         </executions>
       </plugin>
+<!-- Leave this to the systemvm profile
+     Enable using the -P systemvm flag
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
@@ -175,6 +163,7 @@
           </arguments>
         </configuration>
       </plugin>
+-->
     </plugins>
   </build>
   <profiles>
@@ -200,6 +189,11 @@
     </profile>
     <profile>
       <id>systemvm</id>
+      <activation>
+        <property>
+          <name>systemvm</name>
+        </property>
+      </activation>
       <build>
       <plugins>
       <plugin>

@@ -220,7 +220,7 @@ under the License.
             </div>
 
             <!-- Step 5: Network -->
-            <div class="step network" wizard-step-id="network">
+            <div class="step network always-load" wizard-step-id="network">
               <!-- 5a: Network description -->
               <div class="wizard-step-conditional nothing-to-select">     
 								<p id="from_instance_page_1"><fmt:message key="message.zone.no.network.selection"/></p>
@@ -480,19 +480,34 @@ under the License.
                 <div class="section select-network-model">
                   <h3><fmt:message key="label.set.up.zone.type"/></h3>
                   <p><fmt:message key="message.please.select.a.configuration.for.your.zone"/></p>
-                  <div class="select-area">
+                  <div class="select-area basic-zone">
                     <div class="desc">
                       <fmt:message key="message.desc.basic.zone"/>
                     </div>
                     <input type="radio" name="network-model" value="Basic" checked="checked" />
                     <label><fmt:message key="label.basic"/></label>
                   </div>
-                  <div class="select-area">
+                  <div class="select-area advanced-zone disabled">
                     <div class="desc">
                       <fmt:message key="message.desc.advanced.zone"/>  
 										</div>
                     <input type="radio" name="network-model" value="Advanced" />
                     <label><fmt:message key="label.advanced"/></label>
+                    <!-- Isolation mode -->
+                    <div class="isolation-mode">
+                      <div class="title">
+                        <fmt:message key="label.isolation.mode"/>
+                      </div>
+
+                      <!-- Security groups -->
+                      <div class="select-area">
+                        <div class="desc">
+                          <fmt:message key="message.advanced.security.group"/>
+                        </div>
+                        <input type="checkbox" name="zone-advanced-sg-enabled" disabled="disabled" />
+                        <label><fmt:message key="label.menu.security.groups"/></label>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -533,10 +548,11 @@ under the License.
                 <li class="management">
                   <ul class="container">
                     <li traffic-type-id="management"
-                        title="Traffic between CloudStack's internal resources, including any components that communicate with the Management Server, such as hosts and CloudStack system VMs"
+                        title="<fmt:message key="label.zoneWizard.trafficType.management"/>"
                         class="traffic-type-draggable management">
                       <!-- Edit buttton -->
                       <div class="edit-traffic-type">
+                        <span class="name"><fmt:message key="label.management"/></span>
                         <span class="icon">&nbsp;</span>
                         <span>Edit</span>
                       </div>
@@ -550,10 +566,11 @@ under the License.
                 <li class="public">
                   <ul class="container">
                     <li traffic-type-id="public"
-                        title="Traffic between the internet and virtual machines in the cloud."
+                        title="<fmt:message key="label.zoneWizard.trafficType.public"/>"
                         class="traffic-type-draggable public">
                       <!-- Edit buttton -->
                       <div class="edit-traffic-type">
+                        <span class="name"><fmt:message key="label.public"/></span>
                         <span class="icon">&nbsp;</span>
                         <span>Edit</span>
                       </div>
@@ -567,10 +584,11 @@ under the License.
                 <li class="guest">
                   <ul class="container">
                     <li traffic-type-id="guest"
-                        title="Traffic between end-user virtual machines"
+                        title="<fmt:message key="label.zoneWizard.trafficType.guest"/>"
                         class="traffic-type-draggable guest">
                       <!-- Edit buttton -->
                       <div class="edit-traffic-type">
+                        <span class="name"><fmt:message key="label.guest"/></span>
                         <span class="icon">&nbsp;</span>
                         <span>Edit</span>
                       </div>
@@ -584,10 +602,11 @@ under the License.
                 <li class="storage">
                   <ul class="container">
                     <li traffic-type-id="storage"
-                        title="Traffic between primary and secondary storage servers, such as VM templates and snapshots"
+                        title="<fmt:message key="label.zoneWizard.trafficType.storage"/>"
                         class="traffic-type-draggable storage">
                       <!-- Edit buttton -->
                       <div class="edit-traffic-type">
+                        <span class="name"><fmt:message key="label.storage"/></span>
                         <span class="icon">&nbsp;</span>
                         <span>Edit</span>
                       </div>
@@ -940,7 +959,7 @@ under the License.
           <div class="button refresh" id="refresh_button">
             <span><fmt:message key="label.refresh"/></span>
           </div>
-          <div id="update_ssl_button" class="button action main-action reduced-hide lock">
+          <div id="update_ssl_button" class="button action main-action reduced-hide lock" title="Updates your Console Proxy SSL Certificate">
             <span class="icon">&nbsp;</span>            
             <span><fmt:message key="label.update.ssl.cert"/></span>
           </div>
@@ -1623,6 +1642,8 @@ under the License.
     <script type="text/javascript" src="scripts/ui-custom/projects.js?t=<%=now%>"></script>
     <script type="text/javascript" src="scripts/cloudStack.js?t=<%=now%>"></script>
     <script type="text/javascript" src="scripts/lbStickyPolicy.js?t=<%=now%>"></script>
+    <script type="text/javascript" src="scripts/ui-custom/autoscaler.js?t=<%=now%>"></script>
+    <script type="text/javascript" src="scripts/autoscaler.js?t=<%=now%>"></script>
     <script type="text/javascript" src="scripts/ui-custom/zoneChart.js?t=<%=now%>"></script>
     <script type="text/javascript" src="scripts/ui-custom/dashboard.js?t=<%=now%>"></script>
     <script type="text/javascript" src="scripts/installWizard.js?t=<%=now%>"></script>

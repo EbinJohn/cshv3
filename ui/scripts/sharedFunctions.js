@@ -45,6 +45,7 @@ var pageSize = 20;
 
 var rootAccountId = 1;
 var havingSwift = false;
+var havingS3 = false;
 
 //async action
 var pollAsyncJobResult = function(args) {
@@ -157,6 +158,22 @@ function isUser() {
   return (g_role == 0);
 }
 
+function isSelfOrChildDomainUser(username, useraccounttype, userdomainid, iscallerchilddomain) {
+	if(username == g_username) { //is self
+        return true;
+    } else if(isDomainAdmin()
+        && iscallerchilddomain
+        && (useraccounttype == 0)) { //domain admin to user
+        return true;
+	} else if(isDomainAdmin()
+        && iscallerchilddomain 
+		&& (userdomainid != g_domainid) ) { //domain admin to subdomain admin and user
+        return true;
+    } else {
+        return false;
+    } 
+}
+
 // FUNCTION: Handles AJAX error callbacks.  You can pass in an optional function to
 // handle errors that are not already handled by this method.
 function handleError(XMLHttpResponse, handleErrorCallback) {
@@ -191,12 +208,13 @@ function parseXMLHttpResponse(XMLHttpResponse) {
   var json = JSON.parse(XMLHttpResponse.responseText);
   if (json != null) {
     var property;
-    for(property in json) {}
+    for(property in json) {
     var errorObj = json[property];		
 		if(errorObj.errorcode == 401 && errorObj.errortext == "unable to verify user credentials and/or request signature")
 		  return _l('label.session.expired');
 		else
       return _s(errorObj.errortext);
+     }
   } 
 	else {
     return "";
@@ -266,7 +284,7 @@ cloudStack.actionFilter = {
 		var allowedActions = [];
     
 		if(jsonObj.type == 'Isolated') {
-		  allowedActions.push('edit');		//only Isolated network can be upgraded
+		  allowedActions.push('edit');		//only Isolated network is allowed to upgrade to a different network offering (Shared network is not allowed to)
 			allowedActions.push('restart');   
 		  allowedActions.push('remove');
 		}
@@ -453,6 +471,29 @@ function listViewDataProvider(args, data) {
 		pagesize: pageSize		
 	});	
 }
+
+//used by infrastruct page and network page	
+var addExtraPropertiesToGuestNetworkObject = function(jsonObj) {  
+	jsonObj.networkdomaintext = jsonObj.networkdomain;
+	jsonObj.networkofferingidText = jsonObj.networkofferingid;
+
+	if(jsonObj.acltype == "Domain") {
+		if(jsonObj.domainid == rootAccountId)
+			jsonObj.scope = "All";
+		else
+			jsonObj.scope = "Domain (" + jsonObj.domain + ")";
+	}
+	else if (jsonObj.acltype == "Account"){
+		if(jsonObj.project != null)
+			jsonObj.scope = "Account (" + jsonObj.domain + ", " + jsonObj.project + ")";
+		else
+			jsonObj.scope = "Account (" + jsonObj.domain + ", " + jsonObj.account + ")";
+	}
+
+	if(jsonObj.vlan == null && jsonObj.broadcasturi != null) {
+		jsonObj.vlan = jsonObj.broadcasturi.replace("vlan://", "");   	
+	}
+}	
 
 //find service object in network object
 function ipFindNetworkServiceByName(pName, networkObj) {    

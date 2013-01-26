@@ -26,6 +26,7 @@ from marvin.integration.lib.common import *
 from nose.plugins.attrib import attr
 
 
+_multiprocess_shared_ = True
 class Services:
     """Test Service offerings Services
     """
@@ -38,7 +39,7 @@ class Services:
                                 "displaytext": "Service Offering",
                                 "cpunumber": 1,
                                 "cpuspeed": 100, # MHz
-                                "memory": 64, # in MBs
+                                "memory": 128, # in MBs
                             },
                      }
 
