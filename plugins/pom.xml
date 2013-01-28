@@ -42,7 +42,6 @@
     <module>hypervisors/xen</module>
     <module>hypervisors/kvm</module>
     <module>hypervisors/simulator</module>
-    <module>hypervisors/hyperv</module>
     <module>network-elements/elastic-loadbalancer</module>
     <module>network-elements/ovs</module>
     <module>network-elements/nicira-nvp</module>
@@ -83,6 +82,17 @@
       </activation>
       <modules>
         <module>hypervisors/kvm</module>
+      </modules>
+    </profile>
+    <profile>
+      <id>hyperV</id>
+      <activation>
+        <property>
+          <name>hyperV</name>
+        </property>
+      </activation>
+      <modules>
+ 	   <module>hypervisors/hyperv</module>
       </modules>
     </profile>
     <profile>
