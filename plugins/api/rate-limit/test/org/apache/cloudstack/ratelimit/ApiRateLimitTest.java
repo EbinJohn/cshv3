@@ -216,10 +216,11 @@ public class ApiRateLimitTest {
             assertTrue("Issued 5 requests", isUnderLimit(key));
         }
 
+        Thread.sleep(10);
         ApiLimitResponse response = _limitService.searchApiLimit(testAccount);
         assertEquals("apiIssued is incorrect", 5, response.getApiIssued());
         assertEquals("apiAllowed is incorrect", 5, response.getApiAllowed());
-        assertTrue("expiredAfter is incorrect", response.getExpireAfter() < 1000);
+        assertTrue("expiredAfter is incorrect, it is " + response.getExpireAfter() +"we want is < 1000", response.getExpireAfter() < 1000);
 
     }
 
