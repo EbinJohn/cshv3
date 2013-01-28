@@ -127,7 +127,6 @@ import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.template.TemplateInfo;
 import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.utils.exception.RuntimeCloudException;
 import com.cloud.utils.script.Script;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VirtualMachine;
@@ -300,7 +299,7 @@ public class HypervResource implements ServerResource {
             // in subsequent CreateCommand calls.
 	        return new PrimaryStorageDownloadAnswer(primaryVol.getName(),
 	                primaryVol.getSize());
-        } catch (RuntimeCloudException e) {
+        } catch (CloudRuntimeException e) {
         	String errorMessage = "PrimaryStorageDownloadCommand with URL " + cmd.getUrl() 
         			+ " failed due to " + e.toString();
         	s_logger.error(errorMessage);
@@ -346,7 +345,7 @@ public class HypervResource implements ServerResource {
                 	String errMsg = "Problem with templateURL " + tmplturl + 
                 			" the URL should be volume UUID in primary storage created by previous PrimaryStorageDownloadCommand";
                 	s_logger.error(errMsg);
-                	throw new RuntimeCloudException(errMsg);
+                	throw new CloudRuntimeException(errMsg);
                 }
             	s_logger.debug("Template's name in primary store should be " + tmplturl);
                 // TODO:  Does this always work, or do I need to download template at times?
@@ -369,7 +368,7 @@ public class HypervResource implements ServerResource {
                     pool.getType(), pool.getUuid(), vol.getName(),
                     vol.getPath(), vol.getPath(), disksize, null);
             return new CreateAnswer(cmd, volume);
-        } catch (RuntimeCloudException e) {
+        } catch (CloudRuntimeException e) {
             s_logger.debug("Failed to create volume: " + e.toString());
             return new CreateAnswer(cmd, e);
         }
@@ -382,7 +381,7 @@ public class HypervResource implements ServerResource {
             sp.refresh();
             return new GetStorageStatsAnswer(cmd, sp.getCapacity(),
                     sp.getUsed());
-        } catch (RuntimeCloudException e) {
+        } catch (CloudRuntimeException e) {
             return new GetStorageStatsAnswer(cmd, e.toString());
         }
     }
@@ -588,7 +587,7 @@ public class HypervResource implements ServerResource {
             sscmd.setGuid(pi.getUuid());
             sscmd.setDataCenter(_dcId);
             sscmd.setResourceType(Storage.StorageResourceType.STORAGE_POOL);
-        } catch (RuntimeCloudException e) {
+        } catch (CloudRuntimeException e) {
         	String errMsg = "Problem setting up storage pool object model" + e.toString();
             s_logger.debug(errMsg);
             throw e;
