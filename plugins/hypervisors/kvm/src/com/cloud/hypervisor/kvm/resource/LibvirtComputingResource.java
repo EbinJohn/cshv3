@@ -162,6 +162,8 @@ import com.cloud.agent.api.storage.CreatePrivateTemplateAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
+import com.cloud.agent.api.storage.ResizeVolumeCommand;
+import com.cloud.agent.api.storage.ResizeVolumeAnswer;
 import com.cloud.agent.api.to.IpAddressTO;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.StorageFilerTO;
@@ -255,6 +257,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements
     private String _patchdomrPath;
     private String _createvmPath;
     private String _manageSnapshotPath;
+    private String _resizeVolumePath;
     private String _createTmplPath;
     private String _heartBeatPath;
     private String _securityGroupPath;
@@ -362,10 +365,16 @@ public class LibvirtComputingResource extends ServerResourceBase implements
     private String _pingTestPath;
 
     private int _dom0MinMem;
+    
+    protected enum BridgeType {
+        NATIVE, OPENVSWITCH
+    }
 
     protected enum defineOps {
         UNDEFINE_VM, DEFINE_VM
     }
+    
+    protected BridgeType _bridgeType;
 
     private String getEndIpFromStartIp(String startIp, int numIps) {
         String[] tokens = startIp.split("[.]");
@@ -474,6 +483,14 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         if (storageScriptsDir == null) {
             storageScriptsDir = getDefaultStorageScriptsDir();
         }
+        
+        String bridgeType = (String) params.get("network.bridge.type");
+        if (bridgeType == null) {
+            _bridgeType = BridgeType.NATIVE;
+        }
+        else {
+            _bridgeType = BridgeType.valueOf(bridgeType.toUpperCase());
+        }
 
         params.put("domr.scripts.dir", domrScriptsDir);
 
@@ -532,6 +549,12 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         if (_manageSnapshotPath == null) {
             throw new ConfigurationException(
                     "Unable to find the managesnapshot.sh");
+        }
+
+        _resizeVolumePath = Script.findScript(storageScriptsDir, "resizevolume.sh");
+        if (_resizeVolumePath == null) {
+            throw new ConfigurationException(
+                    "Unable to find the resizevolume.sh");
         }
 
         _createTmplPath = Script
@@ -652,6 +675,13 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         Connect conn = null;
         try {
             conn = LibvirtConnection.getConnection();
+
+            if (_bridgeType == BridgeType.OPENVSWITCH) {
+                if (conn.getLibVirVersion() < (9 * 1000 + 11)) {
+                    throw new ConfigurationException("LibVirt version 0.9.11 required for openvswitch support, but version "
+                            + conn.getLibVirVersion() + " detected");
+                }
+            }
         } catch (LibvirtException e) {
             throw new CloudRuntimeException(e.getMessage());
         }
@@ -697,7 +727,16 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             }
         }
 
-        getPifs();
+        switch (_bridgeType) {
+        case OPENVSWITCH:
+            getOvsPifs();
+            break;
+        case NATIVE:
+        default:
+            getPifs();
+            break;
+        }
+
         if (_pifs.get("private") == null) {
             s_logger.debug("Failed to get private nic name");
             throw new ConfigurationException("Failed to get private nic name");
@@ -756,33 +795,46 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         // Load the vif driver
         String vifDriverName = (String) params.get("libvirt.vif.driver");
         if (vifDriverName == null) {
-        	s_logger.info("No libvirt.vif.driver specififed. Defaults to BridgeVifDriver.");
-        	vifDriverName = "com.cloud.hypervisor.kvm.resource.BridgeVifDriver";
+            if (_bridgeType == BridgeType.OPENVSWITCH) {
+                s_logger.info("No libvirt.vif.driver specififed. Defaults to OvsVifDriver.");
+                vifDriverName = "com.cloud.hypervisor.kvm.resource.OvsVifDriver";
+            } else {
+                s_logger.info("No libvirt.vif.driver specififed. Defaults to BridgeVifDriver.");
+                vifDriverName = "com.cloud.hypervisor.kvm.resource.BridgeVifDriver";
+            }
         }
 
         params.put("libvirt.computing.resource", (Object) this);
 
         try {
-        	Class<?> clazz = Class.forName(vifDriverName);
-        	_vifDriver = (VifDriver) clazz.newInstance();
-        	_vifDriver.configure(params);
+            Class<?> clazz = Class.forName(vifDriverName);
+            _vifDriver = (VifDriver) clazz.newInstance();
+            _vifDriver.configure(params);
         } catch (ClassNotFoundException e) {
-        	throw new ConfigurationException("Unable to find class for libvirt.vif.driver " + e);
+            throw new ConfigurationException("Unable to find class for libvirt.vif.driver " + e);
         } catch (InstantiationException e) {
-        	throw new ConfigurationException("Unable to instantiate class for libvirt.vif.driver " + e);
+            throw new ConfigurationException("Unable to instantiate class for libvirt.vif.driver " + e);
         } catch (Exception e) {
-        	throw new ConfigurationException("Failed to initialize libvirt.vif.driver " + e);
+            throw new ConfigurationException("Failed to initialize libvirt.vif.driver " + e);
         }
-
 
         return true;
     }
 
     private void getPifs() {
-        /* gather all available bridges and find their pifs, so that we can match them against traffic labels later */
-        String cmdout = Script.runSimpleBashScript("brctl show | tail -n +2 | grep -v \"^\\s\"|awk '{print $1}'|sed '{:q;N;s/\\n/%/g;t q}'");
-        s_logger.debug("cmdout was " + cmdout);
-        List<String> bridges = Arrays.asList(cmdout.split("%"));
+        File dir = new File("/sys/devices/virtual/net");
+        File[] netdevs = dir.listFiles();
+        List<String> bridges = new ArrayList<String>();
+        for (int i = 0; i < netdevs.length; i++) {
+            File isbridge = new File(netdevs[i].getAbsolutePath() + "/bridge");
+            String netdevName = netdevs[i].getName();
+            s_logger.debug("looking in file " + netdevs[i].getAbsolutePath() + "/bridge");
+            if (isbridge.exists()) {
+                s_logger.debug("Found bridge " + netdevName);
+                bridges.add(netdevName);
+            }
+        }
+
         for (String bridge : bridges) {
             s_logger.debug("looking for pif for bridge " + bridge);
             String pif = getPif(bridge);
@@ -796,29 +848,113 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         }
         s_logger.debug("done looking for pifs, no more bridges");
     }
+    
+    private void getOvsPifs() {
+        String cmdout = Script.runSimpleBashScript("ovs-vsctl list-br | sed '{:q;N;s/\\n/%/g;t q}'");
+        s_logger.debug("cmdout was " + cmdout);
+        List<String> bridges = Arrays.asList(cmdout.split("%"));
+        for (String bridge : bridges) {
+            s_logger.debug("looking for pif for bridge " + bridge);
+            // String pif = getOvsPif(bridge);
+            // Not really interested in the pif name at this point for ovs
+            // bridges
+            String pif = bridge;
+            if (_publicBridgeName != null && bridge.equals(_publicBridgeName)) {
+                _pifs.put("public", pif);
+            }
+            if (_guestBridgeName != null && bridge.equals(_guestBridgeName)) {
+                _pifs.put("private", pif);
+            }
+            _pifs.put(bridge, pif);
+        }
+        s_logger.debug("done looking for pifs, no more bridges");
+    }
 
     private String getPif(String bridge) {
-        String pif = Script.runSimpleBashScript("brctl show | grep " + bridge + " | awk '{print $4}'");
-        String vlan = Script.runSimpleBashScript("ls /proc/net/vlan/" + pif);
+        String pif = matchPifFileInDirectory(bridge);
+        File vlanfile = new File("/proc/net/vlan" + pif);
 
-        if (vlan != null && !vlan.isEmpty()) {
-                pif = Script.runSimpleBashScript("grep ^Device\\: /proc/net/vlan/" + pif + " | awk {'print $2'}");
+        if (vlanfile.isFile()) {
+                pif = Script.runSimpleBashScript("grep ^Device\\: /proc/net/vlan/"
+                                                  + pif + " | awk {'print $2'}");
         }
 
         return pif;
     }
+
+    private String getOvsPif(String bridge) {
+        String pif = Script.runSimpleBashScript("ovs-vsctl list-ports " + bridge);
+        return pif;
+    }
+    
+    private String matchPifFileInDirectory(String bridgeName){
+        File f = new File("/sys/devices/virtual/net/" + bridgeName + "/brif");
+
+        if (! f.isDirectory()){
+            s_logger.debug("failing to get physical interface from bridge"
+                           + bridgeName + ", does " + f.getAbsolutePath() 
+                           + "exist?");
+            return "";
+        }
+
+        File[] interfaces = f.listFiles();
+
+        for (int i = 0; i < interfaces.length; i++) {
+            String fname = interfaces[i].getName();
+            s_logger.debug("matchPifFileInDirectory: file name '"+fname+"'");
+            if (fname.startsWith("eth") || fname.startsWith("bond")
+                || fname.startsWith("vlan")) {
+                return fname;
+            }
+        }
+
+        s_logger.debug("failing to get physical interface from bridge"
+                        + bridgeName + ", did not find an eth*, bond*, or vlan* in "
+                        + f.getAbsolutePath());
+        return "";
+    }
+
 
     private boolean checkNetwork(String networkName) {
         if (networkName == null) {
             return true;
         }
 
-        String name = Script.runSimpleBashScript("brctl show | grep "
-                + networkName + " | awk '{print $4}'");
-        if (name == null) {
+        if (_bridgeType == BridgeType.OPENVSWITCH) {
+            return checkOvsNetwork(networkName);
+        } else {
+            return checkBridgeNetwork(networkName);
+        }
+    }
+
+    private boolean checkBridgeNetwork(String networkName) {
+        if (networkName == null) {
+            return true;
+        }
+
+        String name = matchPifFileInDirectory(networkName);
+
+        if (name == null || name.isEmpty()) {
             return false;
         } else {
             return true;
+        }
+    }
+    
+    private boolean checkOvsNetwork(String networkName) {
+        s_logger.debug("Checking if network " + networkName + " exists as openvswitch bridge");
+        if (networkName == null) {
+            return true;
+        }
+
+        Script command = new Script("/bin/sh", _timeout);
+        command.add("-c");
+        command.add("ovs-vsctl br-exists " + networkName);
+        String result = command.execute(null);
+        if ("Ok".equals(result)) {
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -1062,6 +1198,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                 return execute((CleanupNetworkRulesCmd) cmd);
             } else if (cmd instanceof CopyVolumeCommand) {
                 return execute((CopyVolumeCommand) cmd);
+            } else if (cmd instanceof ResizeVolumeCommand) {
+                return execute((ResizeVolumeCommand) cmd);
             } else if (cmd instanceof CheckNetworkCommand) {
                 return execute((CheckNetworkCommand) cmd);
             } else {
@@ -1104,8 +1242,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         String secondaryStorageUrl = cmd.getSecondaryStorageURL();
         KVMStoragePool secondaryStoragePool = null;
         try {
-            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(pool
-                    .getUuid());
+            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(
+                                             pool.getType(),
+                                             pool.getUuid());
             String volumeName = UUID.randomUUID().toString();
 
             if (copyToSecondary) {
@@ -1114,20 +1253,21 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                         .getVolumePath());
                 String volumeDestPath = "/volumes/" + cmd.getVolumeId()
                         + File.separator;
-                secondaryStoragePool = _storagePoolMgr
-                        .getStoragePoolByURI(secondaryStorageUrl);
+                secondaryStoragePool = _storagePoolMgr.getStoragePoolByURI(
+                                                           secondaryStorageUrl);
                 secondaryStoragePool.createFolder(volumeDestPath);
                 secondaryStoragePool.delete();
-                secondaryStoragePool = _storagePoolMgr
-                        .getStoragePoolByURI(secondaryStorageUrl
-                                + volumeDestPath);
-                _storagePoolMgr.copyPhysicalDisk(volume, destVolumeName,
-                        secondaryStoragePool);
+                secondaryStoragePool = _storagePoolMgr.getStoragePoolByURI(
+                                                           secondaryStorageUrl
+                                                           + volumeDestPath);
+                _storagePoolMgr.copyPhysicalDisk(volume,
+                        destVolumeName,secondaryStoragePool);
                 return new CopyVolumeAnswer(cmd, true, null, null, volumeName);
             } else {
                 volumePath = "/volumes/" + cmd.getVolumeId() + File.separator;
-                secondaryStoragePool = _storagePoolMgr
-                        .getStoragePoolByURI(secondaryStorageUrl + volumePath);
+                secondaryStoragePool = _storagePoolMgr.getStoragePoolByURI(
+                                                           secondaryStorageUrl
+                                                           + volumePath);
                 KVMPhysicalDisk volume = secondaryStoragePool
                         .getPhysicalDisk(cmd.getVolumePath() + ".qcow2");
                 _storagePoolMgr.copyPhysicalDisk(volume, volumeName,
@@ -1145,7 +1285,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
 
     protected Answer execute(DeleteStoragePoolCommand cmd) {
         try {
-            _storagePoolMgr.deleteStoragePool(cmd.getPool().getUuid());
+            _storagePoolMgr.deleteStoragePool(cmd.getPool().getType(),
+                                              cmd.getPool().getUuid());
             return new Answer(cmd);
         } catch (CloudRuntimeException e) {
             return new Answer(cmd, false, e.toString());
@@ -1186,15 +1327,18 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         KVMPhysicalDisk vol = null;
         long disksize;
         try {
-            primaryPool = _storagePoolMgr.getStoragePool(pool.getUuid());
+            primaryPool = _storagePoolMgr.getStoragePool(pool.getType(),
+                                                         pool.getUuid());
             disksize = dskch.getSize();
 
             if (cmd.getTemplateUrl() != null) {
-
-                BaseVol = primaryPool.getPhysicalDisk(cmd.getTemplateUrl());
-                vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, UUID
+                if(primaryPool.getType() == StoragePoolType.CLVM) { 
+                    vol = templateToPrimaryDownload(cmd.getTemplateUrl(),primaryPool);
+                } else {
+                    BaseVol = primaryPool.getPhysicalDisk(cmd.getTemplateUrl());
+                    vol = _storagePoolMgr.createDiskFromTemplate(BaseVol, UUID
                         .randomUUID().toString(), primaryPool);
-
+                }
                 if (vol == null) {
                     return new Answer(cmd, false,
                             " Can't create storage volume on storage pool");
@@ -1213,13 +1357,148 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         }
     }
 
+    // this is much like PrimaryStorageDownloadCommand, but keeping it separate
+    protected KVMPhysicalDisk templateToPrimaryDownload(String templateUrl, KVMStoragePool primaryPool) {
+        int index = templateUrl.lastIndexOf("/");
+        String mountpoint = templateUrl.substring(0, index);
+        String templateName = null;
+        if (index < templateUrl.length() - 1) {
+            templateName = templateUrl.substring(index + 1);
+        }
+
+        KVMPhysicalDisk templateVol = null;
+        KVMStoragePool secondaryPool = null;
+        try {
+            secondaryPool = _storagePoolMgr.getStoragePoolByURI(mountpoint);
+            /* Get template vol */
+            if (templateName == null) {
+                secondaryPool.refresh();
+                List<KVMPhysicalDisk> disks = secondaryPool.listPhysicalDisks();
+                if (disks == null || disks.isEmpty()) {
+                    s_logger.error("Failed to get volumes from pool: " + secondaryPool.getUuid());
+                    return null;
+                }
+                for (KVMPhysicalDisk disk : disks) {
+                    if (disk.getName().endsWith("qcow2")) {
+                        templateVol = disk;
+                        break;
+                    }
+                }
+                if (templateVol == null) {
+                    s_logger.error("Failed to get template from pool: " + secondaryPool.getUuid());
+                    return null;
+                }
+            } else {
+                templateVol = secondaryPool.getPhysicalDisk(templateName);
+            }
+
+            /* Copy volume to primary storage */
+
+            KVMPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(templateVol, UUID.randomUUID().toString(), primaryPool);
+            return primaryVol;
+        } catch (CloudRuntimeException e) {
+            s_logger.error("Failed to download template to primary storage",e);
+            return null;
+        } finally {
+            if (secondaryPool != null) {
+                secondaryPool.delete();
+            }
+        }
+    }
+
+    private String getResizeScriptType (KVMStoragePool pool, KVMPhysicalDisk vol) {
+        StoragePoolType poolType = pool.getType();
+        PhysicalDiskFormat volFormat = vol.getFormat();
+         
+        if(pool.getType() == StoragePoolType.CLVM && volFormat == KVMPhysicalDisk.PhysicalDiskFormat.RAW) {
+            return "CLVM";
+        } else if ((poolType == StoragePoolType.NetworkFilesystem
+                  || poolType == StoragePoolType.SharedMountPoint
+                  || poolType == StoragePoolType.Filesystem)
+                  && volFormat == KVMPhysicalDisk.PhysicalDiskFormat.QCOW2 ) {
+            return "QCOW2";
+        }
+        return null;
+    }
+
+    /* uses a local script now, eventually support for virStorageVolResize() will maybe work on 
+       qcow2 and lvm and we can do this in libvirt calls */
+    public Answer execute(ResizeVolumeCommand cmd) {
+        String volid = cmd.getPath();
+        long newSize = cmd.getNewSize();
+        long currentSize = cmd.getCurrentSize();
+        String vmInstanceName = cmd.getInstanceName();
+        boolean shrinkOk = cmd.getShrinkOk();
+        StorageFilerTO spool = cmd.getPool();
+
+        try {
+            KVMStoragePool pool = _storagePoolMgr.getStoragePool(spool.getType(), spool.getUuid());
+            KVMPhysicalDisk vol = pool.getPhysicalDisk(volid);
+            String path = vol.getPath();
+            String type = getResizeScriptType(pool, vol);
+
+            if (type == null) {
+                return new ResizeVolumeAnswer(cmd, false, "Unsupported volume format: pool type '" 
+                                + pool.getType() + "' and volume format '" + vol.getFormat() + "'");
+            }
+
+            s_logger.debug("got to the stage where we execute the volume resize, params:" 
+                           + path + "," + currentSize + "," + newSize + "," + type + "," + vmInstanceName + "," + shrinkOk);
+            final Script resizecmd = new Script(_resizeVolumePath,
+                        _cmdsTimeout, s_logger); 
+            resizecmd.add("-s",String.valueOf(newSize));
+            resizecmd.add("-c",String.valueOf(currentSize));
+            resizecmd.add("-p",path);
+            resizecmd.add("-t",type);
+            resizecmd.add("-r",String.valueOf(shrinkOk));
+            resizecmd.add("-v",vmInstanceName);
+            String result = resizecmd.execute();
+
+            if (result == null) {
+
+                /* fetch new size as seen from libvirt, don't want to assume anything */
+                pool = _storagePoolMgr.getStoragePool(spool.getType(), spool.getUuid());
+                long finalSize = pool.getPhysicalDisk(volid).getVirtualSize();
+                s_logger.debug("after resize, size reports as " + finalSize + ", requested " + newSize);
+                return new ResizeVolumeAnswer(cmd, true, "success", finalSize);
+            }
+
+            return new ResizeVolumeAnswer(cmd, false, result);
+        } catch (CloudRuntimeException e) {
+            String error = "failed to resize volume: " + e;
+            s_logger.debug(error);
+            return new ResizeVolumeAnswer(cmd, false, error);
+        }
+        
+    } 
+
     public Answer execute(DestroyCommand cmd) {
         VolumeTO vol = cmd.getVolume();
 
         try {
-            KVMStoragePool pool = _storagePoolMgr.getStoragePool(vol
-                    .getPoolUuid());
+            KVMStoragePool pool = _storagePoolMgr.getStoragePool(
+                                      vol.getPoolType(),
+                                      vol.getPoolUuid());
             pool.deletePhysicalDisk(vol.getPath());
+            String vmName = cmd.getVmName();
+            String poolPath = pool.getLocalPath();
+
+            /* if vol is a root disk for a system vm, try to remove accompanying patch disk as well
+               this is a bit tricky since the patchdisk is only a LibvirtComputingResource construct
+               and not tracked anywhere in cloudstack */
+            if (vol.getType() == Volume.Type.ROOT && vmName.matches("^[rsv]-\\d+-.+$")) {
+                File patchVbd = new File(poolPath + File.separator + vmName + "-patchdisk");
+                if(patchVbd.exists()){
+                    try {
+                        _storagePoolMgr.deleteVbdByPath(vol.getPoolType(),patchVbd.getAbsolutePath());
+                    } catch(CloudRuntimeException e) {
+                        s_logger.warn("unable to destroy patch disk '" + patchVbd.getAbsolutePath() +
+                                      "' while removing root disk for " + vmName + " : " + e);
+                    }
+                } else {
+                    s_logger.debug("file '" +patchVbd.getAbsolutePath()+ "' not found");
+                }
+            }
 
             return new Answer(cmd, true, "Success");
         } catch (CloudRuntimeException e) {
@@ -1229,20 +1508,15 @@ public class LibvirtComputingResource extends ServerResourceBase implements
     }
 
     private String getVlanIdFromBridge(String brName) {
-        OutputInterpreter.OneLineParser vlanIdParser = new OutputInterpreter.OneLineParser();
-        final Script cmd = new Script("/bin/bash", s_logger);
-        cmd.add("-c");
-        cmd.add("vlanid=$(brctl show |grep " + brName
-                + " |awk '{print $4}' | cut -s -d. -f 2);echo $vlanid");
-        String result = cmd.execute(vlanIdParser);
-        if (result != null) {
-            return null;
-        }
-        String vlanId = vlanIdParser.getLine();
-        if (vlanId.equalsIgnoreCase("")) {
-            return null;
+        String pif= matchPifFileInDirectory(brName);
+        String[] pifparts = pif.split("\\.");
+
+        if(pifparts.length == 2) {
+            return pifparts[1];
         } else {
-            return vlanId;
+            s_logger.debug("failed to get vlan id from bridge " + brName 
+                           + "attached to physical interface" + pif);
+            return "";
         }
     }
 
@@ -1467,20 +1741,17 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                 String pluggedVlan = pluggedNic.getBrName();
                 if (pluggedVlan.equalsIgnoreCase(_linkLocalBridgeName)) {
                     vlanToNicNum.put("LinkLocal",devNum); 
-                }
-                else if (pluggedVlan.equalsIgnoreCase(_publicBridgeName)
+                } else if (pluggedVlan.equalsIgnoreCase(_publicBridgeName)
                          || pluggedVlan.equalsIgnoreCase(_privBridgeName)
                          || pluggedVlan.equalsIgnoreCase(_guestBridgeName)) {
                     vlanToNicNum.put(Vlan.UNTAGGED,devNum);
-                }
-                else {
+                } else {
                     vlanToNicNum.put(getVlanIdFromBridge(pluggedVlan),devNum);
                 }
                 devNum++;
             }
 
             for (IpAddressTO ip : ips) {
-                String ipVlan = ip.getVlanId();
                 String nicName = "eth" + vlanToNicNum.get(ip.getVlanId());
                 String netmask = Long.toString(NetUtils.getCidrSize(ip.getVlanNetmask()));
                 String subnet = NetUtils.getSubNet(ip.getPublicIp(), ip.getVlanNetmask());
@@ -1573,8 +1844,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                 }
             }
 
-            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(cmd
-                    .getPool().getUuid());
+            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(
+                                             cmd.getPool().getType(),
+                                             cmd.getPool().getUuid());
 
             if (primaryPool.getType() == StoragePoolType.RBD) {
                 s_logger.debug("Snapshots are not supported on RBD volumes");
@@ -1651,8 +1923,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         try {
             Connect conn = LibvirtConnection.getConnection();
 
-            secondaryStoragePool = _storagePoolMgr
-                    .getStoragePoolByURI(secondaryStoragePoolUrl);
+            secondaryStoragePool = _storagePoolMgr.getStoragePoolByURI(
+                                                   secondaryStoragePoolUrl);
 
             String ssPmountPath = secondaryStoragePool.getLocalPath();
             snapshotRelPath = File.separator + "snapshots" + File.separator
@@ -1662,8 +1934,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             snapshotDestPath = ssPmountPath + File.separator + "snapshots"
                     + File.separator + dcId + File.separator + accountId
                     + File.separator + volumeId;
-            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(cmd
-                    .getPrimaryStoragePoolNameLabel());
+            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(
+                                             cmd.getPool().getType(),
+                                             cmd.getPrimaryStoragePoolNameLabel());
             KVMPhysicalDisk snapshotDisk = primaryPool.getPhysicalDisk(cmd
                     .getVolumePath());
             Script command = new Script(_manageSnapshotPath, _cmdsTimeout,
@@ -1690,8 +1963,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                 }
             }
 
-            KVMStoragePool primaryStorage = _storagePoolMgr.getStoragePool(cmd
-                    .getPool().getUuid());
+            KVMStoragePool primaryStorage = _storagePoolMgr.getStoragePool(
+                                                cmd.getPool().getType(),
+                                                cmd.getPool().getUuid());
             if (state == DomainInfo.DomainState.VIR_DOMAIN_RUNNING
                     && !primaryStorage.isExternalSnapshot()) {
                 String vmUuid = vm.getUUIDString();
@@ -1775,7 +2049,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         KVMStoragePool secondaryStoragePool = null;
         try {
             secondaryStoragePool = _storagePoolMgr.getStoragePoolByURI(cmd
-                    .getSecondaryStorageUrl());
+                                       .getSecondaryStorageUrl());
 
             String ssPmountPath = secondaryStoragePool.getLocalPath();
             String snapshotDestPath = ssPmountPath + File.separator
@@ -1805,15 +2079,16 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             String snapshotPath = cmd.getSnapshotUuid();
             int index = snapshotPath.lastIndexOf("/");
             snapshotPath = snapshotPath.substring(0, index);
-            KVMStoragePool secondaryPool = _storagePoolMgr
-                    .getStoragePoolByURI(cmd.getSecondaryStorageUrl()
-                            + snapshotPath);
+            KVMStoragePool secondaryPool = _storagePoolMgr.getStoragePoolByURI(
+                                               cmd.getSecondaryStorageUrl()
+                                               + snapshotPath);
             KVMPhysicalDisk snapshot = secondaryPool.getPhysicalDisk(cmd
                     .getSnapshotName());
 
             String primaryUuid = cmd.getPrimaryStoragePoolNameLabel();
             KVMStoragePool primaryPool = _storagePoolMgr
-                    .getStoragePool(primaryUuid);
+                    .getStoragePool(cmd.getPool().getType(),
+                    primaryUuid);
             String volUuid = UUID.randomUUID().toString();
             KVMPhysicalDisk disk = _storagePoolMgr.copyPhysicalDisk(snapshot,
                     volUuid, primaryPool);
@@ -1848,8 +2123,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             KVMPhysicalDisk snapshot = snapshotPool.getPhysicalDisk(cmd
                     .getSnapshotName());
 
-            secondaryPool = _storagePoolMgr.getStoragePoolByURI(cmd
-                    .getSecondaryStorageUrl());
+            secondaryPool = _storagePoolMgr.getStoragePoolByURI(
+                                            cmd.getSecondaryStorageUrl());
 
             String templatePath = secondaryPool.getLocalPath() + File.separator
                     + templateInstallFolder;
@@ -1898,8 +2173,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
 
     protected GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
         try {
-            KVMStoragePool sp = _storagePoolMgr.getStoragePool(cmd
-                    .getStorageId());
+            KVMStoragePool sp = _storagePoolMgr.getStoragePool(
+                                    cmd.getPooltype(),
+                                    cmd.getStorageId());
             return new GetStorageStatsAnswer(cmd, sp.getCapacity(),
                     sp.getUsed());
         } catch (CloudRuntimeException e) {
@@ -1918,11 +2194,12 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                     + cmd.getTemplateId() + File.separator;
             String templateInstallFolder = "/template/tmpl/" + templateFolder;
 
-            secondaryStorage = _storagePoolMgr
-                    .getStoragePoolByURI(secondaryStorageURL);
+            secondaryStorage = _storagePoolMgr.getStoragePoolByURI(
+                                               secondaryStorageURL);
 
-            KVMStoragePool primary = _storagePoolMgr.getStoragePool(cmd
-                    .getPrimaryStoragePoolNameLabel());
+            KVMStoragePool primary = _storagePoolMgr.getStoragePool(
+                                         cmd.getPool().getType(),
+                                         cmd.getPrimaryStoragePoolNameLabel());
             KVMPhysicalDisk disk = primary.getPhysicalDisk(cmd.getVolumePath());
             String tmpltPath = secondaryStorage.getLocalPath() + File.separator
                     + templateInstallFolder;
@@ -2044,8 +2321,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             }
 
             /* Copy volume to primary storage */
-            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(cmd
-                    .getPoolUuid());
+            KVMStoragePool primaryPool = _storagePoolMgr.getStoragePool(
+                                             cmd.getPool().getType(),
+                                             cmd.getPoolUuid());
 
             KVMPhysicalDisk primaryVol = _storagePoolMgr.copyPhysicalDisk(
                     tmplVol, UUID.randomUUID().toString(), primaryPool);
@@ -2066,9 +2344,11 @@ public class LibvirtComputingResource extends ServerResourceBase implements
     }
 
     protected Answer execute(ModifyStoragePoolCommand cmd) {
+        String poolType = cmd.getPool().getType().toString();
         KVMStoragePool storagepool = _storagePoolMgr.createStoragePool(cmd
-                .getPool().getUuid(), cmd.getPool().getHost(), cmd.getPool().getPort(),
-                cmd.getPool().getPath(), cmd.getPool().getUserInfo(), cmd.getPool().getType());
+                .getPool().getUuid(), cmd.getPool().getHost(),
+                cmd.getPool().getPort(), cmd.getPool().getPath(),
+                cmd.getPool().getUserInfo(), cmd.getPool().getType());
         if (storagepool == null) {
             return new Answer(cmd, false, " Failed to create storage pool");
         }
@@ -2206,8 +2486,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
     private AttachVolumeAnswer execute(AttachVolumeCommand cmd) {
         try {
             Connect conn = LibvirtConnection.getConnection();
-            KVMStoragePool primary = _storagePoolMgr.getStoragePool(cmd
-                    .getPoolUuid());
+            KVMStoragePool primary = _storagePoolMgr.getStoragePool(
+                                         cmd.getPooltype(),
+                                         cmd.getPoolUuid());
             KVMPhysicalDisk disk = primary.getPhysicalDisk(cmd.getVolumePath());
             attachOrDetachDisk(conn, cmd.getAttach(), cmd.getVmName(), disk,
                     cmd.getDeviceId().intValue());
@@ -2600,12 +2881,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                     if (disk.getDeviceType() == DiskDef.deviceType.CDROM
                             && disk.getDiskPath() != null) {
                         cleanupDisk(conn, disk);
-                    } else if (disk.getDiskPath() != null 
-                            && disk.getDiskPath().contains(vmName + "-patchdisk") 
-                            && vmName.matches("^[rsv]-\\d+-VM$")) {
-                        if (!_storagePoolMgr.deleteVbdByPath(disk.getDiskPath())) {
-                            s_logger.warn("failed to delete patch disk " + disk.getDiskPath());
-                        }
                     }
                 }
                 for (InterfaceDef iface: ifaces) {
@@ -2822,9 +3097,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
 
             NicTO[] nics = vmSpec.getNics();
             for (NicTO nic : nics) {
-                if (nic.getIsolationUri() != null
-                        && nic.getIsolationUri().getScheme()
-                                .equalsIgnoreCase(IsolationType.Ec2.toString())) {
+                if (nic.isSecurityGroupEnabled() || ( nic.getIsolationUri() != null
+                         && nic.getIsolationUri().getScheme().equalsIgnoreCase(IsolationType.Ec2.toString()))) {
                     if (vmSpec.getType() != VirtualMachine.Type.User) {
                         default_network_rules_for_systemvm(conn, vmName);
                         break;
@@ -2860,8 +3134,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             int index = isoPath.lastIndexOf("/");
             String path = isoPath.substring(0, index);
             String name = isoPath.substring(index + 1);
-            KVMStoragePool secondaryPool = _storagePoolMgr
-                    .getStoragePoolByURI(path);
+            KVMStoragePool secondaryPool = _storagePoolMgr.getStoragePoolByURI(
+                                                                          path);
             KVMPhysicalDisk isoVol = secondaryPool.getPhysicalDisk(name);
             return isoVol.getPath();
         } else {
@@ -2888,11 +3162,13 @@ public class LibvirtComputingResource extends ServerResourceBase implements
                 int index = volPath.lastIndexOf("/");
                 String volDir = volPath.substring(0, index);
                 String volName = volPath.substring(index + 1);
-                KVMStoragePool secondaryStorage = _storagePoolMgr
-                        .getStoragePoolByURI(volDir);
+                KVMStoragePool secondaryStorage = _storagePoolMgr.
+                                                  getStoragePoolByURI(volDir);
                 physicalDisk = secondaryStorage.getPhysicalDisk(volName);
             } else if (volume.getType() != Volume.Type.ISO) {
-                pool = _storagePoolMgr.getStoragePool(volume.getPoolUuid());
+                pool = _storagePoolMgr.getStoragePool(
+                           volume.getPoolType(),
+                           volume.getPoolUuid());
                 physicalDisk = pool.getPhysicalDisk(volume.getPath());
             }
 
@@ -2970,7 +3246,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         DiskDef rootDisk = disks.get(0);
         VolumeTO rootVol = getVolume(vmSpec, Volume.Type.ROOT);
         String patchName = vmName + "-patchdisk";
-        KVMStoragePool pool = _storagePoolMgr.getStoragePool(rootVol.getPoolUuid());
+        KVMStoragePool pool = _storagePoolMgr.getStoragePool(
+                                  rootVol.getPoolType(),
+                                  rootVol.getPoolUuid());
         String patchDiskPath = pool.getLocalPath() + "/" + patchName;
 
         List<KVMPhysicalDisk> phyDisks = pool.listPhysicalDisks();
@@ -3066,7 +3344,11 @@ public class LibvirtComputingResource extends ServerResourceBase implements
         }
 
         try {
-            KVMStoragePool pool = _storagePoolMgr.getStoragePool(poolUuid);
+            // we use libvirt as storage adaptor since we passed a libvirt
+            // connection to cleanupDisk. We pass a storage type that maps
+            // to libvirt adaptor.
+            KVMStoragePool pool = _storagePoolMgr.getStoragePool(
+                                      StoragePoolType.Filesystem, poolUuid);
             if (pool != null) {
                 pool.delete();
             }
@@ -3084,8 +3366,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements
             int index = isoPath.lastIndexOf("/");
             String path = isoPath.substring(0, index);
             String name = isoPath.substring(index + 1);
-            KVMStoragePool secondaryPool = _storagePoolMgr
-                    .getStoragePoolByURI(path);
+            KVMStoragePool secondaryPool = _storagePoolMgr.getStoragePoolByURI(
+                                                           path);
             KVMPhysicalDisk isoVol = secondaryPool.getPhysicalDisk(name);
             isoPath = isoVol.getPath();
 
@@ -4352,4 +4634,5 @@ public class LibvirtComputingResource extends ServerResourceBase implements
 
         return new Answer(cmd, success, "");
     }
+
 }

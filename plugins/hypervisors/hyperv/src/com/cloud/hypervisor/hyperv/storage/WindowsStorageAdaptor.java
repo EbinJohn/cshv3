@@ -55,7 +55,6 @@ import com.cloud.storage.StoragePool;
 import com.cloud.storage.StoragePoolVO;
 import com.cloud.storage.Volume;
 import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.utils.exception.RuntimeCloudException;
 import com.cloud.utils.script.OutputInterpreter;
 import com.cloud.utils.script.Script;
 import com.cloud.vm.DiskProfile;
@@ -272,12 +271,12 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
         catch (FileNotFoundException e) {
         	String errMsg = "Failed in " + taskMsg + " due to " + e.toString();
         	s_logger.debug(errMsg);
-            throw new RuntimeCloudException(errMsg, e);
+            throw new CloudRuntimeException(errMsg, e);
         }
         catch (IOException e) {
         	String errMsg = "Failed in " + taskMsg + " due to " + e.toString();
             s_logger.error(errMsg, e);
-            throw new RuntimeCloudException(errMsg, e);
+            throw new CloudRuntimeException(errMsg, e);
         }
         finally {
         	try {
@@ -291,7 +290,7 @@ public class WindowsStorageAdaptor implements StorageAdaptor {
             catch (IOException e) {
             	String errMsg = e.toString() + " when cleaning up after task " + taskMsg + "";
                 s_logger.debug(errMsg);
-                throw new RuntimeCloudException(errMsg, e);
+                throw new CloudRuntimeException(errMsg, e);
             }
         }
 	}

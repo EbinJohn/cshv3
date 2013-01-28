@@ -87,12 +87,12 @@ class TestCaseExecuteEngine(object):
                 setattr(test, "config", self.config)
                 setattr(test, "debug", partial(testCaseLogger, logger=testcaselogger))
                 setattr(test.__class__, "clstestclient", self.testclient)
-                if hasattr(test, "UserName"):
-                    self.testclient.createNewApiClient(test.UserName, test.DomainName, test.AcctType)
+                if hasattr(test, "user"): #attribute when test is entirely executed as user
+                    self.testclient.createUserApiClient(test.UserName, test.DomainName, test.AcctType)
 
     def run(self):
         if self.suite:
             if self.format == "text":
                 unittest.TextTestRunner(stream=self.testResultLogFile, verbosity=2).run(self.suite)
             elif self.format == "xml":
-                xmlrunner.XMLTestRunner(output=self.xmlDir, verbose=True).run(self.suite)
+                xmlrunner.XMLTestRunner(output=self.xmlDir).run(self.suite)

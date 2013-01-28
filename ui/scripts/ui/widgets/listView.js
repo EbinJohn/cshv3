@@ -23,7 +23,6 @@
       var listViewArgs = $instanceRow.closest('div.list-view').data('view-args');
       var notification = args.action.notification ? args.action.notification : {};
       var messages = args.action ? args.action.messages : {};
-      var messageArgs = { name: $instanceRow.find('td.name span').html() };
       var preAction = args.action ? args.action.preAction : {};
       var action = args.action ? args.action.action : {};
       var section;
@@ -32,6 +31,9 @@
         jsonObj: $instanceRow.data('jsonObj')
       };
       var $listView = $instanceRow.closest('.list-view');
+      var messageArgs = {
+        name: $instanceRow.find('td.name span').html()
+      };
 
       if (args.data) $.extend(true, data, args.data);
       if (listViewArgs) section = listViewArgs.section;
@@ -269,14 +271,17 @@
       };
 
       var context = $.extend({}, listViewArgs.context);
+      
       context[
         listViewArgs.activeSection
       ] = [$instanceRow.data('jsonObj')];
 
+      messageArgs.context = context;     
+
       if (!args.action.action.externalLink &&
           !args.action.createForm &&
           args.action.addRow != 'true' &&
-          !action.custom && !action.uiCustom)
+          !action.custom && !action.uiCustom) {
         cloudStack.dialog.confirm({
           message: messages.confirm(messageArgs),
           action: function() {
@@ -287,9 +292,9 @@
             });
           }
         });
-      else if (action.custom || action.uiCustom)
+      } else if (action.custom || action.uiCustom) {
         performAction();
-      else {
+      } else {
         var addRow = args.action.addRow == "false" ? false : true;
         var isHeader = args.action.isHeader;
         var createFormContext = $.extend({}, context);
@@ -555,8 +560,8 @@
           return $(this).index() == index;
         });
 
-        if ($target.index() > $tr.index()) $target.after($tr);
-        else $target.before($tr);
+    //    if ($target.index() > $tr.index()) $target.after($tr);
+      //  else $target.before($tr);
 
         $tr.closest('.list-view').scrollTop($tr.position().top - $tr.height() * 2);
 
@@ -909,6 +914,8 @@
             $('<span></span>').html(_s(content))
           );
         }
+        
+        $td.attr('title', _s(content));
       });
 
       $tr.find('td:first').addClass('first');
@@ -1071,7 +1078,7 @@
               $('<span>').addClass('icon').html('&nbsp;')
             );
             $quickViewTooltip.append($title);
-
+            $('.quick-view-tooltip').remove();
             // Setup positioning
             $quickViewTooltip.hide().appendTo('#container').fadeIn(200, function() {
               if (!$quickViewTooltip.is(':visible')) return;
