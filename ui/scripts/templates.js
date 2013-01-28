@@ -240,6 +240,7 @@
                       else if(args.hypervisor == "Hyperv") {
                           //formatSelect.append("<option value='VHD'>VHD</option>");
                           items.push({id:'VHD', description: 'VHD'});
+                          items.push({id:'VHDX', description: 'VHDX'});
                         }
                       args.response.success({data: items});
                     }
