@@ -110,18 +110,21 @@ public class HyervisorTemplateAdapter extends TemplateAdapterBase implements Tem
 	public TemplateProfile prepare(RegisterTemplateCmd cmd) throws ResourceAllocationException {
 		TemplateProfile profile = super.prepare(cmd);
 		String url = profile.getUrl();
-		
+
 		if((!url.toLowerCase().endsWith("vhd"))&&(!url.toLowerCase().endsWith("vhd.zip"))
 	        &&(!url.toLowerCase().endsWith("vhd.bz2"))&&(!url.toLowerCase().endsWith("vhd.gz")) 
+	        &&(!url.toLowerCase().endsWith("vhdx"))&&(!url.toLowerCase().endsWith("vhdx.zip"))
+	        &&(!url.toLowerCase().endsWith("vhdx.bz2"))&&(!url.toLowerCase().endsWith("vhdx.gz"))
 	        &&(!url.toLowerCase().endsWith("qcow2"))&&(!url.toLowerCase().endsWith("qcow2.zip"))
 	        &&(!url.toLowerCase().endsWith("qcow2.bz2"))&&(!url.toLowerCase().endsWith("qcow2.gz"))
 	        &&(!url.toLowerCase().endsWith("ova"))&&(!url.toLowerCase().endsWith("ova.zip"))
 	        &&(!url.toLowerCase().endsWith("ova.bz2"))&&(!url.toLowerCase().endsWith("ova.gz"))
 	        &&(!url.toLowerCase().endsWith("img"))&&(!url.toLowerCase().endsWith("raw"))){
-	        throw new InvalidParameterValueException("Please specify a valid "+ cmd.getFormat().toLowerCase());
+			throw new InvalidParameterValueException(url.toLowerCase() + " is not a valid " + cmd.getFormat().toLowerCase());
 	    }
 		
 		if ((cmd.getFormat().equalsIgnoreCase("vhd") && (!url.toLowerCase().endsWith("vhd") && !url.toLowerCase().endsWith("vhd.zip") && !url.toLowerCase().endsWith("vhd.bz2") && !url.toLowerCase().endsWith("vhd.gz") ))
+			|| (cmd.getFormat().equalsIgnoreCase("vhdx") && (!url.toLowerCase().endsWith("vhdx") && !url.toLowerCase().endsWith("vhdx.zip") && !url.toLowerCase().endsWith("vhdx.bz2") && !url.toLowerCase().endsWith("vhdx.gz") ))
 			|| (cmd.getFormat().equalsIgnoreCase("qcow2") && (!url.toLowerCase().endsWith("qcow2") && !url.toLowerCase().endsWith("qcow2.zip") && !url.toLowerCase().endsWith("qcow2.bz2") && !url.toLowerCase().endsWith("qcow2.gz") ))
 			|| (cmd.getFormat().equalsIgnoreCase("ova") && (!url.toLowerCase().endsWith("ova") && !url.toLowerCase().endsWith("ova.zip") && !url.toLowerCase().endsWith("ova.bz2") && !url.toLowerCase().endsWith("ova.gz")))
 			|| (cmd.getFormat().equalsIgnoreCase("raw") && (!url.toLowerCase().endsWith("img") && !url.toLowerCase().endsWith("raw")))) {
