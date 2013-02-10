@@ -382,6 +382,7 @@ public class HypervResource implements ServerResource {
             return new GetStorageStatsAnswer(cmd, sp.getCapacity(),
                     sp.getUsed());
         } catch (CloudRuntimeException e) {
+            s_logger.debug("Failed to obtains storage stats for pool id " + cmd.getStorageId()+ e.toString());
             return new GetStorageStatsAnswer(cmd, e.toString());
         }
     }
@@ -580,7 +581,7 @@ public class HypervResource implements ServerResource {
                     localStoragePool.getUuid(), cmd.getPrivateIpAddress(),
                     _localStoragePath, _localStoragePath,
                     StoragePoolType.Filesystem, localStoragePool.getCapacity(),
-                    localStoragePool.getUsed());
+                    localStoragePool.getCapacity()-localStoragePool.getUsed());
 
             sscmd = new StartupStorageCommand();
             sscmd.setPoolInfo(pi);
