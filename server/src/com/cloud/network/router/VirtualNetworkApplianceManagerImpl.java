@@ -1593,6 +1593,11 @@ public class VirtualNetworkApplianceManagerImpl implements VirtualNetworkApplian
         if (dest.getCluster() != null) {
             if (dest.getCluster().getHypervisorType() == HypervisorType.Ovm) {
                 hypervisors.add(getClusterToStartDomainRouterForOvm(dest.getCluster().getPodId()));
+            }
+            // TODO: revise to allow Hyper-V based domR.  Put it on XenServer always to trigger QA report if we forget.
+            else if (dest.getCluster().getHypervisorType() == HypervisorType.Hyperv) {
+                    s_logger.debug("Allow Virtual Router for Hyperv to appear on a XenServer");
+                	hypervisors.add(HypervisorType.XenServer);
             } else {
                 hypervisors.add(dest.getCluster().getHypervisorType());
             }
