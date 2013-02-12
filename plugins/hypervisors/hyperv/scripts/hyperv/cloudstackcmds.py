@@ -30,13 +30,9 @@ will be used rather than stdin.
 import sys
 import json
 import argparse
-import textwrap
 
-import exceptions
-import vmops
-import vmutils
+import hyperv
 import log as logging
-import volumeops
 
 PARSER = argparse.ArgumentParser()
 PARSER.add_argument("--test", help="Use sample data for command data. Useful for testing.",
@@ -65,12 +61,11 @@ def CreateCommand(cmdData, opsObj):
         volume = opsObj.create_volume(cmdData)
         answer = {"result":"true",
                   "volume":volume}
-        return answer
     except Exception as e:
-        LOG.debug('CreateCommand %s failed with msg %s' % (cmdData, e))
-        answer = {"result":"false",
-                   "details": e }
-        return answer
+        LOG.debug('CreateCommand %s failed with msg %s' % 
+                  (cmdData, str(e)))
+        answer = {"result":"false", "details": json.dumps(str(e)) }
+    return answer
 
 def DestroyCommand(cmdData, opsObj):
     """
@@ -82,12 +77,11 @@ def DestroyCommand(cmdData, opsObj):
         opsObj.destroy_volume(cmdData["volume"], None)
         answer = {"result":"true",
                   "details":"success" }
-        return answer
     except Exception as e:
-        LOG.debug('DestroyCommand %s failed with msg %s' % (cmdData, e))
-        answer = {"result":"false",
-                   "details": e }
-        return answer
+        LOG.debug('DestroyCommand %s failed with msg %s' % 
+                  (cmdData, str(e)))
+        answer = {"result":"false", "details": json.dumps(str(e)) }
+    return answer
 
 def StopCommand(cmdData, opsObj):
     """
@@ -97,16 +91,15 @@ def StopCommand(cmdData, opsObj):
     try:
         instance = {}
         instance["name"] = cmdData["vmName"] 
-        opsObj.destroy(instance)
+        opsObj.destroy(instance, None)
         answer = {"result":"true",
                   "details":"success",
                "wait":0 }
-        return answer
     except Exception as e:
-        LOG.debug('StopCommand %s failed with msg %s' % (cmdData, e))
-        answer = {"result":"false",
-                   "details": e }
-        return answer
+        LOG.debug('StopCommand %s failed with msg %s' % 
+                  (cmdData, str(e)))
+        answer = {"result":"false", "details": json.dumps(str(e)) }
+    return answer
 
 def StartCommand(cmdData, opsObj):
     """
@@ -115,17 +108,11 @@ def StartCommand(cmdData, opsObj):
     try:
         opsObj.spawn(cmdData)
         answer = {"result":"true" }
-        return answer
-    except vmutils.HyperVException as e:
-        errorMsg = 'StartCommand for %s failed with msg %s' % (cmdData["vm"]["name"], e.message)
-        LOG.debug(errorMsg)
-        answer = {"result":"false", "details": e.message }
-        return answer
     except Exception as e:
-        LOG.debug('StartCommand for %s failed with msg %s' % (cmdData["vm"]["name"], e.message))
-        answer = {"result":"false",
-                   "details": e }
-        return answer
+        LOG.debug('StartCommand %s failed with msg %s' % 
+                  (cmdData, str(e)))
+        answer = {"result":"false", "details": json.dumps(str(e)) }
+    return answer
 
 def GetVmStatsCommand(cmdData, opsObj):
     """
@@ -137,8 +124,8 @@ def GetVmStatsCommand(cmdData, opsObj):
         # todo: get_info can throw if the instance is not found.  Catch.  How should this affect the resulting answer?
         try:
             vmInfo=opsObj.get_info(vmName)
-        except vmutils.HyperVException as e:
-            LOG.debug(vmName + ' cannot be found: ' + e.message)
+        except Exception:
+            LOG.debug(vmName + ' cannot be found: ')
             continue
             
         LOG.debug(vmName + ' info is ' + json.dumps(vmInfo))
@@ -158,17 +145,30 @@ def GetVmStatsCommand(cmdData, opsObj):
 
 def DispatchCmd(args):
     cmdData = None
-    if not ARGS.test:
-        cmdData = parseCommandData(sys.stdin)
-    opsObj = vmops.VMOps(volumeops.VolumeOps())
-    answer = globals()[args.command](cmdData, opsObj)
+    try:
+        if not ARGS.test:
+            cmdData = parseCommandData(sys.stdin)
+    except Exception as e:
+        LOG.error('Error parsing command: %s' % (str(e)))
+        raise e
+
+    try:
+        LOG.debug('Create driver ')
+        opsObj = hyperv.get_connection()
+    except Exception as e:
+        LOG.error('Error creating driver: %s' % (str(e)))
+        raise e
+
+    try:
+        LOG.debug('Calling method ' + args.command)
+        answer = globals()[args.command](cmdData, opsObj)
+    except Exception as e:
+        LOG.error('Error calling driver: %s' % (str(e)))
+        raise e
         
     serialiseAnswerData(sys.stdout, answer)
 
 if __name__ == '__main__':
     DispatchCmd(ARGS)
-
-
-
-
-
+    sys.exit(0)
+    

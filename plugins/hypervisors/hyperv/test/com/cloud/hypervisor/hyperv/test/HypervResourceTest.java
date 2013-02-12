@@ -119,22 +119,47 @@ public class HypervResourceTest {
             // Obtain script locations from agent.properties
             final Map<String, Object> params = PropertiesUtil.toMap(loadProperties());
 	        // Used to create existing StoragePool in preparation for the ModifyStoragePool
-	        params.put("local.secondary.storage.path", testSecondaryStoreLocalPath);
 	        params.put("local.storage.uuid", testLocalStoreUUID);
+	      
+	        // Make sure secondary store is available.
+	        File testSecondarStoreDir = new File(testSecondaryStoreLocalPath);
+	        if (!testSecondarStoreDir.exists()) {
+	        	testSecondarStoreDir.mkdir();
+	        }
+	        Assert.assertTrue("Need to be able to create the folder " + testSecondaryStoreLocalPath, 
+	        				testSecondarStoreDir.exists());
+	        try {
+				params.put("local.secondary.storage.path", testSecondarStoreDir.getCanonicalPath());
+			} catch (IOException e1) {
+				// TODO Auto-generated catch block
+	        	Assert.fail("No canonical path for " + testSecondarStoreDir.getAbsolutePath());
+			}
+
 	        
 	        // Clean up old test files in local storage folder:
-	        
 	        File testPoolDir = new File(testLocalStorePath);
 	        Assert.assertTrue("To simulate local file system Storage Pool, you need folder at "  
 	        			+ testPoolDir.getPath(), testPoolDir.exists() && testPoolDir.isDirectory());
-	        testLocalStorePath = testPoolDir.getAbsolutePath();
+	        try {
+		        testLocalStorePath = testPoolDir.getCanonicalPath();
+	        }
+	        catch (IOException e)
+	        {
+	        	Assert.fail("No canonical path for " + testPoolDir.getAbsolutePath());
+        	}
 	        params.put("local.storage.path", testLocalStorePath);
 	        
 	        File testVolWorks = new File(testLocalStorePath + File.separator + testSampleVolumeWorkingUUID);
 	        Assert.assertTrue("Create a corrupt virtual disk (by changing extension of vhdx to vhd) at "
 	        					+ testVolWorks.getPath(), testVolWorks.exists());
-	        testSampleVolumeWorkingURIJSON  = s_gson.toJson(testVolWorks.getAbsolutePath());
-	        
+	        try {
+	        testSampleVolumeWorkingURIJSON  = s_gson.toJson(testVolWorks.getCanonicalPath());
+		    }
+		    catch (IOException e)
+		    {
+		    	Assert.fail("No canonical path for " + testPoolDir.getAbsolutePath());
+		    }
+
 	        FilenameFilter vhdsFilt = new FilenameFilter(){
 	        	public boolean accept(File directory, String fileName) {
 	        	    return fileName.endsWith(".vhdx") || fileName.endsWith(".vhd");
@@ -147,15 +172,19 @@ public class HypervResourceTest {
 	        	s_logger.info("Cleaned up by delete file " + file.getPath() );
 	        }
 
-	        testSampleVolumeTempURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testSampleVolumeTempUUID);
+	        testSampleVolumeTempURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testLocalStorePath, testSampleVolumeTempUUID);
         	s_logger.info("Created " + testSampleVolumeTempURIJSON );
-	        testSampleVolumeCorruptURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testSampleVolumeCorruptUUID);
+	        testSampleVolumeCorruptURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testLocalStorePath, testSampleVolumeCorruptUUID);
         	s_logger.info("Created " + testSampleVolumeCorruptURIJSON );
-        	CreateTestDiskImageFromExistingImage(testVolWorks, testSampleTemplateUUID);
+        	CreateTestDiskImageFromExistingImage(testVolWorks, testLocalStorePath, testSampleTemplateUUID);
 	        testSampleTemplateURLJSON = testSampleTemplateUUID;
         	s_logger.info("Created " + testSampleTemplateURLJSON + " in local storage.");
 	        
-	        testLocalStorePathJSON = s_gson.toJson(testLocalStorePath);
+	        // Create secondary storage template:
+        	CreateTestDiskImageFromExistingImage(testVolWorks, testSecondarStoreDir.getAbsolutePath(), "af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx");
+        	s_logger.info("Created " + "af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx" + " in secondary (NFS) storage.");
+        	
+        	testLocalStorePathJSON = s_gson.toJson(testLocalStorePath);
 
         	s_hypervresource.configure("hypervresource",  params);
 	        s_hypervresource.initialize();
@@ -166,10 +195,11 @@ public class HypervResourceTest {
     }
 
 	private String CreateTestDiskImageFromExistingImage(File srcFile,
+			String dstPath,
 			String dstFileName) {
-		String newFileURIJSON;
+		String newFileURIJSON = null;
 		{
-		    File testVolTemp = new File(testLocalStorePath + File.separator + dstFileName);
+		    File testVolTemp = new File(dstPath + File.separator + dstFileName);
 		    try {
 		        	Files.copy(srcFile.toPath(), testVolTemp.toPath());
 		        }
@@ -177,7 +207,13 @@ public class HypervResourceTest {
 		        }
 		    Assert.assertTrue("Should be a temporary file created from the valid volume) at "
 		    					+ testVolTemp.getPath(), testVolTemp.exists());
-		    newFileURIJSON  = s_gson.toJson(testVolTemp.getAbsolutePath());
+		    try {
+		    	newFileURIJSON  = s_gson.toJson(testVolTemp.getCanonicalPath());
+		    }
+		    catch (IOException e) 
+		    {
+		    	Assert.fail("No file at " + testVolTemp.getAbsolutePath());
+		    }
 		}
 		return newFileURIJSON;
 	}
@@ -290,7 +326,7 @@ public class HypervResourceTest {
     	PrimaryStorageDownloadCommand cmd = samplePrimaryDownloadCommand();
 		String tmpltFileName = cmd.getUrl().substring(cmd.getUrl().lastIndexOf("/"));
     	File tmpltFile = new File(testSecondaryStoreLocalPath + File.separator + tmpltFileName);
-    	Assert.assertTrue("template disk image should exist at " + tmpltFileName, tmpltFile.exists());
+    	Assert.assertTrue("template disk image should exist at " + tmpltFile.getPath(), tmpltFile.exists());
 
     	corePrimaryStorageDownloadCommandTestCycle(cmd);
     }
