@@ -17,6 +17,7 @@
 
 package com.cloud.network;
 
+import java.math.BigInteger;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,14 +29,17 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import javax.ejb.Local;
+import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
 
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.dc.PodVlanMapVO;
+import com.cloud.dc.Vlan;
 import com.cloud.dc.Vlan.VlanType;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.DataCenterDao;
@@ -57,14 +61,22 @@ import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.addr.PublicIp;
 import com.cloud.network.dao.FirewallRulesDao;
 import com.cloud.network.dao.IPAddressDao;
+import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkDomainDao;
+import com.cloud.network.dao.NetworkDomainVO;
 import com.cloud.network.dao.NetworkServiceMapDao;
+import com.cloud.network.dao.NetworkServiceMapVO;
+import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
 import com.cloud.network.dao.PhysicalNetworkServiceProviderVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeDao;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
+import com.cloud.network.dao.PhysicalNetworkVO;
+import com.cloud.network.dao.UserIpv6AddressDao;
+import com.cloud.network.element.IpDeployer;
+import com.cloud.network.element.IpDeployingRequester;
 import com.cloud.network.element.NetworkElement;
 import com.cloud.network.element.UserDataServiceProvider;
 import com.cloud.network.rules.FirewallRule.Purpose;
@@ -79,9 +91,9 @@ import com.cloud.offerings.dao.NetworkOfferingServiceMapDao;
 import com.cloud.user.Account;
 import com.cloud.user.DomainManager;
 import com.cloud.user.dao.AccountDao;
-import com.cloud.utils.component.Adapters;
-import com.cloud.utils.component.Inject;
+import com.cloud.utils.component.AdapterBase;
 import com.cloud.utils.component.Manager;
+import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.JoinBuilder;
 import com.cloud.utils.db.JoinBuilder.JoinType;
@@ -99,11 +111,11 @@ import com.cloud.vm.VirtualMachine.Type;
 import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.VMInstanceDao;
 
+@Component
 @Local(value = { NetworkModel.class})
-public class NetworkModelImpl  implements NetworkModel, Manager{
+public class NetworkModelImpl extends ManagerBase implements NetworkModel {
     static final Logger s_logger = Logger.getLogger(NetworkModelImpl.class);
 
-    String _name;
     @Inject
     DataCenterDao _dcDao = null;
     @Inject
@@ -130,8 +142,7 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
     @Inject
     PodVlanMapDao _podVlanMapDao;
 
-    @Inject(adapter = NetworkElement.class)
-    Adapters<NetworkElement> _networkElements;
+    @Inject List<NetworkElement> _networkElements;
     
     @Inject
     NetworkDomainDao _networkDomainDao;
@@ -157,7 +168,8 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
     NetworkServiceMapDao _ntwkSrvcDao;
     @Inject
     PrivateIpDao _privateIpDao;
-    
+    @Inject
+    UserIpv6AddressDao _ipv6Dao;
 
 
     private final HashMap<String, NetworkOfferingVO> _systemNetworks = new HashMap<String, NetworkOfferingVO>(5);
@@ -187,7 +199,7 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
     @Override
     public NetworkElement getElementImplementingProvider(String providerName) {
         String elementName = s_providerToNetworkElementMap.get(providerName);
-        NetworkElement element = _networkElements.get(elementName);
+        NetworkElement element = AdapterBase.getAdapterByName(_networkElements, elementName);
         return element;
     }
 
@@ -380,9 +392,18 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
             throw new InvalidParameterException("There is no new provider for IP " + publicIp.getAddress() + " of service " + service.getName() + "!");
         }
         Provider newProvider = (Provider) newProviders.toArray()[0];
-        if (!oldProvider.equals(newProvider)) {
-            throw new InvalidParameterException("There would be multiple providers for IP " + publicIp.getAddress() + "!");
-        }
+        Network network = _networksDao.findById(networkId);
+        NetworkElement oldElement = getElementImplementingProvider(oldProvider.getName());
+        NetworkElement newElement = getElementImplementingProvider(newProvider.getName());
+        if (oldElement instanceof IpDeployingRequester && newElement instanceof IpDeployingRequester) {
+        	IpDeployer oldIpDeployer = ((IpDeployingRequester)oldElement).getIpDeployer(network);
+        	IpDeployer newIpDeployer = ((IpDeployingRequester)newElement).getIpDeployer(network);
+        	if (!oldIpDeployer.getProvider().getName().equals(newIpDeployer.getProvider().getName())) {
+        		throw new InvalidParameterException("There would be multiple providers for IP " + publicIp.getAddress() + "!");
+        	}
+        } else {
+        	throw new InvalidParameterException("Ip cannot be applied for new provider!");
+         }
         return true;
     }
     
@@ -510,7 +531,15 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
         }
         boolean hasFreeIps = true;
         if (network.getGuestType() == GuestType.Shared) {
+        	if (network.getGateway() != null) {
             hasFreeIps = _ipAddressDao.countFreeIPsInNetwork(network.getId()) > 0;
+        	}
+        	if (!hasFreeIps) {
+        		return false;
+        	}
+        	if (network.getIp6Gateway() != null) {
+        		hasFreeIps = isIP6AddressAvailableInNetwork(network.getId());
+        	}
         } else {
             hasFreeIps = (getAvailableIps(network, null)).size() > 0;
         }
@@ -518,7 +547,32 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
         return hasFreeIps;
     }
 
-   
+    @Override
+    public boolean isIP6AddressAvailableInNetwork(long networkId) {
+    	Network network = _networksDao.findById(networkId);
+    	if (network == null) {
+    		return false;
+    	}
+    	if (network.getIp6Gateway() == null) {
+    		return false;
+    	}
+    	List<VlanVO> vlans = _vlanDao.listVlansByNetworkId(networkId);
+    	for (Vlan vlan : vlans) {
+    		if (isIP6AddressAvailableInVlan(vlan.getId())) {
+    			return true;
+    		}
+    	}
+		return false;
+	}
+
+    @Override
+    public boolean isIP6AddressAvailableInVlan(long vlanId) {
+    	VlanVO vlan = _vlanDao.findById(vlanId);
+    	long existedCount = _ipv6Dao.countExistedIpsInVlan(vlanId);
+    	BigInteger existedInt = BigInteger.valueOf(existedCount);
+    	BigInteger rangeInt = NetUtils.countIp6InRange(vlan.getIp6Range());
+		return (existedInt.compareTo(rangeInt) < 0);
+	}
 
     @Override
     public Map<Service, Map<Capability, String>> getNetworkCapabilities(long networkId) {
@@ -1692,6 +1746,9 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
         } else {
            nic =  _nicDao.findByInstanceIdAndNetworkId(networkId, vm.getId());
         }
+        if (nic == null) {
+           return null;
+        }
         NetworkVO network = _networksDao.findById(networkId);
         Integer networkRate = getNetworkRate(network.getId(), vm.getId());
     
@@ -1719,7 +1776,6 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
 
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
-        _name = name;
         _configs = _configDao.getConfiguration("Network", params);
         _networkDomain = _configs.get(Config.GuestDomainSuffix.key());
         _allowSubdomainNetworkAccess = Boolean.valueOf(_configs.get(Config.SubDomainNetworkAccess.key()));
@@ -1777,8 +1833,9 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
                 if (s_providerToNetworkElementMap.containsKey(implementedProvider.getName())) {
                     s_logger.error("Cannot start NetworkModel: Provider <-> NetworkElement must be a one-to-one map, " +
                             "multiple NetworkElements found for Provider: " + implementedProvider.getName());
-                    return false;
+                   continue;
                 }
+                s_logger.info("Add provider <-> element map entry. " + implementedProvider.getName() + "-" + element.getName() + "-" + element.getClass().getSimpleName());
                 s_providerToNetworkElementMap.put(implementedProvider.getName(), element.getName());
             }
             if (capabilities != null && implementedProvider != null) {
@@ -1802,12 +1859,6 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
     @Override
     public boolean stop() {
         return true;
-    }
-
-
-    @Override
-    public String getName() {
-        return _name;
     }
 
     @Override
@@ -1836,4 +1887,40 @@ public class NetworkModelImpl  implements NetworkModel, Manager{
         return offering.isInline();
     }
 
+    @Override
+    public void checkIp6Parameters(String startIPv6, String endIPv6,
+            String ip6Gateway, String ip6Cidr) throws InvalidParameterValueException {
+        if (!NetUtils.isValidIpv6(startIPv6)) {
+            throw new InvalidParameterValueException("Invalid format for the startIPv6 parameter");
+        }
+        if (!NetUtils.isValidIpv6(endIPv6)) {
+            throw new InvalidParameterValueException("Invalid format for the endIPv6 parameter");
+        }
+
+        if (!(ip6Gateway != null && ip6Cidr != null)) {
+            throw new InvalidParameterValueException("ip6Gateway and ip6Cidr should be defined when startIPv6/endIPv6 are passed in");
+        }
+
+        if (!NetUtils.isValidIpv6(ip6Gateway)) {
+            throw new InvalidParameterValueException("Invalid ip6Gateway");
+        }
+        if (!NetUtils.isValidIp6Cidr(ip6Cidr)) {
+            throw new InvalidParameterValueException("Invalid ip6cidr");
+        }
+        if (!NetUtils.isIp6InNetwork(startIPv6, ip6Cidr)) {
+            throw new InvalidParameterValueException("startIPv6 is not in ip6cidr indicated network!");
+        }
+        if (!NetUtils.isIp6InNetwork(endIPv6, ip6Cidr)) {
+            throw new InvalidParameterValueException("endIPv6 is not in ip6cidr indicated network!");
+        }
+        if (!NetUtils.isIp6InNetwork(ip6Gateway, ip6Cidr)) {
+            throw new InvalidParameterValueException("ip6Gateway is not in ip6cidr indicated network!");
+        }
+
+        int cidrSize = NetUtils.getIp6CidrSize(ip6Cidr);
+        // Ipv6 cidr limit should be at least /64
+        if (cidrSize < 64) {
+            throw new InvalidParameterValueException("The cidr size of IPv6 network must be no less than 64 bits!");
+        }
+    }
 }

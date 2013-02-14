@@ -19,27 +19,23 @@ package com.cloud.agent;
 import java.io.File;
 import java.io.IOException;
 
+import junit.framework.TestCase;
+
 import org.apache.log4j.Logger;
 
-import com.cloud.agent.AgentShell;
-import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.utils.testcase.Log4jEnabledTestCase;
-
-public class TestAgentShell extends Log4jEnabledTestCase {
+public class TestAgentShell extends TestCase {
     protected final static Logger s_logger = Logger.getLogger(TestAgentShell.class);
-    
+
     public void testWget() {
         File file = null;
-        String testUrl = "http://schema.org/WebPage";
         try {
             file = File.createTempFile("wget", ".html");
-            AgentShell.wget(testUrl, file);
-            
+            AgentShell.wget("http://www.apache.org/", file);
+
             if (s_logger.isDebugEnabled()) {
                 s_logger.debug("file saved to " + file.getAbsolutePath());
             }
-        } catch (CloudRuntimeException e) {
-            s_logger.debug("File download failed due to " + e.getMessage());
+
         } catch (final IOException e) {
             s_logger.warn("Exception while downloading agent update package, ", e);
         }

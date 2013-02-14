@@ -53,6 +53,9 @@ import javax.ejb.Local;
 import javax.naming.ConfigurationException;
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import org.apache.cloudstack.storage.command.StorageSubSystemCommand;
+import com.cloud.agent.api.to.*;
+import com.cloud.network.rules.FirewallRule;
 import org.apache.log4j.Logger;
 import org.apache.xmlrpc.XmlRpcException;
 import org.w3c.dom.Document;
@@ -87,9 +90,13 @@ import com.cloud.agent.api.Command;
 import com.cloud.agent.api.CreatePrivateTemplateFromSnapshotCommand;
 import com.cloud.agent.api.CreatePrivateTemplateFromVolumeCommand;
 import com.cloud.agent.api.CreateStoragePoolCommand;
+import com.cloud.agent.api.CreateVMSnapshotAnswer;
+import com.cloud.agent.api.CreateVMSnapshotCommand;
 import com.cloud.agent.api.CreateVolumeFromSnapshotAnswer;
 import com.cloud.agent.api.CreateVolumeFromSnapshotCommand;
 import com.cloud.agent.api.DeleteStoragePoolCommand;
+import com.cloud.agent.api.DeleteVMSnapshotAnswer;
+import com.cloud.agent.api.DeleteVMSnapshotCommand;
 import com.cloud.agent.api.GetDomRVersionAnswer;
 import com.cloud.agent.api.GetDomRVersionCmd;
 import com.cloud.agent.api.GetHostStatsAnswer;
@@ -126,6 +133,8 @@ import com.cloud.agent.api.ReadyCommand;
 import com.cloud.agent.api.RebootAnswer;
 import com.cloud.agent.api.RebootCommand;
 import com.cloud.agent.api.RebootRouterCommand;
+import com.cloud.agent.api.RevertToVMSnapshotAnswer;
+import com.cloud.agent.api.RevertToVMSnapshotCommand;
 import com.cloud.agent.api.SecurityGroupRuleAnswer;
 import com.cloud.agent.api.SecurityGroupRulesCmd;
 import com.cloud.agent.api.SetupAnswer;
@@ -182,8 +191,8 @@ import com.cloud.agent.api.storage.CreatePrivateTemplateAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
-import com.cloud.agent.api.storage.ResizeVolumeCommand;
 import com.cloud.agent.api.storage.ResizeVolumeAnswer;
+import com.cloud.agent.api.storage.ResizeVolumeCommand;
 import com.cloud.agent.api.to.IpAddressTO;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.PortForwardingRuleTO;
@@ -234,6 +243,7 @@ import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
+import com.cloud.vm.snapshot.VMSnapshot;
 import com.trilead.ssh2.SCPClient;
 import com.xensource.xenapi.Bond;
 import com.xensource.xenapi.Connection;
@@ -253,6 +263,10 @@ import com.xensource.xenapi.Types;
 import com.xensource.xenapi.Types.BadServerResponse;
 import com.xensource.xenapi.Types.ConsoleProtocol;
 import com.xensource.xenapi.Types.IpConfigurationMode;
+import com.xensource.xenapi.Types.OperationNotAllowed;
+import com.xensource.xenapi.Types.SrFull;
+import com.xensource.xenapi.Types.VbdType;
+import com.xensource.xenapi.Types.VmBadPowerState;
 import com.xensource.xenapi.Types.VmPowerState;
 import com.xensource.xenapi.Types.XenAPIException;
 import com.xensource.xenapi.VBD;
@@ -316,6 +330,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
     protected boolean _canBridgeFirewall = false;
     protected boolean _isOvs = false;
     protected List<VIF> _tmpDom0Vif = new ArrayList<VIF>();
+    protected XenServerStorageResource storageResource;
 
     public enum SRType {
         NFS, LVM, ISCSI, ISO, LVMOISCSI, LVMOHBA, EXT, FILE;
@@ -346,6 +361,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         s_statesTable.put(Types.VmPowerState.UNRECOGNIZED, State.Unknown);
     }
 
+    public XsHost getHost() {
+        return this._host;
+    }
 
     protected boolean cleanupHaltedVms(Connection conn) throws XenAPIException, XmlRpcException {
         Host host = Host.getByUuid(conn, _host.uuid);
@@ -570,9 +588,109 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             return execute((Site2SiteVpnCfgCommand) cmd);
         } else if (clazz == CheckS2SVpnConnectionsCommand.class) {
             return execute((CheckS2SVpnConnectionsCommand) cmd);
+        } else if (cmd instanceof StorageSubSystemCommand) {
+            return this.storageResource.handleStorageCommands((StorageSubSystemCommand)cmd);
+        } else if (clazz == CreateVMSnapshotCommand.class) {
+            return execute((CreateVMSnapshotCommand)cmd);
+        } else if (clazz == DeleteVMSnapshotCommand.class) {
+            return execute((DeleteVMSnapshotCommand)cmd);
+        } else if (clazz == RevertToVMSnapshotCommand.class) {
+            return execute((RevertToVMSnapshotCommand)cmd);
         } else {
             return Answer.createUnsupportedCommandAnswer(cmd);
         }
+    }
+
+
+
+    private Answer execute(RevertToVMSnapshotCommand cmd) {
+        String vmName = cmd.getVmName();
+        List<VolumeTO> listVolumeTo = cmd.getVolumeTOs();
+        VMSnapshot.Type vmSnapshotType = cmd.getTarget().getType();
+        Boolean snapshotMemory = vmSnapshotType == VMSnapshot.Type.DiskAndMemory;
+        Connection conn = getConnection();
+        VirtualMachine.State vmState = null;
+        VM vm = null;
+        try {
+
+            // remove vm from s_vms, for delta sync
+            s_vms.remove(_cluster, _name, vmName);
+
+            Set<VM> vmSnapshots = VM.getByNameLabel(conn, cmd.getTarget().getSnapshotName());
+            if(vmSnapshots.size() == 0)
+                return new RevertToVMSnapshotAnswer(cmd, false, "Cannot find vmSnapshot with name: " + cmd.getTarget().getSnapshotName());
+            
+            VM vmSnapshot = vmSnapshots.iterator().next();
+            
+            // find target VM or creating a work VM
+            try {
+                vm = getVM(conn, vmName);
+            } catch (Exception e) {
+                vm = createWorkingVM(conn, vmName, cmd.getGuestOSType(), listVolumeTo);
+            }
+
+            if (vm == null) {
+                return new RevertToVMSnapshotAnswer(cmd, false,
+                        "Revert to VM Snapshot Failed due to can not find vm: " + vmName);
+            }
+            
+            // call plugin to execute revert
+            revertToSnapshot(conn, vmSnapshot, vmName, vm.getUuid(conn), snapshotMemory, _host.uuid);
+            vm = getVM(conn, vmName);
+            Set<VBD> vbds = vm.getVBDs(conn);
+            Map<String, VDI> vdiMap = new HashMap<String, VDI>();
+            // get vdi:vbdr to a map
+            for (VBD vbd : vbds) {
+                VBD.Record vbdr = vbd.getRecord(conn);
+                if (vbdr.type == Types.VbdType.DISK) {
+                    VDI vdi = vbdr.VDI;
+                    vdiMap.put(vbdr.userdevice, vdi);
+                }
+            }
+
+            if (!snapshotMemory) {
+                vm.destroy(conn);
+                vmState = VirtualMachine.State.Stopped;
+            } else {
+                s_vms.put(_cluster, _name, vmName, State.Running);
+                vmState = VirtualMachine.State.Running;
+            }
+
+            // after revert, VM's volumes path have been changed, need to report to manager
+            for (VolumeTO volumeTo : listVolumeTo) {
+                Long deviceId = volumeTo.getDeviceId();
+                VDI vdi = vdiMap.get(deviceId.toString());
+                volumeTo.setPath(vdi.getUuid(conn));
+            }
+
+            return new RevertToVMSnapshotAnswer(cmd, listVolumeTo,vmState);
+        } catch (Exception e) {
+            s_logger.error("revert vm " + vmName
+                    + " to snapshot " + cmd.getTarget().getSnapshotName() + " failed due to " + e.getMessage());
+            return new RevertToVMSnapshotAnswer(cmd, false, e.getMessage());
+        } 
+    }
+
+    private String revertToSnapshot(Connection conn, VM vmSnapshot,
+            String vmName, String oldVmUuid, Boolean snapshotMemory, String hostUUID)
+            throws XenAPIException, XmlRpcException {
+ 
+        String results = callHostPluginAsync(conn, "vmopsSnapshot",
+                "revert_memory_snapshot", 10 * 60 * 1000, "snapshotUUID",
+                vmSnapshot.getUuid(conn), "vmName", vmName, "oldVmUuid",
+                oldVmUuid, "snapshotMemory", snapshotMemory.toString(), "hostUUID", hostUUID);
+        String errMsg = null;
+        if (results == null || results.isEmpty()) {
+            errMsg = "revert_memory_snapshot return null";
+        } else {
+            if (results.equals("0")) {
+                return results;
+            } else {
+                errMsg = "revert_memory_snapshot exception";
+            }
+        }
+        s_logger.warn(errMsg);
+        throw new CloudRuntimeException(errMsg);
     }
 
     protected XsLocalNetwork getNativeNetworkForTraffic(Connection conn, TrafficType type, String name) throws XenAPIException, XmlRpcException {
@@ -592,7 +710,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             return new XsLocalNetwork(Network.getByUuid(conn, _host.privateNetwork), null, PIF.getByUuid(conn, _host.privatePif), null);
         } else if (type == TrafficType.Public) {
             return new XsLocalNetwork(Network.getByUuid(conn, _host.publicNetwork), null, PIF.getByUuid(conn, _host.publicPif), null);
-         } else if (type == TrafficType.Storage) {
+        } else if (type == TrafficType.Storage) {
             /*   TrafficType.Storage is for secondary storage, while storageNetwork1 is for primary storage, we need better name here */
             return new XsLocalNetwork(Network.getByUuid(conn, _host.storageNetwork1), null, PIF.getByUuid(conn, _host.storagePif1), null);
         }
@@ -619,28 +737,28 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         // Create a VIF unless there's not already another VIF
         Set<VIF> dom0Vifs = dom0.getVIFs(conn);
         for (VIF vif:dom0Vifs) {
-        	vif.getRecord(conn);
-        	if (vif.getNetwork(conn).getUuid(conn) == nw.getUuid(conn)) {
-        		dom0vif = vif;
-        		s_logger.debug("A VIF for dom0 has already been found - No need to create one");
-        	}
+            vif.getRecord(conn);
+            if (vif.getNetwork(conn).getUuid(conn) == nw.getUuid(conn)) {
+                dom0vif = vif;
+                s_logger.debug("A VIF for dom0 has already been found - No need to create one");
+            }
         }
         if (dom0vif == null) {
-	        s_logger.debug("Create a vif on dom0 for " + networkDesc);
-	        VIF.Record vifr = new VIF.Record();
-	        vifr.VM = dom0;
-	        vifr.device = getLowestAvailableVIFDeviceNum(conn, dom0);
-	        if (vifr.device == null) {
-	            s_logger.debug("Failed to create " + networkDesc + ", no vif available");
-	            return;
-	        }
-	        Map<String, String> config = new HashMap<String, String>();
-	        config.put("nameLabel", vifNameLabel);
-	        vifr.otherConfig = config;
-	        vifr.MAC = "FE:FF:FF:FF:FF:FF";
-	        vifr.network = nw;
-	        
-	        dom0vif = VIF.create(conn, vifr);
+            s_logger.debug("Create a vif on dom0 for " + networkDesc);
+            VIF.Record vifr = new VIF.Record();
+            vifr.VM = dom0;
+            vifr.device = getLowestAvailableVIFDeviceNum(conn, dom0);
+            if (vifr.device == null) {
+                s_logger.debug("Failed to create " + networkDesc + ", no vif available");
+                return;
+            }
+            Map<String, String> config = new HashMap<String, String>();
+            config.put("nameLabel", vifNameLabel);
+            vifr.otherConfig = config;
+            vifr.MAC = "FE:FF:FF:FF:FF:FF";
+            vifr.network = nw;
+
+            dom0vif = VIF.create(conn, vifr);
         }
         // At this stage we surely have a VIF
         dom0vif.plug(conn);
@@ -714,64 +832,64 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
      * This method creates a XenServer network and configures it for being used as a L2-in-L3 tunneled network
      */
     private synchronized Network configureTunnelNetwork(Connection conn, long networkId, long hostId, int key) {
-    	try {
-	    	Network nw = findOrCreateTunnelNetwork(conn, key);
-	    	String nwName = "OVSTunnel" + key;
-	    	//Invoke plugin to setup the bridge which will be used by this network
-	        String bridge = nw.getBridge(conn);
-	        Map<String,String> nwOtherConfig = nw.getOtherConfig(conn);
-	        String configuredHosts = nwOtherConfig.get("ovs-host-setup");
-	        boolean configured = false;
-	        if (configuredHosts!=null) {
-	        	String hostIdsStr[] = configuredHosts.split(",");
-	        	for (String hostIdStr:hostIdsStr) {
-	        		if (hostIdStr.equals(((Long)hostId).toString())) {
-	        			configured = true;
-	        			break;
-	        		}
-	        	}
-	        }
-	        if (!configured) {
-	            // Plug dom0 vif only if not done before for network and host
-	            enableXenServerNetwork(conn, nw, nwName, "tunnel network for account " + key);
-	            String result = callHostPlugin(conn, "ovstunnel", "setup_ovs_bridge", "bridge", bridge,
-	            							   "key", String.valueOf(key),
-	            							   "xs_nw_uuid", nw.getUuid(conn),
-	            							   "cs_host_id", ((Long)hostId).toString());
-	            //Note down the fact that the ovs bridge has been setup
-	            String[] res = result.split(":");
-	            if (res.length != 2 || !res[0].equalsIgnoreCase("SUCCESS")) {
-	            	//TODO: Should make this error not fatal?
-	            	throw new CloudRuntimeException("Unable to pre-configure OVS bridge " + bridge + " for network ID:" + networkId +
-	            									" - " + res);
-	            }
-	        }
-	        return nw;
+        try {
+            Network nw = findOrCreateTunnelNetwork(conn, key);
+            String nwName = "OVSTunnel" + key;
+            //Invoke plugin to setup the bridge which will be used by this network
+            String bridge = nw.getBridge(conn);
+            Map<String,String> nwOtherConfig = nw.getOtherConfig(conn);
+            String configuredHosts = nwOtherConfig.get("ovs-host-setup");
+            boolean configured = false;
+            if (configuredHosts!=null) {
+                String hostIdsStr[] = configuredHosts.split(",");
+                for (String hostIdStr:hostIdsStr) {
+                    if (hostIdStr.equals(((Long)hostId).toString())) {
+                        configured = true;
+                        break;
+                    }
+                }
+            }
+            if (!configured) {
+                // Plug dom0 vif only if not done before for network and host
+                enableXenServerNetwork(conn, nw, nwName, "tunnel network for account " + key);
+                String result = callHostPlugin(conn, "ovstunnel", "setup_ovs_bridge", "bridge", bridge,
+                        "key", String.valueOf(key),
+                        "xs_nw_uuid", nw.getUuid(conn),
+                        "cs_host_id", ((Long)hostId).toString());
+                //Note down the fact that the ovs bridge has been setup
+                String[] res = result.split(":");
+                if (res.length != 2 || !res[0].equalsIgnoreCase("SUCCESS")) {
+                    //TODO: Should make this error not fatal?
+                    throw new CloudRuntimeException("Unable to pre-configure OVS bridge " + bridge + " for network ID:" + networkId +
+                            " - " + res);
+                }
+            }
+            return nw;
         } catch (Exception e) {
             s_logger.warn("createandConfigureTunnelNetwork failed", e);
             return null;
         }
     }
-    
+
     private synchronized void destroyTunnelNetwork(Connection conn, int key) {
-    	try {
-    		Network nw = findOrCreateTunnelNetwork(conn, key);
+        try {
+            Network nw = findOrCreateTunnelNetwork(conn, key);
             String bridge = nw.getBridge(conn);
             String result = callHostPlugin(conn, "ovstunnel", "destroy_ovs_bridge", "bridge", bridge);
             String[] res = result.split(":");
             if (res.length != 2 || !res[0].equalsIgnoreCase("SUCCESS")) {
-            	//TODO: Should make this error not fatal?
-            	//Can Concurrent VM shutdown/migration/reboot events can cause this method
-            	//to be executed on a bridge which has already been removed?
-            	throw new CloudRuntimeException("Unable to remove OVS bridge " + bridge + ":" + res);
+                //TODO: Should make this error not fatal?
+                //Can Concurrent VM shutdown/migration/reboot events can cause this method
+                //to be executed on a bridge which has already been removed?
+                throw new CloudRuntimeException("Unable to remove OVS bridge " + bridge + ":" + res);
             }
             return;
-    	} catch (Exception e) {
+        } catch (Exception e) {
             s_logger.warn("destroyTunnelNetwork failed:", e);
             return;
-    	}
+        }
     }
-    
+
     protected Network getNetwork(Connection conn, NicTO nic) throws XenAPIException, XmlRpcException {
         String name = nic.getName();
         XsLocalNetwork network = getNativeNetworkForTraffic(conn, nic.getType(), name);
@@ -799,13 +917,13 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 return findOrCreateTunnelNetwork(conn, vnetId);
             }
         } else if (nic.getBroadcastType() == BroadcastDomainType.Storage) {
-        	URI broadcastUri = nic.getBroadcastUri();
-        	if (broadcastUri == null) {
-        		return network.getNetwork();
-        	} else {
-        		long vlan = Long.parseLong(broadcastUri.getHost());
-        		return enableVlanNetwork(conn, vlan, network);
-        	}
+            URI broadcastUri = nic.getBroadcastUri();
+            if (broadcastUri == null) {
+                return network.getNetwork();
+            } else {
+                long vlan = Long.parseLong(broadcastUri.getHost());
+                return enableVlanNetwork(conn, vlan, network);
+            }
         } else if (nic.getBroadcastType() == BroadcastDomainType.Lswitch) {
             // Nicira Logical Switch
             return network.getNetwork();
@@ -885,26 +1003,26 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
     protected VDI mount(Connection conn, String vmName, VolumeTO volume) throws XmlRpcException, XenAPIException {
         if (volume.getType() == Volume.Type.ISO) {
-        	String isopath = volume.getPath();
-        	if (isopath == null) {
-        		return null;
-        	}
-        	if (isopath.startsWith("xs-tools")) {
-        		try {
-        			Set<VDI> vdis = VDI.getByNameLabel(conn, isopath);
-        			if (vdis.isEmpty()) {
-        				throw new CloudRuntimeException("Could not find ISO with URL: " + isopath);
-        			}
-        			return vdis.iterator().next();
+            String isopath = volume.getPath();
+            if (isopath == null) {
+                return null;
+            }
+            if (isopath.startsWith("xs-tools")) {
+                try {
+                    Set<VDI> vdis = VDI.getByNameLabel(conn, isopath);
+                    if (vdis.isEmpty()) {
+                        throw new CloudRuntimeException("Could not find ISO with URL: " + isopath);
+                    }
+                    return vdis.iterator().next();
 
-        		} catch (XenAPIException e) {
-        			throw new CloudRuntimeException("Unable to get pv iso: " + isopath + " due to " + e.toString());
-        		} catch (Exception e) {
-        			throw new CloudRuntimeException("Unable to get pv iso: " + isopath + " due to " + e.toString());
-        		}
-        	}
+                } catch (XenAPIException e) {
+                    throw new CloudRuntimeException("Unable to get pv iso: " + isopath + " due to " + e.toString());
+                } catch (Exception e) {
+                    throw new CloudRuntimeException("Unable to get pv iso: " + isopath + " due to " + e.toString());
+                }
+            }
 
-          
+
             int index = isopath.lastIndexOf("/");
 
             String mountpoint = isopath.substring(0, index);
@@ -1176,11 +1294,11 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             for ( VM vm : vms ) {
                 Set<VBD> vbds = vm.getVBDs(conn);
                 for( VBD vbd : vbds ) {
-                   if (vbd.getType(conn) == Types.VbdType.CD ) {
-                       vbd.eject(conn);
-                       vbd.destroy(conn);
-                       break;
-                   }
+                    if (vbd.getType(conn) == Types.VbdType.CD ) {
+                        vbd.eject(conn);
+                        vbd.destroy(conn);
+                        break;
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1283,7 +1401,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 }
             }
             synchronized (_cluster.intern()) {
-	            s_vms.put(_cluster, _name, vmName, State.Starting);
+                s_vms.put(_cluster, _name, vmName, State.Starting);
             }
             s_logger.debug("1. The VM " + vmName + " is in Starting state.");
 
@@ -1305,7 +1423,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             startVM(conn, host, vm, vmName);
 
             if (_isOvs) {
-            	// TODO(Salvatore-orlando): This code should go
+                // TODO(Salvatore-orlando): This code should go
                 for (NicTO nic : vmSpec.getNics()) {
                     if (nic.getBroadcastType() == Networks.BroadcastDomainType.Vswitch) {
                         HashMap<String, String> args = parseDefaultOvsRuleComamnd(nic.getBroadcastUri().toString().substring(Networks.BroadcastDomainType.Vswitch.scheme().length() + "://".length()));
@@ -1329,7 +1447,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     boolean secGrpEnabled = false;
                     for (NicTO nic : nics) {
                         if (nic.isSecurityGroupEnabled() || (nic.getIsolationUri() != null
-                                       && nic.getIsolationUri().getScheme().equalsIgnoreCase(IsolationType.Ec2.toString()))) {
+                                && nic.getIsolationUri().getScheme().equalsIgnoreCase(IsolationType.Ec2.toString()))) {
                             secGrpEnabled = true;
                             break;
                         }
@@ -1348,7 +1466,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     NicTO[] nics = vmSpec.getNics();
                     for (NicTO nic : nics) {
                         if ( nic.isSecurityGroupEnabled() || nic.getIsolationUri() != null
-                                   && nic.getIsolationUri().getScheme().equalsIgnoreCase(IsolationType.Ec2.toString())) {
+                                && nic.getIsolationUri().getScheme().equalsIgnoreCase(IsolationType.Ec2.toString())) {
                             result = callHostPlugin(conn, "vmops", "default_network_rules", "vmName", vmName, "vmIP", nic.getIp(), "vmMAC", nic.getMac(), "vmID", Long.toString(vmSpec.getId()));
 
                             if (result == null || result.isEmpty() || !Boolean.parseBoolean(result)) {
@@ -1371,10 +1489,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             synchronized (_cluster.intern()) {
                 if (state != State.Stopped) { 
                     s_vms.put(_cluster, _name, vmName, state);
-                	s_logger.debug("2. The VM " + vmName + " is in " + state + " state.");
+                    s_logger.debug("2. The VM " + vmName + " is in " + state + " state.");
                 } else {
                     s_vms.remove(_cluster, _name, vmName);
-                	s_logger.debug("The VM is in stopped state, detected problem during startup : " + vmName);
+                    s_logger.debug("The VM is in stopped state, detected problem during startup : " + vmName);
                 }
             }
         }
@@ -1750,7 +1868,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
     protected synchronized Answer execute(final DhcpEntryCommand cmd) {
         Connection conn = getConnection();
         String args = "-r " + cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        if (cmd.getVmIpAddress() != null) {
         args += " -v " + cmd.getVmIpAddress();
+        }
         args += " -m " + cmd.getVmMac();
         args += " -n " + cmd.getVmName();
         if (cmd.getDefaultRouter() != null) {
@@ -1759,9 +1879,14 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         if (cmd.getStaticRoutes() != null) {
             args += " -s " + cmd.getStaticRoutes();
         }
-        
+
         if (cmd.getDefaultDns() != null) {
-        	args += " -N " + cmd.getDefaultDns();
+            args += " -N " + cmd.getDefaultDns();
+        }
+
+        if (cmd.getVmIp6Address() != null) {
+        	args += " -6 " + cmd.getVmIp6Address();
+        	args += " -u " + cmd.getDuid();
         }
         
         String result = callHostPlugin(conn, "vmops", "saveDhcpEntry", "args", args);
@@ -1939,10 +2064,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
             args += " -c ";
             args += "eth" + correctVif.getDevice(conn);
-            
+
             args += " -g ";
             args += vlanGateway;
-            
+
 
             String result = callHostPlugin(conn, "vmops", "routerProxy", "args", args);
             if (result == null || result.isEmpty()) {
@@ -1978,7 +2103,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
         try {
             VM router = getVM(conn, vmName);
-            
+
             VIF correctVif = getVifByMac(conn, router, ip.getVifMacAddress());
             if (correctVif == null) {
                 if (ip.isAdd()) {
@@ -1988,7 +2113,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     return;
                 }
             }           
-           
+
             String args = "vpc_ipassoc.sh " + routerIp;
 
             if (ip.isAdd()) {
@@ -2002,14 +2127,14 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
             args += " -c ";
             args += "eth" + correctVif.getDevice(conn);
-            
+
             args += " -g ";
             args += ip.getVlanGateway();
-            
+
             args += " -m ";
             args += Long.toString(NetUtils.getCidrSize(ip.getVlanNetmask()));
-            
-            
+
+
             args += " -n ";
             args += NetUtils.getSubNet(ip.getPublicIp(), ip.getVlanNetmask());
 
@@ -2023,7 +2148,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             throw new Exception(msg);
         }
     }
-    
+
     protected String networkUsage(Connection conn, final String privateIpAddress, final String option, final String vif) {
 
         if (option.equals("get")) {
@@ -2060,9 +2185,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         try {
             Set<VM> vms = VM.getByNameLabel(conn, cmd.getName());
             if(vms.size() == 1) {
-            	int vncport = getVncPort(conn, vms.iterator().next());
-            	String consoleurl;
-            	consoleurl = "consoleurl=" +getVncUrl(conn, vms.iterator().next()) + "&" +"sessionref="+ conn.getSessionReference();
+                int vncport = getVncPort(conn, vms.iterator().next());
+                String consoleurl;
+                consoleurl = "consoleurl=" +getVncUrl(conn, vms.iterator().next()) + "&" +"sessionref="+ conn.getSessionReference();
                 return new GetVncPortAnswer(cmd, consoleurl, vncport);
             } else {
                 return new GetVncPortAnswer(cmd, "There are " + vms.size() + " VMs named " + cmd.getName());
@@ -2538,7 +2663,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             synchronized (_cluster.intern()) {
                 s_vms.put(_cluster, _name, vmName, State.Running);
             }
-        	s_logger.debug("3. The VM " + vmName + " is in Running state");
+            s_logger.debug("3. The VM " + vmName + " is in Running state");
         }
 
         return new CheckVirtualMachineAnswer(cmd, state, vncPort);
@@ -2560,7 +2685,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 getNetwork(conn, nic);
             }
             synchronized (_cluster.intern()) {
-	            s_vms.put(_cluster, _name, vm.getName(), State.Migrating);
+                s_vms.put(_cluster, _name, vm.getName(), State.Migrating);
             }
             s_logger.debug("4. The VM " +  vm.getName() + " is in Migrating state");
 
@@ -2632,7 +2757,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         s_logger.warn(errMsg);
         throw new CloudRuntimeException(errMsg);
     }
-    
+
     boolean killCopyProcess(Connection conn, String nameLabel) {
         String results = callHostPluginAsync(conn, "vmops", "kill_copy_process",
                 60, "namelabel", nameLabel);
@@ -2825,9 +2950,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         State state = null;
 
         state = s_vms.getState(_cluster, vmName);
-        
+
         synchronized (_cluster.intern()) {
-	        s_vms.put(_cluster, _name, vmName, State.Stopping);
+            s_vms.put(_cluster, _name, vmName, State.Stopping);
         }
         s_logger.debug("5. The VM " + vmName + " is in Stopping state");
         try {
@@ -2867,10 +2992,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             s_logger.warn(msg, e);
             return new MigrateAnswer(cmd, false, msg, null);
         } finally {
-        	synchronized (_cluster.intern()) {
-	            s_vms.put(_cluster, _name, vmName, state);
-        	}
-        	s_logger.debug("6. The VM " + vmName + " is in " + state + " state");
+            synchronized (_cluster.intern()) {
+                s_vms.put(_cluster, _name, vmName, state);
+            }
+            s_logger.debug("6. The VM " + vmName + " is in " + state + " state");
         }
 
     }
@@ -2969,8 +3094,8 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             record = vm.getRecord(conn);
             Set<Console> consoles = record.consoles;
             if (consoles.isEmpty()) {
-            	s_logger.warn("There are no Consoles available to the vm : " + record.nameDescription);
-            	return -1;
+                s_logger.warn("There are no Consoles available to the vm : " + record.nameDescription);
+                return -1;
             }
             Iterator<Console> i = consoles.iterator();
         } catch (XenAPIException e) {
@@ -2995,23 +3120,23 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         vncport = vncport.replace("\n", "");
         return NumbersUtil.parseInt(vncport, -1);
     }
-    
+
     protected String getVncUrl(Connection conn, VM vm) {
         VM.Record record;
         Console c;
         try {
             record = vm.getRecord(conn);
             Set<Console> consoles = record.consoles;
-            
+
             if (consoles.isEmpty()) {
-            	s_logger.warn("There are no Consoles available to the vm : " + record.nameDescription);
-            	return null;
+                s_logger.warn("There are no Consoles available to the vm : " + record.nameDescription);
+                return null;
             }
             Iterator<Console> i = consoles.iterator();
             while(i.hasNext()) {
-	            c = i.next();
-	            if(c.getProtocol(conn) == ConsoleProtocol.RFB)
-	            	return c.getLocation(conn);
+                c = i.next();
+                if(c.getProtocol(conn) == ConsoleProtocol.RFB)
+                    return c.getLocation(conn);
             }
         } catch (XenAPIException e) {
             String msg = "Unable to get console url due to " + e.toString();
@@ -3022,14 +3147,14 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             s_logger.warn(msg, e);
             return null;
         }
-    	return null;
+        return null;
     }
 
     @Override
     public RebootAnswer execute(RebootCommand cmd) {
         Connection conn = getConnection();
         synchronized (_cluster.intern()) {
-	        s_vms.put(_cluster, _name, cmd.getVmName(), State.Starting);
+            s_vms.put(_cluster, _name, cmd.getVmName(), State.Starting);
         }
         s_logger.debug("7. The VM " + cmd.getVmName() + " is in Starting state");
         try {
@@ -3054,9 +3179,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             }
             return new RebootAnswer(cmd, "reboot succeeded", true);
         } finally {
-        	synchronized (_cluster.intern()) {
-	            s_vms.put(_cluster, _name, cmd.getVmName(), State.Running);
-        	}
+            synchronized (_cluster.intern()) {
+                s_vms.put(_cluster, _name, cmd.getVmName(), State.Running);
+            }
             s_logger.debug("8. The VM " + cmd.getVmName() + " is in Running state");
         }
     }
@@ -3518,10 +3643,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             }
 
             if (vms.size() == 0) {
-            	synchronized (_cluster.intern()) {
-	                s_logger.info("VM does not exist on XenServer" + _host.uuid);
-	                s_vms.remove(_cluster, _name, vmName);
-            	}
+                synchronized (_cluster.intern()) {
+                    s_logger.info("VM does not exist on XenServer" + _host.uuid);
+                    s_vms.remove(_cluster, _name, vmName);
+                }
                 return new StopAnswer(cmd, "VM does not exist", 0 , true);
             }
             for (VM vm : vms) {
@@ -3540,9 +3665,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 }
 
                 State state = s_vms.getState(_cluster, vmName);
-                
+
                 synchronized (_cluster.intern()) {
-	                s_vms.put(_cluster, _name, vmName, State.Stopping);
+                    s_vms.put(_cluster, _name, vmName, State.Stopping);
                 }
                 s_logger.debug("9. The VM " + vmName + " is in Stopping state");
 
@@ -3603,10 +3728,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                         String msg = "VM destroy failed in Stop " + vmName + " Command due to " + e.getMessage();
                         s_logger.warn(msg, e);
                     } finally {
-                    	synchronized (_cluster.intern()) {
-	                        s_vms.put(_cluster, _name, vmName, state);
-                    	}
-                    	s_logger.debug("10. The VM " + vmName + " is in " + state + " state");
+                        synchronized (_cluster.intern()) {
+                            s_vms.put(_cluster, _name, vmName, state);
+                        }
+                        s_logger.debug("10. The VM " + vmName + " is in " + state + " state");
                     }
                 }
             }
@@ -3827,7 +3952,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
         return null;
     }
-    
+
     protected VIF getCorrectVif(Connection conn, VM router, IpAddressTO ip) throws XmlRpcException, XenAPIException {
         NicTO nic = new NicTO();
         nic.setType(ip.getTrafficType());
@@ -3850,7 +3975,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         }
         return null;
     }
-    
+
     protected VIF getVifByMac(Connection conn, VM router, String mac) throws XmlRpcException, XenAPIException {
         Set<VIF> routerVIFs = router.getVIFs(conn);
         mac = mac.trim();
@@ -4233,7 +4358,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             }
             Connection conn = getConnection();
             if (!_canBridgeFirewall && !_isOvs) {
-            	return new PingRoutingCommand(getType(), id, null);
+                return new PingRoutingCommand(getType(), id, null);
             } else if (_isOvs) {
                 List<Pair<String, Long>>ovsStates = ovsFullSyncStates();
                 return new PingRoutingWithOvsCommand(getType(), id, null, ovsStates);
@@ -4482,7 +4607,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         cmd.setHypervisorType(HypervisorType.XenServer);
         cmd.setCluster(_cluster);
         cmd.setPoolSync(false);
-        
+
         Pool pool;
         try {
             pool = Pool.getByUuid(conn, _host.pool);
@@ -4490,8 +4615,8 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
             Host.Record hostr = poolr.master.getRecord(conn);
             if (_host.uuid.equals(hostr.uuid)) {
-            	HashMap<String, Pair<String, State>> allStates=fullClusterSync(conn);
-            	cmd.setClusterVMStateChanges(allStates);
+                HashMap<String, Pair<String, State>> allStates=fullClusterSync(conn);
+                cmd.setClusterVMStateChanges(allStates);
             }
         } catch (Throwable e) {
             s_logger.warn("Check for master failed, failing the FULL Cluster sync command");
@@ -4697,6 +4822,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     throw new CloudRuntimeException("Unable to authenticate");
                 }
 
+                com.trilead.ssh2.Session session = sshConnection.openSession();
                 SCPClient scp = new SCPClient(sshConnection);
 
                 List<File> files = getPatchFiles();
@@ -4744,6 +4870,12 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                         }
                         if (s_logger.isDebugEnabled()) {
                             s_logger.debug("Copying " + f + " to " + d + " on " + hr.address + " with permission " + p);
+                        }
+                        try {
+                            session.execCommand("mkdir -m 700 -p " + d);
+                        } catch (IOException e) {
+                            s_logger.debug("Unable to create destination path: " + d + " on " + hr.address + " but trying anyway");
+
                         }
                         scp.put(f, d, p);
 
@@ -5053,7 +5185,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         boolean add = cmd.getAdd();
         if( add ) {
             try {
-                SR sr = getStorageRepository(conn, pool);
+                SR sr = getStorageRepository(conn, pool.getUuid());
                 setupHeartbeatSr(conn, sr, false);
                 long capacity = sr.getPhysicalSize(conn);
                 long available = capacity - sr.getPhysicalUtilisation(conn);
@@ -5076,7 +5208,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             }
         } else {
             try {
-                SR sr = getStorageRepository(conn, pool);
+                SR sr = getStorageRepository(conn, pool.getUuid());
                 String srUuid = sr.getUuid(conn);
                 String result = callHostPluginPremium(conn, "setup_heartbeat_file", "host", _host.uuid, "sr", srUuid, "add", "false");
                 if (result == null || !result.split("#")[1].equals("0")) {
@@ -5101,28 +5233,28 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         return Boolean.valueOf(callHostPlugin(conn, "vmops", "can_bridge_firewall", "host_uuid", _host.uuid, "instance", _instance));
     }
 
-    
+
     private Answer execute(OvsSetupBridgeCommand cmd) {
         Connection conn = getConnection();
         findOrCreateTunnelNetwork(conn, cmd.getKey());
         configureTunnelNetwork(conn, cmd.getNetworkId(), cmd.getHostId(), cmd.getKey());
         s_logger.debug("OVS Bridge configured");
-    	return new Answer(cmd, true, null);
+        return new Answer(cmd, true, null);
     }
 
     private Answer execute(OvsDestroyBridgeCommand cmd) {
         Connection conn = getConnection();
         destroyTunnelNetwork(conn, cmd.getKey());
         s_logger.debug("OVS Bridge destroyed");
-    	return new Answer(cmd, true, null);
+        return new Answer(cmd, true, null);
     }
-    
+
     private Answer execute(OvsDestroyTunnelCommand cmd) {
         Connection conn = getConnection();
         try {
-        	Network nw = findOrCreateTunnelNetwork(conn, cmd.getNetworkId());
+            Network nw = findOrCreateTunnelNetwork(conn, cmd.getNetworkId());
             if (nw == null) {
-            	s_logger.warn("Unable to find tunnel network for GRE key:" + cmd.getKey());
+                s_logger.warn("Unable to find tunnel network for GRE key:" + cmd.getKey());
                 return new Answer(cmd, false, "No network found");
             }
 
@@ -5149,16 +5281,16 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         Connection conn = getConnection();
         String bridge = "unknown";
         try {
-        	Network nw = findOrCreateTunnelNetwork(conn, cmd.getKey());
+            Network nw = findOrCreateTunnelNetwork(conn, cmd.getKey());
             if (nw == null) {
-            	s_logger.debug("Error during bridge setup");
+                s_logger.debug("Error during bridge setup");
                 return new OvsCreateTunnelAnswer(cmd, false, "Cannot create network", bridge);
             }
-        	
+
             configureTunnelNetwork(conn, cmd.getNetworkId(), cmd.getFrom(), cmd.getKey());            
             bridge = nw.getBridge(conn);
             String result = callHostPlugin(conn, "ovstunnel", "create_tunnel", "bridge", bridge, "remote_ip", cmd.getRemoteIp(), 
-            		                       "key", cmd.getKey().toString(), "from", cmd.getFrom().toString(), "to", cmd.getTo().toString());
+                    "key", cmd.getKey().toString(), "from", cmd.getFrom().toString(), "to", cmd.getTo().toString());
             String[] res = result.split(":");
             if (res.length == 2 && res[0].equalsIgnoreCase("SUCCESS")) {
                 return new OvsCreateTunnelAnswer(cmd, true, result, res[1], bridge);
@@ -5166,8 +5298,8 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 return new OvsCreateTunnelAnswer(cmd, false, result, bridge);
             }
         } catch (Exception e) {
-        	s_logger.debug("Error during tunnel setup");
-        	s_logger.warn("Caught execption when creating ovs tunnel", e);
+            s_logger.debug("Error during tunnel setup");
+            s_logger.warn("Caught execption when creating ovs tunnel", e);
             return new OvsCreateTunnelAnswer(cmd, false, e.getMessage(), bridge);
         }
     }
@@ -5253,9 +5385,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
 
     private OvsFetchInterfaceAnswer execute(OvsFetchInterfaceCommand cmd) {
-        
-    	String label = cmd.getLabel();
-    	s_logger.debug("Will look for network with name-label:" + label + " on host " + _host.ip);
+
+        String label = cmd.getLabel();
+        s_logger.debug("Will look for network with name-label:" + label + " on host " + _host.ip);
         Connection conn = getConnection();
         try {
             XsLocalNetwork nw = this.getNetworkByName(conn, label);
@@ -5264,17 +5396,17 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             Record pifRec = pif.getRecord(conn);
             s_logger.debug("PIF object:" + pifRec.uuid + "(" + pifRec.device + ")");
             return new OvsFetchInterfaceAnswer(cmd, true, "Interface " + pifRec.device + " retrieved successfully", 
-            		pifRec.IP, pifRec.netmask, pifRec.MAC);
+                    pifRec.IP, pifRec.netmask, pifRec.MAC);
         } catch (Exception e) {
             e.printStackTrace();
             s_logger.error("An error occurred while fetching the interface for " +
-            				label + " on host " + _host.ip + ":" + e.toString() + 
-            				"(" + e.getClass() + ")");
+                    label + " on host " + _host.ip + ":" + e.toString() + 
+                    "(" + e.getClass() + ")");
             return new OvsFetchInterfaceAnswer(cmd, false, "EXCEPTION:" + e.getMessage());
         }
     }
 
-    
+
     private OvsCreateGreTunnelAnswer execute(OvsCreateGreTunnelCommand cmd) {
         _isOvs = true;
 
@@ -5297,9 +5429,9 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         } catch (Exception e) {
             e.printStackTrace();
             s_logger.error("An error occurred while creating a GRE tunnel to " +
-    				cmd.getRemoteIp() + " on host " + _host.ip + ":" + e.getMessage() + 
-    				"(" + e.getClass() + ")");
-            
+                    cmd.getRemoteIp() + " on host " + _host.ip + ":" + e.getMessage() + 
+                    "(" + e.getClass() + ")");
+
         }
 
         return new OvsCreateGreTunnelAnswer(cmd, false, "EXCEPTION", _host.ip, bridge);
@@ -5314,10 +5446,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         if (!_canBridgeFirewall) {
             s_logger.warn("Host " + _host.ip + " cannot do bridge firewalling");
             return new SecurityGroupRuleAnswer(cmd, false, 
-                                                 "Host " + _host.ip + " cannot do bridge firewalling",
-                                                 SecurityGroupRuleAnswer.FailureReason.CANNOT_BRIDGE_FIREWALL);
+                    "Host " + _host.ip + " cannot do bridge firewalling",
+                    SecurityGroupRuleAnswer.FailureReason.CANNOT_BRIDGE_FIREWALL);
         }
-        
+
         String result = callHostPlugin(conn, "vmops", "network_rules",
                 "vmName", cmd.getVmName(),
                 "vmIP", cmd.getGuestIp(),
@@ -5336,12 +5468,12 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             return new SecurityGroupRuleAnswer(cmd);
         }
     }
-    
+
     protected Answer execute(DeleteStoragePoolCommand cmd) {
         Connection conn = getConnection();
         StorageFilerTO poolTO = cmd.getPool();
         try {
-            SR sr = getStorageRepository(conn, poolTO);
+            SR sr = getStorageRepository(conn, poolTO.getUuid());
             removeSR(conn, sr);
             Answer answer = new Answer(cmd, true, "success");
             return answer;
@@ -5379,7 +5511,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             if( hr.softwareVersion.get("product_version_text_short") != null ) {
                 details.put("product_version_text_short", hr.softwareVersion.get("product_version_text_short"));
                 cmd.setHypervisorVersion(hr.softwareVersion.get("product_version_text_short"));                
-           
+
                 cmd.setHypervisorVersion(_host.product_version);
             }
             if (_privateNetworkName != null) {
@@ -5544,8 +5676,14 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         }
 
         CheckXenHostInfo();
+
+        this.storageResource = getStorageResource();
         return true;
 
+    }
+
+    protected XenServerStorageResource getStorageResource() {
+        return new XenServerStorageResource(this);
     }
 
     private void CheckXenHostInfo() throws ConfigurationException {
@@ -5592,10 +5730,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         DiskProfile dskch = cmd.getDiskCharacteristics();
         VDI vdi = null;
         try {
-            SR poolSr = getStorageRepository(conn, pool);
+            SR poolSr = getStorageRepository(conn, pool.getUuid());
             if (cmd.getTemplateUrl() != null) {
                 VDI tmpltvdi = null;
-                
+
                 tmpltvdi = getVDIbyUuid(conn, cmd.getTemplateUrl());
                 vdi = tmpltvdi.createClone(conn, new HashMap<String, String>());
                 vdi.setNameLabel(conn, dskch.getName());
@@ -5995,7 +6133,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             String remoteVolumesMountPath = uri.getHost() + ":" + uri.getPath() + "/volumes/";
             String volumeFolder = String.valueOf(cmd.getVolumeId()) + "/";
             String mountpoint = remoteVolumesMountPath + volumeFolder;
-            SR primaryStoragePool = getStorageRepository(conn, poolTO);
+            SR primaryStoragePool = getStorageRepository(conn, poolTO.getUuid());
             String srUuid = primaryStoragePool.getUuid(conn);
             if (toSecondaryStorage) {
                 // Create the volume folder
@@ -6138,6 +6276,199 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
     }
 
+    protected Answer execute(final CreateVMSnapshotCommand cmd) {
+        String vmName = cmd.getVmName();
+        String vmSnapshotName = cmd.getTarget().getSnapshotName();
+        List<VolumeTO> listVolumeTo = cmd.getVolumeTOs();
+        VirtualMachine.State vmState = cmd.getVmState();
+        String guestOSType = cmd.getGuestOSType();
+
+        boolean snapshotMemory = cmd.getTarget().getType() == VMSnapshot.Type.DiskAndMemory;
+        long timeout = 600;
+
+        Connection conn = getConnection();
+        VM vm = null;
+        VM vmSnapshot = null;
+        boolean success = false;
+
+        try {
+            // check if VM snapshot already exists
+            Set<VM> vmSnapshots = VM.getByNameLabel(conn, cmd.getTarget().getSnapshotName());
+            if(vmSnapshots.size() > 0)
+                return new CreateVMSnapshotAnswer(cmd, cmd.getTarget(), cmd.getVolumeTOs());
+            
+            // check if there is already a task for this VM snapshot
+            Task task = null;
+            Set<Task> tasks = Task.getByNameLabel(conn, "Async.VM.snapshot");
+            tasks.addAll(Task.getByNameLabel(conn, "Async.VM.checkpoint"));
+            for (Task taskItem : tasks) {
+                if(taskItem.getOtherConfig(conn).containsKey("CS_VM_SNAPSHOT_KEY")){
+                    String vmSnapshotTaskName = taskItem.getOtherConfig(conn).get("CS_VM_SNAPSHOT_KEY");
+                    if(vmSnapshotTaskName != null && vmSnapshotTaskName.equals(cmd.getTarget().getSnapshotName())){
+                        task = taskItem;
+                    }
+                }
+            }
+            
+            // create a new task if there is no existing task for this VM snapshot
+            if(task == null){
+                try {
+                    vm = getVM(conn, vmName);
+                } catch (Exception e) {
+                    if (!snapshotMemory) {
+                        vm = createWorkingVM(conn, vmName, guestOSType, listVolumeTo);
+                    }
+                }
+    
+                if (vm == null) {
+                    return new CreateVMSnapshotAnswer(cmd, false,
+                            "Creating VM Snapshot Failed due to can not find vm: "
+                                    + vmName);
+                }
+                
+                // call Xenserver API
+                if (!snapshotMemory) {
+                    task = vm.snapshotAsync(conn, vmSnapshotName);
+                } else {
+                    Set<VBD> vbds = vm.getVBDs(conn);
+                    Pool pool = Pool.getByUuid(conn, _host.pool);
+                    for (VBD vbd: vbds){
+                        VBD.Record vbdr = vbd.getRecord(conn);
+                        if (vbdr.userdevice.equals("0")){
+                            VDI vdi = vbdr.VDI;
+                            SR sr = vdi.getSR(conn);
+                            // store memory image on the same SR with ROOT volume
+                            pool.setSuspendImageSR(conn, sr);
+                        }
+                    }
+                    task = vm.checkpointAsync(conn, vmSnapshotName);
+                }
+                task.addToOtherConfig(conn, "CS_VM_SNAPSHOT_KEY", vmSnapshotName);
+            }
+            
+            waitForTask(conn, task, 1000, timeout * 1000);
+            checkForSuccess(conn, task);
+            String result = task.getResult(conn);
+            
+            // extract VM snapshot ref from result 
+            String ref = result.substring("<value>".length(), result.length() - "</value>".length());
+            vmSnapshot = Types.toVM(ref);
+            
+            success = true;
+            return new CreateVMSnapshotAnswer(cmd, cmd.getTarget(), cmd.getVolumeTOs());
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            s_logger.error("Creating VM Snapshot " + cmd.getTarget().getSnapshotName() + " failed due to: " + msg);
+            return new CreateVMSnapshotAnswer(cmd, false, msg);
+        } finally {
+            try {
+                if (!success) {
+                    if (vmSnapshot != null) {
+                        s_logger.debug("Delete exsisting VM Snapshot "
+                                + vmSnapshotName
+                                + " after making VolumeTO failed");
+                        Set<VBD> vbds = vmSnapshot.getVBDs(conn);
+                        for (VBD vbd : vbds) {
+                            VBD.Record vbdr = vbd.getRecord(conn);
+                            if (vbdr.type == VbdType.DISK) {
+                                VDI vdi = vbdr.VDI;
+                                vdi.destroy(conn);
+                            }
+                        }
+                        vmSnapshot.destroy(conn);
+                    }
+                }
+                if (vmState == VirtualMachine.State.Stopped) {
+                    if (vm != null) {
+                        vm.destroy(conn);
+                    }
+                }
+            } catch (Exception e2) {
+                s_logger.error("delete snapshot error due to "
+                        + e2.getMessage());
+            }
+        }
+    }
+    
+    private VM createWorkingVM(Connection conn, String vmName,
+            String guestOSType, List<VolumeTO> listVolumeTo)
+            throws BadServerResponse, VmBadPowerState, SrFull,
+            OperationNotAllowed, XenAPIException, XmlRpcException {
+        String guestOsTypeName = getGuestOsType(guestOSType, false);
+        if (guestOsTypeName == null) {
+            String msg = " Hypervisor " + this.getClass().getName()
+                    + " doesn't support guest OS type " + guestOSType
+                    + ". you can choose 'Other install media' to run it as HVM";
+            s_logger.warn(msg);
+            throw new CloudRuntimeException(msg);
+        }
+        VM template = getVM(conn, guestOsTypeName);
+        VM vm = template.createClone(conn, vmName);
+        vm.setIsATemplate(conn, false);
+        Map<VDI, VolumeTO> vdiMap = new HashMap<VDI, VolumeTO>();
+        for (VolumeTO volume : listVolumeTo) {
+            String vdiUuid = volume.getPath();
+            try {
+                VDI vdi = VDI.getByUuid(conn, vdiUuid);
+                vdiMap.put(vdi, volume);
+            } catch (Types.UuidInvalid e) {
+                s_logger.warn("Unable to find vdi by uuid: " + vdiUuid
+                        + ", skip it");
+            }
+        }
+        for (VDI vdi : vdiMap.keySet()) {
+            VolumeTO volumeTO = vdiMap.get(vdi);
+            VBD.Record vbdr = new VBD.Record();
+            vbdr.VM = vm;
+            vbdr.VDI = vdi;
+            if (volumeTO.getType() == Volume.Type.ROOT) {
+                vbdr.bootable = true;
+                vbdr.unpluggable = false;
+            } else {
+                vbdr.bootable = false;
+                vbdr.unpluggable = true;
+            }
+            vbdr.userdevice = new Long(volumeTO.getDeviceId()).toString();
+            vbdr.mode = Types.VbdMode.RW;
+            vbdr.type = Types.VbdType.DISK;
+            VBD.create(conn, vbdr);
+        }
+        return vm;
+    }
+
+    protected Answer execute(final DeleteVMSnapshotCommand cmd) {
+        String snapshotName = cmd.getTarget().getSnapshotName();
+        Connection conn = getConnection();
+                
+        try {
+            List<VDI> vdiList = new ArrayList<VDI>();
+            Set<VM> snapshots = VM.getByNameLabel(conn, snapshotName);
+            if(snapshots.size() == 0){
+                s_logger.warn("VM snapshot with name " + snapshotName + " does not exist, assume it is already deleted");
+                return new DeleteVMSnapshotAnswer(cmd, cmd.getVolumeTOs());
+            }
+            VM snapshot = snapshots.iterator().next();
+            Set<VBD> vbds = snapshot.getVBDs(conn);
+            for (VBD vbd : vbds) {
+                if (vbd.getType(conn) == VbdType.DISK) {
+                    VDI vdi = vbd.getVDI(conn);
+                    vdiList.add(vdi);
+                }
+            }
+            if(cmd.getTarget().getType() == VMSnapshot.Type.DiskAndMemory)
+                vdiList.add(snapshot.getSuspendVDI(conn));
+            snapshot.destroy(conn);
+            for (VDI vdi : vdiList) {
+                vdi.destroy(conn);
+            }
+            return new DeleteVMSnapshotAnswer(cmd, cmd.getVolumeTOs());
+        } catch (Exception e) {
+            s_logger.warn("Catch Exception: " + e.getClass().toString()
+                    + " due to " + e.toString(), e);
+            return new DeleteVMSnapshotAnswer(cmd, false, e.getMessage());
+        }
+    }
+    
     protected Answer execute(final AttachIsoCommand cmd) {
         Connection conn = getConnection();
         boolean attach = cmd.isAttach();
@@ -6551,7 +6882,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                         } finally {
                             deleteSnapshotBackup(conn, dcId, accountId, volumeId, secondaryStorageMountPath, snapshotBackupUuid);
                         }
-                    }
+                    }                    
                     success = true;
                 } finally {
                     if( snapshotSr != null) {
@@ -6798,30 +7129,30 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         }
     }
 
-    protected SR getStorageRepository(Connection conn, StorageFilerTO pool) {
+    protected SR getStorageRepository(Connection conn, String uuid) {
         Set<SR> srs;
         try {
-            srs = SR.getByNameLabel(conn, pool.getUuid());
+            srs = SR.getByNameLabel(conn, uuid);
         } catch (XenAPIException e) {
-            throw new CloudRuntimeException("Unable to get SR " + pool.getUuid() + " due to " + e.toString(), e);
+            throw new CloudRuntimeException("Unable to get SR " + uuid + " due to " + e.toString(), e);
         } catch (Exception e) {
-            throw new CloudRuntimeException("Unable to get SR " + pool.getUuid() + " due to " + e.getMessage(), e);
+            throw new CloudRuntimeException("Unable to get SR " + uuid + " due to " + e.getMessage(), e);
         }
 
         if (srs.size() > 1) {
-            throw new CloudRuntimeException("More than one storage repository was found for pool with uuid: " + pool.getUuid());
+            throw new CloudRuntimeException("More than one storage repository was found for pool with uuid: " + uuid);
         } else if (srs.size() == 1) {
             SR sr = srs.iterator().next();
             if (s_logger.isDebugEnabled()) {
-                s_logger.debug("SR retrieved for " + pool.getId());
+                s_logger.debug("SR retrieved for " + uuid);
             }
 
             if (checkSR(conn, sr)) {
                 return sr;
             }
-            throw new CloudRuntimeException("SR check failed for storage pool: " + pool.getUuid() + "on host:" + _host.uuid);
+            throw new CloudRuntimeException("SR check failed for storage pool: " + uuid + "on host:" + _host.uuid);
         } else {
-            throw new CloudRuntimeException("Can not see storage pool: " + pool.getUuid() + " from on host:" + _host.uuid);
+            throw new CloudRuntimeException("Can not see storage pool: " + uuid + " from on host:" + _host.uuid);
         }
     }
 
@@ -7182,14 +7513,18 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         String callResult;
         Connection conn = getConnection();
         String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
-
+        FirewallRuleTO[] allrules = cmd.getRules();
+        FirewallRule.TrafficType trafficType = allrules[0].getTrafficType();
         if (routerIp == null) {
             return new SetFirewallRulesAnswer(cmd, false, results);
         }
 
         String[][] rules = cmd.generateFwRules();
         String args = "";
-        args += routerIp + " -F ";
+        args += routerIp + " -F";
+        if (trafficType == FirewallRule.TrafficType.Egress){
+            args+= " -E";
+        }
         StringBuilder sb = new StringBuilder();
         String[] fwRules = rules[0];
         if (fwRules.length > 0) {
@@ -7271,12 +7606,12 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
 
         synchronized (_cluster.intern()) {
-        	HashMap<String, Pair<String, State>> newStates = getAllVms(conn);
-	        if (newStates == null) {
-	            s_logger.warn("Unable to get the vm states so no state sync at this point.");
-	            return null;
-	        }
-	        HashMap<String, Pair<String, State>>  oldStates = new HashMap<String, Pair<String, State>>(s_vms.size(_cluster));
+            HashMap<String, Pair<String, State>> newStates = getAllVms(conn);
+            if (newStates == null) {
+                s_logger.warn("Unable to get the vm states so no state sync at this point.");
+                return null;
+            }
+            HashMap<String, Pair<String, State>>  oldStates = new HashMap<String, Pair<String, State>>(s_vms.size(_cluster));
             oldStates.putAll(s_vms.getClusterVmState(_cluster));
 
             for (final Map.Entry<String, Pair<String, State>> entry : newStates.entrySet()) {
@@ -7291,7 +7626,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     if (!host_uuid.equals(oldState.first()) && newState != State.Stopped && newState != State.Stopping){
                         s_logger.warn("Detecting a change in host for " + vm);
                         changes.put(vm, new Pair<String, State>(host_uuid, newState));
-                        
+
                         s_logger.debug("11. The VM " + vm + " is in " + newState + " state");
                         s_vms.put(_cluster, host_uuid, vm, newState);
                         continue;
@@ -7301,7 +7636,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 if (newState == State.Stopped  && oldState != null && oldState.second() != State.Stopping && oldState.second() != State.Stopped) {
                     newState = getRealPowerState(conn, vm);
                 }
-                
+
                 if (s_logger.isTraceEnabled()) {
                     s_logger.trace("VM " + vm + ": xen has state " + newState + " and we have state " + (oldState != null ? oldState.toString() : "null"));
                 }
@@ -7316,7 +7651,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     changes.put(vm, new Pair<String, State>(host_uuid, newState));
                 } else if (oldState.second() == State.Starting) {
                     if (newState == State.Running) { 
-                    	s_logger.debug("12. The VM " + vm + " is in " + State.Running + " state");
+                        s_logger.debug("12. The VM " + vm + " is in " + State.Running + " state");
                         s_vms.put(_cluster, host_uuid, vm, newState);
                     } else if (newState == State.Stopped) {
                         s_logger.warn("Ignoring vm " + vm + " because of a lag in starting the vm.");
@@ -7328,13 +7663,13 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                     }
                 } else if (oldState.second() == State.Stopping) {
                     if (newState == State.Stopped) {
-                    	s_logger.debug("13. The VM " + vm + " is in " + State.Stopped + " state");
+                        s_logger.debug("13. The VM " + vm + " is in " + State.Stopped + " state");
                         s_vms.put(_cluster, host_uuid, vm, newState);
                     } else if (newState == State.Running) {
                         s_logger.warn("Ignoring vm " + vm + " because of a lag in stopping the vm. ");
                     }
                 } else if (oldState.second() != newState) {
-                	s_logger.debug("14. The VM " + vm + " is in " + newState + " state was " + oldState.second());
+                    s_logger.debug("14. The VM " + vm + " is in " + newState + " state was " + oldState.second());
                     s_vms.put(_cluster, host_uuid, vm, newState);
                     if (newState == State.Stopped) {
                         /*
@@ -7350,7 +7685,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 final String vm = entry.getKey();
                 final State oldState = entry.getValue().second();
                 String host_uuid = entry.getValue().first();
-                
+
                 if (s_logger.isTraceEnabled()) {
                     s_logger.trace("VM " + vm + " is now missing from xen so reporting stopped");
                 }
@@ -7361,7 +7696,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
                 } else if (oldState == State.Starting) {
                     s_logger.warn("Ignoring VM " + vm + " in transition state starting.");
                 } else if (oldState == State.Stopped) {
-                	s_logger.debug("VM missing " + vm + " old state stopped so removing.");
+                    s_logger.debug("VM missing " + vm + " old state stopped so removing.");
                     s_vms.remove(_cluster, host_uuid, vm);
                 } else if (oldState == State.Migrating) {
                     s_logger.warn("Ignoring VM " + vm + " in migrating state.");
@@ -7535,31 +7870,31 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         if (cmd.isCreate()) {
             args += " -A";
             args += " -l ";
-	        args += cmd.getLocalPublicIp();
+            args += cmd.getLocalPublicIp();
             args += " -n ";
-	        args += cmd.getLocalGuestCidr();
+            args += cmd.getLocalGuestCidr();
             args += " -g ";
-	        args += cmd.getLocalPublicGateway();
+            args += cmd.getLocalPublicGateway();
             args += " -r ";
-	        args += cmd.getPeerGatewayIp();
+            args += cmd.getPeerGatewayIp();
             args += " -N ";
-	        args += cmd.getPeerGuestCidrList();
+            args += cmd.getPeerGuestCidrList();
             args += " -e ";
-	        args += "\"" + cmd.getEspPolicy() + "\"";
+            args += "\"" + cmd.getEspPolicy() + "\"";
             args += " -i ";
-	        args += "\"" + cmd.getIkePolicy() + "\"";
+            args += "\"" + cmd.getIkePolicy() + "\"";
             args += " -t ";
-	        args += Long.toString(cmd.getIkeLifetime());
+            args += Long.toString(cmd.getIkeLifetime());
             args += " -T ";
-	        args += Long.toString(cmd.getEspLifetime());
+            args += Long.toString(cmd.getEspLifetime());
             args += " -s ";
-	        args += "\"" + cmd.getIpsecPsk() + "\"";
-	        args += " -d ";
-	        if (cmd.getDpd()) {
-	            args += "1";
-	        } else {
-	            args += "0";
-	        }
+            args += "\"" + cmd.getIpsecPsk() + "\"";
+            args += " -d ";
+            if (cmd.getDpd()) {
+                args += "1";
+            } else {
+                args += "0";
+            }
         } else {
             args += " -D";
             args += " -r ";
@@ -7585,7 +7920,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             VM router = getVM(conn, routerName);
 
             VIF correctVif = getCorrectVif(conn, router, pubIp);
-            
+
             String args = "vpc_snat.sh " + routerIp;
 
             args += " -A ";
@@ -7594,7 +7929,7 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
             args += " -c ";
             args += "eth" + correctVif.getDevice(conn);
-            
+
             String result = callHostPlugin(conn, "vmops", "routerProxy", "args", args);
             if (result == null || result.isEmpty()) {
                 throw new InternalErrorException("Xen plugin \"vpc_snat\" failed.");
@@ -7618,11 +7953,11 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             String [][] rules = cmd.generateFwRules();
             StringBuilder sb = new StringBuilder();
             String[] aclRules = rules[0];
-            
+
             for (int i = 0; i < aclRules.length; i++) {
                 sb.append(aclRules[i]).append(',');
             }
-            
+
             NicTO nic = cmd.getNic();
             VIF vif = getVifByMac(conn, router, nic.getMac());
             String args = "vpc_acl.sh " + routerIp;
@@ -7674,8 +8009,8 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         }
         return new SetPortForwardingRulesAnswer(cmd, results, endResult);
     }
-    
-    
+
+
     private SetStaticRouteAnswer execute(SetStaticRouteCommand cmd) {
         String callResult;
         Connection conn = getConnection();
@@ -7706,4 +8041,25 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
         }
     }
 
+	@Override
+	public void setName(String name) {
+	}
+
+	@Override
+	public void setConfigParams(Map<String, Object> params) {
+	}
+
+	@Override
+	public Map<String, Object> getConfigParams() {
+		return null;
+	}
+
+	@Override
+	public int getRunLevel() {
+		return 0;
+	}
+
+	@Override
+	public void setRunLevel(int level) {
+	}
 }

@@ -77,7 +77,11 @@ ALTER TABLE `cloud`.`inline_load_balancer_nic_map` DROP COLUMN load_balancer_id;
 ALTER TABLE upload ADD uuid VARCHAR(40);
 ALTER TABLE async_job modify job_cmd VARCHAR(255);
 
+
 ALTER TABLE `cloud`.`alert` ADD INDEX `last_sent` (`last_sent` DESC) ;
+
+ALTER TABLE `cloud`.`network_offerings` ADD COLUMN `is_persistent` int(1) unsigned NOT NULL DEFAULT 0 COMMENT 'true if the network offering provides an ability to create persistent networks';
+
 
 -- populate uuid column with db id if uuid is null
 UPDATE `cloud`.`account` set uuid=id WHERE uuid is NULL;
@@ -141,7 +145,11 @@ UPDATE `cloud`.`autoscale_policies` set uuid=id WHERE uuid is NULL;
 UPDATE `cloud`.`counter` set uuid=id WHERE uuid is NULL;
 UPDATE `cloud`.`conditions` set uuid=id WHERE uuid is NULL;
 
-INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', '"detail.batch.query.size"', '2000', 'Default entity detail batch query size for listing');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'detail.batch.query.size', '2000', 'Default entity detail batch query size for listing');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'api.throttling.interval', '1', 'Time interval (in seconds) to reset API count');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'api.throttling.max', '25', 'Max allowed number of APIs within fixed interval');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'api.throttling.cachesize', '50000', 'Account based API count cache size');
+
 
 -- DB views for list api
 
@@ -945,6 +953,10 @@ CREATE VIEW `cloud`.`account_view` AS
         projectcount.count projectTotal,
         networklimit.max networkLimit,
         networkcount.count networkTotal,
+        cpulimit.max cpuLimit,
+        cpucount.count cpuTotal,
+        memorylimit.max memoryLimit,
+        memorycount.count memoryTotal,
         async_job.id job_id,
         async_job.uuid job_uuid,
         async_job.job_status job_status,
@@ -1012,6 +1024,18 @@ CREATE VIEW `cloud`.`account_view` AS
             left join
         `cloud`.`resource_count` networkcount ON account.id = networkcount.account_id
             and networkcount.type = 'network'
+            left join
+        `cloud`.`resource_limit` cpulimit ON account.id = cpulimit.account_id
+            and cpulimit.type = 'cpu'
+            left join
+        `cloud`.`resource_count` cpucount ON account.id = cpucount.account_id
+            and cpucount.type = 'cpu'
+            left join
+        `cloud`.`resource_limit` memorylimit ON account.id = memorylimit.account_id
+            and memorylimit.type = 'memory'
+            left join
+        `cloud`.`resource_count` memorycount ON account.id = memorycount.account_id
+            and memorycount.type = 'memory'
             left join
         `cloud`.`async_job` ON async_job.instance_id = account.id
             and async_job.instance_type = 'Account'
@@ -1264,3 +1288,38 @@ CREATE VIEW `cloud`.`data_center_view` AS
         `cloud`.`domain` ON data_center.domain_id = domain.id;               
         
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'direct.agent.pool.size', '500', 'Default size for DirectAgentPool');
+
+ALTER TABLE `cloud`.`op_dc_vnet_alloc` DROP INDEX i_op_dc_vnet_alloc__vnet__data_center_id;
+
+ALTER TABLE `cloud`.`op_dc_vnet_alloc` ADD CONSTRAINT UNIQUE `i_op_dc_vnet_alloc__vnet__data_center_id`(`vnet`, `physical_network_id`, `data_center_id`);
+
+CREATE TABLE  `cloud`.`region` (
+  `id` int unsigned NOT NULL UNIQUE,
+  `name` varchar(255) NOT NULL UNIQUE,
+  `end_point` varchar(255) NOT NULL,
+  `api_key` varchar(255),
+  `secret_key` varchar(255),
+  PRIMARY KEY  (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `cloud`.`region_sync` (
+  `id` bigint unsigned NOT NULL auto_increment,
+  `region_id` int unsigned NOT NULL,
+  `api` varchar(1024) NOT NULL,
+  `created` datetime NOT NULL COMMENT 'date created',
+  `processed` tinyint NOT NULL default '0',
+  PRIMARY KEY  (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+INSERT INTO `cloud`.`region` values ('1','Local','http://localhost:8080/client/api','','');
+ALTER TABLE `cloud`.`account` ADD COLUMN `region_id` int unsigned NOT NULL DEFAULT '1';
+ALTER TABLE `cloud`.`user` ADD COLUMN `region_id` int unsigned NOT NULL DEFAULT '1';
+ALTER TABLE `cloud`.`domain` ADD COLUMN `region_id` int unsigned NOT NULL DEFAULT '1';
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Account Defaults', 'DEFAULT', 'management-server', 'max.account.cpus', '40', 'The default maximum number of cpu cores that can be used for an account');
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Account Defaults', 'DEFAULT', 'management-server', 'max.account.memory', '40960', 'The default maximum memory (in MB) that can be used for an account');
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Project Defaults', 'DEFAULT', 'management-server', 'max.project.cpus', '40', 'The default maximum number of cpu cores that can be used for a project');
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Project Defaults', 'DEFAULT', 'management-server', 'max.project.memory', '40960', 'The default maximum memory (in MB) that can be used for a project');

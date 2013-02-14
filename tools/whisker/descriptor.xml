@@ -404,7 +404,7 @@ of liability.
         </text>
         </license>
         <license
-            name='Mozilla Public License, Version 1.0'
+            name='Mozilla Public License, Version 1.1'
             id='MPL1'
             url='http://www.mozilla.org/MPL/1.1/' >
             <template>
@@ -2423,9 +2423,13 @@ Innovation Centre, 2006 (http://www.it-innovation.soton.ac.uk).
             id='adiscon.com'
             name='Adiscon GmbH'
             url='http://www.adiscon.com/' />
+        <organisation
+            id='person:patrick.debois'
+            name='Patrick Debois'
+            url='http://www.jedi.be/blog/' />
     </organisations>
     <primary-license id='ApacheLicenseVersion2'>
-        <copyright-notice>Copyright (c) 2012 The Apache Software Foundation</copyright-notice>
+        <copyright-notice>Copyright (c) 2013 The Apache Software Foundation</copyright-notice>
     </primary-license>
     <primary-notice id="foo">
 This product includes software developed at
@@ -2653,5 +2657,30 @@ Copyright (c) 2010-2011 OpenStack, LLC.
 				<resource name='swift' />
 			</by-organisation>
 		</with-license>
-	</within>
+    </within>
+    <within dir='tools/appliance/definitions/systemvmtemplate'>
+        <with-license id='MIT'>
+            <copyright-notice>
+Copyright (c) 2010-2012 Patrick Debois
+            </copyright-notice>
+            <by-organisation id='person:patrick.debois'>
+                <resource name='base.sh' source='https://github.com/jedi4ever/veewee' />
+                <resource name='cleanup.sh' source='https://github.com/jedi4ever/veewee' />
+                <resource name='definition.rb' source='https://github.com/jedi4ever/veewee' />
+                <resource name='preseed.cfg' source='https://github.com/jedi4ever/veewee' />
+                <resource name='zerodisk.sh' source='https://github.com/jedi4ever/veewee' />
+            </by-organisation>
+        </with-license>
+    </within>
+    <within dir='tools/devcloud/src/deps/boxes/basebox-build'>
+        <with-license id='MIT'>
+            <copyright-notice>
+Copyright (c) 2010-2012 Patrick Debois
+            </copyright-notice>
+            <by-organisation id='person:patrick.debois'>
+                <resource name='definition.rb' source='https://github.com/jedi4ever/veewee' />
+                <resource name='preseed.cfg' source='https://github.com/jedi4ever/veewee' />
+            </by-organisation>
+        </with-license>
+    </within>
 </manifest>

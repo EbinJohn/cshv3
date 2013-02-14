@@ -27,6 +27,7 @@ import javax.naming.ConfigurationException;
 
 import com.cloud.dc.Vlan;
 import com.cloud.exception.InsufficientAddressCapacityException;
+import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.network.Network.Capability;
 import com.cloud.network.Network.GuestType;
@@ -34,6 +35,8 @@ import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.addr.PublicIp;
+import com.cloud.network.dao.IPAddressVO;
+import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.element.NetworkElement;
 import com.cloud.network.element.UserDataServiceProvider;
 import com.cloud.network.rules.FirewallRule;
@@ -41,12 +44,13 @@ import com.cloud.offering.NetworkOffering;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.user.Account;
 import com.cloud.utils.component.Manager;
+import com.cloud.utils.component.ManagerBase;
 import com.cloud.vm.Nic;
 import com.cloud.vm.NicProfile;
 import com.cloud.vm.VirtualMachine;
 
 @Local(value = {NetworkModel.class})
-public class MockNetworkModelImpl implements NetworkModel, Manager {
+public class MockNetworkModelImpl extends ManagerBase implements NetworkModel {
 
     /* (non-Javadoc)
      * @see com.cloud.utils.component.Manager#configure(java.lang.String, java.util.Map)
@@ -806,4 +810,23 @@ public class MockNetworkModelImpl implements NetworkModel, Manager {
         return false;
     }
 
+	@Override
+	public boolean isIP6AddressAvailableInNetwork(long networkId) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
+	@Override
+	public boolean isIP6AddressAvailableInVlan(long vlanId) {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
+	@Override
+	public void checkIp6Parameters(String startIPv6, String endIPv6,
+			String ip6Gateway, String ip6Cidr)
+			throws InvalidParameterValueException {
+		// TODO Auto-generated method stub
+		
+	}
 }

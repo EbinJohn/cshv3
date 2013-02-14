@@ -16,9 +16,8 @@
 // under the License.
 package com.cloud.hypervisor.hyperv.resource;
 
-import java.util.HashMap;
 import java.util.Map;
-import javax.naming.ConfigurationException;
+
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.PingCommand;
@@ -93,4 +92,35 @@ public class HypervDummyResourceBase extends ServerResourceBase implements Serve
 		_agentIp = (String)params.get("agentIp");
 		return true;
 	}
+
+        @Override
+	public void setName(String name) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void setConfigParams(Map<String, Object> params) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public Map<String, Object> getConfigParams() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public int getRunLevel() {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	@Override
+	public void setRunLevel(int level) {
+		// TODO Auto-generated method stub
+		
+	}
+
 }
