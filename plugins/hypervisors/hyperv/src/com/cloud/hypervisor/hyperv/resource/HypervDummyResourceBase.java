@@ -18,6 +18,10 @@ package com.cloud.hypervisor.hyperv.resource;
 
 import java.util.Map;
 
+import javax.ejb.Local;
+import javax.inject.Inject;
+import javax.naming.ConfigurationException;
+
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.PingCommand;

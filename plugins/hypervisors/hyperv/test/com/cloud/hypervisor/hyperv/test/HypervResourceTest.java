@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import javax.ejb.Local;
+import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.agent.AgentShell;
@@ -70,7 +72,6 @@ import com.cloud.serializer.GsonHelper;
 import com.cloud.storage.StoragePoolVO;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.PropertiesUtil;
-import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.exception.CloudRuntimeException;
 
 import com.google.gson.Gson;
@@ -109,8 +110,6 @@ public class HypervResourceTest {
     protected static String testLocalStorePathJSON;
     
     public HypervResourceTest() {
-       	// Seed /conf folder with log4j.xml into class path 
-        final ComponentLocator locator = ComponentLocator.getLocator("agent");
     }
     
     @Before

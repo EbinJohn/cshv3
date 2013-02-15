@@ -35,6 +35,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import javax.ejb.Local;
+import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.log4j.Logger;
@@ -120,12 +121,12 @@ import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.resource.ServerResource;
 import com.cloud.serializer.GsonHelper;
+import com.cloud.storage.JavaStorageLayer;
 import com.cloud.storage.Storage;
 import com.cloud.storage.StorageLayer;
 import com.cloud.storage.Volume;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.template.TemplateInfo;
-import com.cloud.utils.component.ComponentLocator;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.script.Script;
 import com.cloud.vm.DiskProfile;
@@ -605,15 +606,13 @@ public class HypervResource implements ServerResource {
         String value = (String) params.get("type");
         _type = Host.Type.valueOf(value);
 
-        try {
-            Class<?> clazz = Class
-                    .forName("com.cloud.storage.JavaStorageLayer");
-            _storage = (StorageLayer) ComponentLocator.inject(clazz);
-            _storage.configure("StorageLayer", params);
-        } catch (ClassNotFoundException e) {
-            throw new ConfigurationException("Unable to find class "
-                    + "com.cloud.storage.JavaStorageLayer");
-        }
+        
+        _storage = new JavaStorageLayer();
+        _storage.configure("StorageLayer", params);
+
+        
+        _storage = new JavaStorageLayer();
+        _storage.configure("StorageLayer", params);
         
         value = (String) params.get("negative.reply");
         _negative = Boolean.parseBoolean(value);
@@ -673,4 +672,34 @@ public class HypervResource implements ServerResource {
     public void setAgentControl(IAgentControl agentControl) {
         _agentControl = agentControl;
     }
+
+	@Override
+	public void setName(String name) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void setConfigParams(Map<String, Object> params) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public Map<String, Object> getConfigParams() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public int getRunLevel() {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	@Override
+	public void setRunLevel(int level) {
+		// TODO Auto-generated method stub
+		
+	}
 }
