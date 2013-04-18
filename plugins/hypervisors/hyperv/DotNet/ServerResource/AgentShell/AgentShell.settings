@@ -1,0 +1,63 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="AgentShell" GeneratedClassName="Settings1">
+  <Profiles />
+  <Settings>
+    <Setting Name="cpus" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">8</Value>
+    </Setting>
+    <Setting Name="private_ip_address" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">10.70.176.29</Value>
+    </Setting>
+    <Setting Name="type" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">Routing</Value>
+    </Setting>
+    <Setting Name="private_mac_address" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">10:1F:74:2C:6B:88</Value>
+    </Setting>
+    <Setting Name="local_storage_uuid" Type="System.Guid" Scope="Application">
+      <Value Profile="(Default)">5fe2bad3-d785-394e-9949-89786b8a63d2</Value>
+    </Setting>
+    <Setting Name="capabilities" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">hvm</Value>
+    </Setting>
+    <Setting Name="Settingcpuspeed" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">2130</Value>
+    </Setting>
+    <Setting Name="port" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">8250</Value>
+    </Setting>
+    <Setting Name="memory" Type="System.Int64" Scope="Application">
+      <Value Profile="(Default)">34359738368</Value>
+    </Setting>
+    <Setting Name="host" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">camldonall01.citrite.net</Value>
+    </Setting>
+    <Setting Name="pod" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">1</Value>
+    </Setting>
+    <Setting Name="gateway_ip_address" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">10.70.176.1</Value>
+    </Setting>
+    <Setting Name="guid" Type="System.Guid" Scope="Application">
+      <Value Profile="(Default)" />
+    </Setting>
+    <Setting Name="cluster" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">2</Value>
+    </Setting>
+    <Setting Name="zone" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">1</Value>
+    </Setting>
+    <Setting Name="local_secondary_storage_path" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">c:\Secondary</Value>
+    </Setting>
+    <Setting Name="local_storage_path" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">E:\Disks\Disks</Value>
+    </Setting>
+    <Setting Name="workers" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">5</Value>
+    </Setting>
+    <Setting Name="private_ip_netmask" Type="System.String" Scope="User">
+      <Value Profile="(Default)">255.255.240.0</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>
