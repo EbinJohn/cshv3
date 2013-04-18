@@ -1,0 +1,1050 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using CloudStack.Plugin.WmiWrappers.ROOT.VIRTUALIZATION;
+using log4net;
+using System.Globalization;
+using System.Management;
+
+namespace ServerResource
+{
+    public class WmiCalls
+    {
+        private static ILog logger = LogManager.GetLogger(typeof(WmiCalls));
+
+        /// <summary>
+        /// Returns ComputerSystem lacking any NICs and VOLUMEs
+        /// </summary>
+        public static ComputerSystem CreateVM(string name, long memory_mb, int vcpus)
+        {
+            // Obtain controller for Hyper-V virtualisation subsystem
+            VirtualSystemManagementService vmMgmtSvc = GetVirtualisationSystemManagementService();
+
+            // Create VM with correct name and default resources
+            ComputerSystem vm = CreateDefaultVm(vmMgmtSvc, name);
+
+            // Update the resource settings for the VM.
+
+            // Resource settings are referenced through the Msvm_VirtualSystemSettingData object.
+            VirtualSystemSettingData vmSettings = GetVmSettings(vm);
+
+            // For memory settings, there is no Dynamic Memory, so reservation, limit and quantity are identical.
+            MemorySettingData memSettings = GetMemSettings(vmSettings);
+            memSettings.LateBoundObject["VirtualQuantity"] = memory_mb;
+            memSettings.LateBoundObject["Reservation"] = memory_mb;
+            memSettings.LateBoundObject["Limit"] = memory_mb;
+
+            // Update the processor settings for the VM, static assignment of 100% for CPU limit
+            ProcessorSettingData procSettings = GetProcSettings(vmSettings);
+            procSettings.LateBoundObject["VirtualQuantity"] = vcpus;
+            procSettings.LateBoundObject["Reservation"] = vcpus;
+            procSettings.LateBoundObject["Limit"] = 100000;
+
+            ModifyVmResources(vmMgmtSvc, vm, new String[] {
+                memSettings.LateBoundObject.GetText(TextFormat.CimDtd20),
+                procSettings.LateBoundObject.GetText(TextFormat.CimDtd20)
+                });
+            logger.InfoFormat("VM with display name {0} has GUID {1}", vm.ElementName, vm.Name);
+            logger.DebugFormat("Resources for vm {0}: {1} MB memory, {2} vcpus", name);
+
+            return vm;
+        }
+
+        /// <summary>
+        /// Create a (synthetic) nic, and attach it to the vm
+        /// </summary>
+        /// <param name="vm"></param>
+        /// <param name="mac"></param>
+        /// <param name="vlan"></param>
+        /// <returns></returns>
+        public static SyntheticEthernetPortSettingData CreateNICforVm(ComputerSystem vm, string mac, string vlan)
+        {
+            logger.DebugFormat("Creating nic for VM {0} (GUID {1})", vm.ElementName, vm.Name);
+
+            // Obtain controller for Hyper-V networking subsystem
+            VirtualSwitchManagementService vmNetMgmtSvc = GetVirtualSwitchManagementService();
+
+            // Create NIC resource by cloning the default NIC 
+            var synthNICsSettings = SyntheticEthernetPortSettingData.GetInstances(vmNetMgmtSvc.Scope, "InstanceID LIKE \"%Default\"");
+
+            // Assert
+            if (synthNICsSettings.Count != 1)
+            {
+                var errMsg = string.Format("Internal error, coudl not find default SyntheticEthernetPort instance");
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+            var defaultSynthNICSettings = synthNICsSettings.OfType<SyntheticEthernetPortSettingData>().First();
+
+            var newSynthNICSettings = new SyntheticEthernetPortSettingData((ManagementBaseObject)defaultSynthNICSettings.LateBoundObject.Clone());
+
+            // Get the virtual switch
+            VirtualSwitch vSwitch = GetExternalVirtSwitch();
+
+            // Crate switch port for new VM
+            ManagementPath newSwitchPath = CreateSwitchPortForVm(vm, vmNetMgmtSvc, vSwitch);
+
+            // Add required VLAND support
+            if (vlan != null)
+            {
+                SetPortVlan(vlan, vmNetMgmtSvc, newSwitchPath);
+            }
+
+            logger.DebugFormat("Created switch port {0} on switch {1}", newSwitchPath.Path, vSwitch.Path.Path);
+
+            //  Assign configuration to new NIC
+            string normalisedMAC = string.Join("", (mac.Split(new char[] { ':' })));
+            newSynthNICSettings.LateBoundObject["Connection"] = new string[] { newSwitchPath.Path };
+            newSynthNICSettings.LateBoundObject["ElementName"] = vm.ElementName;
+            newSynthNICSettings.LateBoundObject["Address"] = normalisedMAC;
+            newSynthNICSettings.LateBoundObject["StaticMacAddress"] = "TRUE";
+            newSynthNICSettings.LateBoundObject["VirtualSystemIdentifiers"] = new string[] { "{" + Guid.NewGuid().ToString() + "}" };
+            newSynthNICSettings.CommitObject();
+
+            // Insert NIC into vm
+            string[] newResources = new string[] { newSynthNICSettings.LateBoundObject.GetText(System.Management.TextFormat.CimDtd20)};
+            ManagementPath[] newResourcePaths = AddVirtualResource(newResources, vm );
+
+            // assert
+            if (newResourcePaths.Length != 1)
+            {
+                var errMsg = string.Format(
+                    "Failed to properly insert a single NIC on VM {0} (GUID {1}): number of resource created {2}",
+                    vm.ElementName,
+                    vm.Name,
+                    newResourcePaths.Length);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            return new SyntheticEthernetPortSettingData(newResourcePaths[0]);
+        }
+
+        public const string IDE_HARDDISK_DRIVE = "Microsoft Synthetic Disk Drive";
+        public const string IDE_ISO_DRIVE  = "Microsoft Synthetic DVD Drive";
+
+        public const string IDE_ISO_DISK = "Microsoft Virtual CD/DVD Disk"; // For IDE_ISO_DRIVE
+        public const string IDE_HARDDISK_DISK = "Microsoft Virtual Hard Disk"; // For IDE_HARDDISK_DRIVE
+
+        /// <summary>
+        /// Create a disk and attach it to the vm
+        /// </summary>
+        /// <param name="vm"></param>
+        /// <param name="cntrllerAddr"></param>
+        /// <param name="driveType">IDE_HARDDISK_DRIVE or IDE_ISO_DRIVE</param>
+        public static ManagementPath AddDiskDriveToVm(ComputerSystem vm, string vhdfile, string cntrllerAddr, string driveType)
+        {
+            logger.DebugFormat("Creating DISK for VM {0} (GUID {1}) by attaching {2}", 
+                        vm.ElementName,
+                        vm.Name,
+                        vhdfile);
+
+            // Determine disk type for drive and assert drive type valid
+            string diskResourceSubType = null;
+            switch(driveType) {
+                case IDE_HARDDISK_DRIVE:
+                    diskResourceSubType = IDE_HARDDISK_DISK;
+                    break;
+                case IDE_ISO_DRIVE: 
+                    diskResourceSubType = IDE_ISO_DISK;
+                    break;
+                default:
+                    var errMsg = string.Format(
+                        "Unrecognised disk drive type {0} for VM {1} (GUID {2})",
+                        driveType, 
+                        vm.ElementName,
+                        vm.Name);
+                    var ex = new WmiException(errMsg);
+                    logger.Error(errMsg, ex);
+                    throw ex;
+            }
+
+            ManagementPath newDrivePath = AttachNewDriveToVm(vm, cntrllerAddr, driveType);
+
+            // If there's not disk to insert, we are done.
+            if (String.IsNullOrEmpty(vhdfile))
+            {
+                logger.DebugFormat("No disk to be added to drive, disk drive {0} is complete", newDrivePath.Path);
+            }
+            else
+            {
+                InsertDiskImage(vm, vhdfile, diskResourceSubType, newDrivePath);
+            }
+            return newDrivePath;
+    }
+
+        private static ManagementPath AttachNewDriveToVm(ComputerSystem vm, string cntrllerAddr, string driveType)
+        {
+            // Disk drives are attached to a 'Parent' IDE controller.  We IDE Controller's settings for the 'Path', which our new Disk drive will use to reference it.
+            VirtualSystemSettingData vmSettings = GetVmSettings(vm);
+            var ctrller = GetIDEControllerSettings(vmSettings, cntrllerAddr);
+
+            // A description of the drive is created by modifying a clone of the default ResourceAllocationSettingData for that drive type
+            string defaultDriveQuery = String.Format("ResourceSubType LIKE \"{0}\" AND InstanceID LIKE \"%Default\"", driveType);
+            var newDiskDriveSettings = CloneResourceAllocationSetting(defaultDriveQuery);
+
+            // Set IDE controller and address on the controller for the new drive
+            newDiskDriveSettings.LateBoundObject["Parent"] = ctrller.Path.ToString();
+            newDiskDriveSettings.LateBoundObject["Address"] = "0";
+            newDiskDriveSettings.CommitObject();
+
+            // Add this new disk drive to the VM
+            logger.DebugFormat("Creating disk drive type {0}, parent IDE controller is {1} and address on controller is {2}",
+                newDiskDriveSettings.ResourceSubType,
+                newDiskDriveSettings.Parent,
+                newDiskDriveSettings.Address);
+            string[] newDriveResource = new string[] { newDiskDriveSettings.LateBoundObject.GetText(System.Management.TextFormat.CimDtd20) };
+            ManagementPath[] newDrivePaths = AddVirtualResource(newDriveResource, vm);
+
+            // assert
+            if (newDrivePaths.Length != 1)
+            {
+                var errMsg = string.Format(
+                    "Failed to add disk drive type {3} to VM {0} (GUID {1}): number of resource created {2}",
+                    vm.ElementName,
+                    vm.Name,
+                    newDrivePaths.Length,
+                    driveType);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+            logger.DebugFormat("New disk drive type {0} WMI path is {1}s",
+                newDiskDriveSettings.ResourceSubType,
+                newDrivePaths[0].Path);
+            return newDrivePaths[0];
+        }
+
+        private static void InsertDiskImage(ComputerSystem vm, string vhdfile, string diskResourceSubType, ManagementPath drivePath)
+        {
+            // A description of the disk is created by modifying a clone of the default ResourceAllocationSettingData for that disk type
+            string defaultDiskQuery = String.Format("ResourceSubType LIKE \"{0}\" AND InstanceID LIKE \"%Default\"", diskResourceSubType);
+            var newDiskSettings = CloneResourceAllocationSetting(defaultDiskQuery);
+
+            // Set disk drive and VHD file on disk for new disk
+            newDiskSettings.LateBoundObject["Parent"] = drivePath.Path;
+            newDiskSettings.LateBoundObject["Connection"] = new string[] { vhdfile };
+            newDiskSettings.CommitObject();
+
+            // Add the new vhd object as a virtual hard disk to the vm.
+            string[] newDiskResource = new string[] { newDiskSettings.LateBoundObject.GetText(System.Management.TextFormat.CimDtd20) };
+            ManagementPath[] newDiskPaths = AddVirtualResource(newDiskResource, vm);
+            // assert
+            if (newDiskPaths.Length != 1)
+            {
+                var errMsg = string.Format(
+                    "Failed to add disk image type {3} to VM {0} (GUID {1}): number of resource created {2}",
+                    vm.ElementName,
+                    vm.Name,
+                    newDiskPaths.Length,
+                    diskResourceSubType);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+            logger.InfoFormat("Created disk {2} for VM {0} (GUID {1}), image {3} ",
+                    vm.ElementName,
+                    vm.Name,
+                    newDiskPaths[0].Path,
+                    vhdfile);
+        }
+
+        private static ResourceAllocationSettingData CloneResourceAllocationSetting(string wmiQuery)
+        {
+            var defaultDiskDriveSettingsObjs = ResourceAllocationSettingData.GetInstances(wmiQuery);
+
+            // assert
+            if (defaultDiskDriveSettingsObjs.Count != 1)
+            {
+                var errMsg = string.Format("Failed to find Msvm_ResourceAllocationSettingData for the query {0}", wmiQuery);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            ResourceAllocationSettingData defaultDiskDriveSettings = defaultDiskDriveSettingsObjs.OfType<ResourceAllocationSettingData>().First();
+            return new ResourceAllocationSettingData((ManagementBaseObject)defaultDiskDriveSettings.LateBoundObject.Clone());
+        }
+
+
+        /// <summary>
+        /// Remove all VMs and all SwitchPorts with the displayName.  VHD gets deleted elsewhere.
+        /// </summary>
+        /// <param name="displayName"></param>
+        public static void DestroyVm(string displayName)
+        {
+            logger.DebugFormat("Got request to destroy vm {0}", displayName);
+
+            var vm = GetComputerSystem(displayName);
+            if ( vm  == null )
+            {
+                logger.DebugFormat("VM {0} already destroyed (or never existed)", displayName);
+                return;
+            }
+
+            // Stop VM
+            logger.DebugFormat("Stop VM {0} (GUID {1})", vm.ElementName, vm.Name);
+            SetState(vm, RequiredState.Disabled);
+
+            // Delete SwitchPort
+            DeleteSwitchPort(vm.ElementName);
+
+            // Delete VM
+            var virtSysMgmtSvc = GetVirtualisationSystemManagementService();
+            ManagementPath jobPath;
+
+            do
+            {
+                logger.DebugFormat("Delete VM {0} (GUID {1})", vm.ElementName, vm.Name);
+                var ret_val = virtSysMgmtSvc.DestroyVirtualSystem(vm.Path, out jobPath);
+
+                if (ret_val == ReturnCode.Started)
+                {
+                    JobCompleted(jobPath);
+                }
+                else if (ret_val != ReturnCode.Completed)
+                {
+                    var errMsg = string.Format(
+                        "Failed Delete VM {0} (GUID {1}) due to {2}",
+                        vm.ElementName,
+                        vm.Name,
+                        ReturnCode.ToString(ret_val));
+                    var ex = new WmiException(errMsg);
+                    logger.Error(errMsg, ex);
+                    throw ex;
+                }
+                vm = GetComputerSystem(displayName);
+            }
+            while (vm != null);
+        }
+
+        public static void SetState(ComputerSystem vm, ushort requiredState)
+        {
+            logger.InfoFormat(
+                "Changing state of {0} (GUID {1}) to {2}", 
+                vm.ElementName, 
+                vm.Name,  
+                RequiredState.ToString(requiredState));
+
+            ManagementPath jobPath;
+            // TimeSpan is a value type; default ctor is equivalent to 0.
+            var ret_val = vm.RequestStateChange(requiredState, new TimeSpan(), out jobPath);
+
+            // If the Job is done asynchronously
+            if (ret_val == ReturnCode.Started)
+            {
+                JobCompleted(jobPath);
+            }
+            else if (ret_val == 32775)
+            {
+                logger.InfoFormat("RequestStateChange returned 32775, which means vm in wrong state for requested state change.  Treating as if requested state was reached");
+            }
+            else if (ret_val != ReturnCode.Completed)
+            {
+                var errMsg = string.Format(
+                    "Failed to change state of VM {0} (GUID {1}) to {2} due to {3}",
+                    vm.ElementName,
+                    vm.Name,
+                    RequiredState.ToString(requiredState),
+                    ReturnCode.ToString(ret_val));
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            logger.InfoFormat(
+                "Successfully changed vm state of {0} (GUID {1} to requested state {2}", 
+                vm.ElementName, 
+                vm.Name,  
+                requiredState);
+        }
+
+
+        //TODO:  Write method to delete SwitchPort based on Name
+        public static bool DeleteSwitchPort(string elementName)
+        {
+            var virtSwitchMgmtSvc = GetVirtualSwitchManagementService();
+            // Get NIC path
+            var condition = string.Format("ElementName=\"{0}\"", elementName);
+            var switchPortCollection = SwitchPort.GetInstances(virtSwitchMgmtSvc.Scope, condition);
+            if (switchPortCollection.Count == 0)
+            {
+                return true;
+            }
+
+            foreach (SwitchPort port in switchPortCollection)
+            {
+                // Destroy
+                var ret_val = virtSwitchMgmtSvc.DeleteSwitchPort(port.Path);
+
+                if (ret_val != ReturnCode.Completed)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Add new 
+        private static ManagementPath[] AddVirtualResource(string[] resourceSettings, ComputerSystem vm )
+        {
+            var virtSysMgmtSvc = GetVirtualisationSystemManagementService();
+
+            ManagementPath jobPath;
+            ManagementPath[] resourcePaths;
+            var ret_val = virtSysMgmtSvc.AddVirtualSystemResources(
+                resourceSettings, 
+                vm.Path,
+                out jobPath,
+                out resourcePaths);
+
+            // If the Job is done asynchronously
+            if (ret_val == ReturnCode.Started)
+            {
+                JobCompleted(jobPath);
+            }
+            else if (ret_val != ReturnCode.Completed)
+            {
+                var errMsg = string.Format(
+                    "Failed to add resources to VM {0} (GUID {1}) due to {2}",
+                    vm.ElementName,
+                    vm.Name,
+                    ReturnCode.ToString(ret_val));
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            return resourcePaths;
+        }
+
+        private static ManagementPath CreateSwitchPortForVm(ComputerSystem vm, VirtualSwitchManagementService vmNetMgmtSvc, VirtualSwitch vSwitch)
+        {
+            ManagementPath newSwitchPath = null;
+            var ret_val = vmNetMgmtSvc.CreateSwitchPort(
+                vm.ElementName,
+                Guid.NewGuid().ToString(),
+                "",
+                vSwitch.Path,
+                out newSwitchPath);
+            // Job is always done synchronously
+            if (ret_val != ReturnCode.Completed)
+            {
+                var errMsg = string.Format(
+                    "Failed to create switch for NIC on VM {0} (GUID {1}), error code {2}",
+                    vm.ElementName,
+                    vm.Name,
+                    ret_val);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+            return newSwitchPath;
+        }
+
+        // add vlan support by setting AccessVLAN on VLANEndpointSettingData for port
+        private static void SetPortVlan(string vlan, VirtualSwitchManagementService vmNetMgmtSvc, ManagementPath newSwitchPath)
+        {
+            logger.DebugFormat("Setting VLAN to {0}", vlan);
+
+            VLANEndpointSettingData vlanEndpointSettings = GetVlanEndpointSettings(vmNetMgmtSvc, newSwitchPath);
+            vlanEndpointSettings.LateBoundObject["AccessVLAN"] = vlan;
+            vlanEndpointSettings.CommitObject();
+        }
+
+        public static VLANEndpointSettingData GetVlanEndpointSettings(VirtualSwitchManagementService vmNetMgmtSvc, ManagementPath newSwitchPath)
+        {
+            // Get Msvm_VLANEndpoint through associated with new Port
+            var vlanEndpointQuery = new RelatedObjectQuery(newSwitchPath.Path, VLANEndpoint.CreatedClassName);
+            var vlanEndpointSearch = new ManagementObjectSearcher(vmNetMgmtSvc.Scope, vlanEndpointQuery);
+            var vlanEndpointCollection = new VLANEndpoint.VLANEndpointCollection(vlanEndpointSearch.Get());
+
+            // assert
+            if (vlanEndpointCollection.Count != 1)
+            {
+                var errMsg = string.Format("No VLANs for vSwitch on Hyper-V server for switch {0}", newSwitchPath.Path);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            VLANEndpoint vlanEndpoint = vlanEndpointCollection.OfType<VLANEndpoint>().First();
+
+            // Get Msvm_VLANEndpointSettingData assocaited with Msvm_VLANEndpoint
+            var vlanEndpointSettingsQuery = new RelatedObjectQuery(vlanEndpoint.Path.Path, VLANEndpointSettingData.CreatedClassName);
+            var vlanEndpointSettingsSearch = new ManagementObjectSearcher(vmNetMgmtSvc.Scope, vlanEndpointSettingsQuery);
+            var vlanEndpointSettingsCollection = new VLANEndpointSettingData.VLANEndpointSettingDataCollection(vlanEndpointSettingsSearch.Get());
+
+            // assert
+            if (vlanEndpointSettingsCollection.Count != 1)
+            {
+                var errMsg = string.Format("Internal error, VLAN for vSwitch not setup propertly Hyper-V");
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            VLANEndpointSettingData vlanEndpointSettings = vlanEndpointSettingsCollection.OfType<VLANEndpointSettingData>().First();
+            return vlanEndpointSettings;
+        }
+
+        /// <summary>
+        /// External VSwitch has an external NIC, and we assume there is only one external NIC
+        /// </summary>
+        /// <param name="vmSettings"></param>
+        /// <returns></returns>
+        /// <throw>Throws if there is no vswitch</throw>
+        public static VirtualSwitch GetExternalVirtSwitch()
+        {
+            // Work back from the first *bound* external NIC we find.
+            var externNICs = ExternalEthernetPort.GetInstances("IsBound = TRUE");
+
+            if (externNICs.Count == 0 )
+            {
+                var errMsg = "No ExternalEthernetPort available to Hyper-V";
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            ExternalEthernetPort externNIC = externNICs.OfType<ExternalEthernetPort>().First();
+
+            // A sequence of ASSOCIATOR objects need to be traversed to get from external NIC the vswitch.
+            // We use ManagementObjectSearcher objects to execute this sequence of questions
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var endpointQuery = new RelatedObjectQuery(externNIC.Path.Path, SwitchLANEndpoint.CreatedClassName);
+            var endpointSearch = new ManagementObjectSearcher(externNIC.Scope, endpointQuery);
+            var endpointCollection = new SwitchLANEndpoint.SwitchLANEndpointCollection(endpointSearch.Get());
+
+            // assert
+            if (endpointCollection.Count < 1 )
+            {
+                var errMsg = string.Format("No SwitchLANEndpoint for external NIC {0} on Hyper-V server", externNIC.Name);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            SwitchLANEndpoint endPoint = endpointCollection.OfType<SwitchLANEndpoint>().First();
+            var switchPortQuery = new RelatedObjectQuery(endPoint.Path.Path, SwitchPort.CreatedClassName);
+            var switchPortSearch = new ManagementObjectSearcher(externNIC.Scope, switchPortQuery);
+            var switchPortCollection = new SwitchPort.SwitchPortCollection(switchPortSearch.Get());
+
+            // assert
+            if (switchPortCollection.Count < 1 )
+            {
+                var errMsg = string.Format("No SwitchPort for external NIC {0} on Hyper-V server", externNIC.Name);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            SwitchPort switchPort = switchPortCollection.OfType<SwitchPort>().First();
+            var vSwitchQuery = new RelatedObjectQuery(switchPort.Path.Path, VirtualSwitch.CreatedClassName);
+            var vSwitchSearch = new ManagementObjectSearcher(externNIC.Scope, vSwitchQuery);
+            var vSwitchCollection = new VirtualSwitch.VirtualSwitchCollection(vSwitchSearch.Get());
+
+            // assert
+            if (vSwitchCollection.Count < 1)
+            {
+                var errMsg = string.Format("No virtual switch for external NIC {0} on Hyper-V server", externNIC.Name);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            VirtualSwitch vSwitch = vSwitchCollection.OfType<VirtualSwitch>().First();
+
+            return vSwitch;
+        }
+
+
+        private static void ModifyVmResources(VirtualSystemManagementService vmMgmtSvc, ComputerSystem vm, string[] resourceSettings)
+        {
+            // Resource settings are changed through the management service
+            System.Management.ManagementPath jobPath;
+
+            var ret_val = vmMgmtSvc.ModifyVirtualSystemResources(vm.Path,
+                resourceSettings,
+                out jobPath);
+            // If the Job is done asynchronously
+            if (ret_val == ReturnCode.Started)
+            {
+                JobCompleted(jobPath);
+            }
+            else if (ret_val != ReturnCode.Completed)
+            {
+                var errMsg = string.Format(
+                    "Failed to update VM {0} (GUID {1}) due to {2} (ModifyVirtualSystem call), existing VM not deleted",
+                    vm.ElementName,
+                    vm.Name,
+                    ReturnCode.ToString(ret_val));
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+        }
+
+        private static ComputerSystem CreateDefaultVm(VirtualSystemManagementService vmMgmtSvc, string name)
+        {
+            // Tweak default settings by basing new VM on default global setting object 
+            // with designed display name.
+
+            VirtualSystemGlobalSettingData vs_gs_data = VirtualSystemGlobalSettingData.CreateInstance();
+            vs_gs_data.LateBoundObject["ElementName"] = name;
+
+            System.Management.ManagementPath jobPath;
+            System.Management.ManagementPath defined_sys;
+            var ret_val = vmMgmtSvc.DefineVirtualSystem(
+                new string[0],
+                null,
+                vs_gs_data.LateBoundObject.GetText(System.Management.TextFormat.CimDtd20),
+                out defined_sys,
+                out jobPath);
+
+            // If the Job is done asynchronously
+            if (ret_val == ReturnCode.Started)
+            {
+                JobCompleted(jobPath);
+            }
+            else if (ret_val != ReturnCode.Completed)
+            {
+                var errMsg = string.Format(
+                    "Failed to create VM {0} due to {1} (DefineVirtualSystem call)",
+                    name, ReturnCode.ToString(ret_val));
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            logger.DebugFormat(CultureInfo.InvariantCulture, "Created VM {0}", name);
+
+            // Is the defined_system real?
+            var vm = new ComputerSystem(defined_sys);
+
+            // Assertion
+            if (vm.ElementName.CompareTo(name) != 0)
+            {
+                var errMsg = string.Format(
+                    "New VM created with wrong name (is {0}, should be {1}, GUID {2})",
+                    vm.ElementName,
+                    name,
+                    vm.Name);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            return vm;
+        }
+
+        public static VirtualSwitchManagementService GetVirtualSwitchManagementService()
+        {
+            // VirtualSwitchManagementService is a singleton, most anonymous way of lookup is by asking for the set
+            // of local instances, which should be size 1.
+            var virtSwtichSvcCollection = VirtualSwitchManagementService.GetInstances();
+            foreach (VirtualSwitchManagementService item in virtSwtichSvcCollection)
+            {
+                return item;
+            }
+
+            var errMsg = string.Format("No Hyper-V subsystem on server");
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        private static VirtualSystemManagementService GetVirtualisationSystemManagementService()
+        {
+            // VirtualSystemManagementService is a singleton, most anonymous way of lookup is by asking for the set
+            // of local instances, which should be size 1.
+            var virtSysMgmtSvcCollection = VirtualSystemManagementService.GetInstances();
+            foreach (VirtualSystemManagementService item in virtSysMgmtSvcCollection)
+            {
+                return item;
+            }
+
+            var errMsg = string.Format("No Hyper-V subsystem on server");
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        /// <summary>
+        /// Similar to http://msdn.microsoft.com/en-us/library/hh850031%28v=vs.85%29.aspx
+        /// </summary>
+        /// <param name="jobPath"></param>
+        /// <returns></returns>
+        private static void JobCompleted(ManagementPath jobPath)
+        {
+            ConcreteJob jobObj = null;
+            for(;;)
+            {
+                jobObj = new ConcreteJob(jobPath);
+                if (jobObj.JobState != JobState.Starting && jobObj.JobState != JobState.Running)
+                {
+                    break;
+                }
+                logger.InfoFormat("In progress... {0}% completed.", jobObj.PercentComplete);
+                System.Threading.Thread.Sleep(1000);
+            }
+
+            if (jobObj.JobState != JobState.Completed)
+            {
+                var errMsg = string.Format(
+                    "Hyper-V Job failed, Error Code:{0}, Description: {1}", 
+                    jobObj.ErrorCode, 
+                    jobObj.ErrorDescription);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            logger.DebugFormat("WMI job succeeded: {0}, Elapsed={1}", jobObj.Description, jobObj.ElapsedTime);
+        }
+
+        public static ComputerSystem GetComputerSystem(string displayName)
+        {
+            var wmiQuery = String.Format("ElementName=\"{0}\"", displayName);
+            ComputerSystem.ComputerSystemCollection vmCollection = ComputerSystem.GetInstances(wmiQuery);
+
+            // Return the first one
+            foreach (ComputerSystem vm in vmCollection)
+            {
+                return vm;
+            }
+            return null;
+        }
+
+        public static ProcessorSettingData GetProcSettings(VirtualSystemSettingData vmSettings)
+        {
+            // An ASSOCIATOR object provides the cross reference from the VirtualSystemSettingData and the 
+            // ProcessorSettingData, but generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // Instead, we use the System.Management to code the equivalant of 
+            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vmSettings.path, resultclassName);
+            //
+            var wmiObjQuery = new RelatedObjectQuery(vmSettings.Path.Path, ProcessorSettingData.CreatedClassName);
+
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var wmiObjectSearch = new ManagementObjectSearcher(vmSettings.Scope, wmiObjQuery);
+            var wmiObjCollection = new ProcessorSettingData.ProcessorSettingDataCollection(wmiObjectSearch.Get());
+
+            foreach (ProcessorSettingData wmiObj in wmiObjCollection)
+            {
+                return wmiObj;
+            }
+
+            var errMsg = string.Format("No ProcessorSettingData in VirtualSystemSettingData {0}", vmSettings.Path.Path);
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        public static MemorySettingData GetMemSettings(VirtualSystemSettingData vmSettings)
+        {
+            // An ASSOCIATOR object provides the cross reference from the VirtualSystemSettingData and the 
+            // MemorySettingData, but generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // Instead, we use the System.Management to code the equivalant of 
+            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vmSettings.path, resultclassName);
+            //
+            var wmiObjQuery = new RelatedObjectQuery(vmSettings.Path.Path, MemorySettingData.CreatedClassName);
+
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var wmiObjectSearch = new ManagementObjectSearcher(vmSettings.Scope, wmiObjQuery);
+            var wmiObjCollection = new MemorySettingData.MemorySettingDataCollection(wmiObjectSearch.Get());
+
+            foreach (MemorySettingData wmiObj in wmiObjCollection)
+            {
+                return wmiObj;
+            }
+
+            var errMsg = string.Format("No MemorySettingData in VirtualSystemSettingData {0}", vmSettings.Path.Path);
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        public static ResourceAllocationSettingData GetIDEControllerSettings(VirtualSystemSettingData vmSettings, string cntrllerAddr)
+        {
+            var wmiObjCollection = GetResourceAllocationSettings(vmSettings);
+
+            foreach (ResourceAllocationSettingData wmiObj in wmiObjCollection)
+            {
+                if (wmiObj.ResourceSubType == "Microsoft Emulated IDE Controller" && wmiObj.Address == cntrllerAddr)
+                {
+                    return wmiObj;
+                }
+            }
+
+            var errMsg = string.Format(
+                                "Cannot find the Microsoft Emulated IDE Controlle at address {0} in VirtualSystemSettingData {1}", 
+                                cntrllerAddr, 
+                                vmSettings.Path.Path);
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        /// <summary>
+        /// VM resources, typically hardware a described by a generic MSVM_ResourceAllocationSettingData object.  The hardware type being 
+        /// described is identified in two ways:  in general terms using an enum in the ResourceType field, and in terms of the implementation 
+        /// using text in the ResourceSubType field.
+        /// See http://msdn.microsoft.com/en-us/library/cc136877%28v=vs.85%29.aspx
+        /// </summary>
+        /// <param name="vmSettings"></param>
+        /// <returns></returns>
+        public static ResourceAllocationSettingData.ResourceAllocationSettingDataCollection GetResourceAllocationSettings(VirtualSystemSettingData vmSettings)
+        {
+            // An ASSOCIATOR object provides the cross reference from the VirtualSystemSettingData and the 
+            // ResourceAllocationSettingData, but generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // Instead, we use the System.Management to code the equivalant of 
+            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vmSettings.path, resultclassName);
+            //
+            var wmiObjQuery = new RelatedObjectQuery(vmSettings.Path.Path, ResourceAllocationSettingData.CreatedClassName);
+
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var wmiObjectSearch = new ManagementObjectSearcher(vmSettings.Scope, wmiObjQuery);
+            var wmiObjCollection = new ResourceAllocationSettingData.ResourceAllocationSettingDataCollection(wmiObjectSearch.Get());
+
+            if (wmiObjCollection != null)
+            {
+                return wmiObjCollection;
+            }
+
+            var errMsg = string.Format("No ResourceAllocationSettingData in VirtualSystemSettingData {0}", vmSettings.Path.Path);
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        public static SwitchPort GetSwitchPort(SyntheticEthernetPort nic)
+        {
+            // An ASSOCIATOR object provides the cross reference from the VirtualSystemSettingData and the 
+            // ProcessorSettingData, but generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // Instead, we use the System.Management to code the equivalant of 
+            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vmSettings.path, resultclassName);
+            //
+            var wmiObjQuery = new RelatedObjectQuery(nic.Path.Path, VmLANEndpoint.CreatedClassName);
+
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var wmiObjectSearch = new ManagementObjectSearcher(nic.Scope, wmiObjQuery);
+            var wmiObjCollection = new VmLANEndpoint.VmLANEndpointCollection(wmiObjectSearch.Get());
+
+            // assert
+            if (wmiObjCollection.Count < 1)
+            {
+                var errMsg = string.Format("No VmLANEndpoint for external NIC {0} on Hyper-V server", nic.Name);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            VmLANEndpoint vmEndPoint = wmiObjCollection.OfType<VmLANEndpoint>().First();
+            var switchPortQuery = new RelatedObjectQuery(vmEndPoint.Path.Path, SwitchPort.CreatedClassName);
+            var switchPortSearch = new ManagementObjectSearcher(nic.Scope, switchPortQuery);
+            var switchPortCollection = new SwitchPort.SwitchPortCollection(switchPortSearch.Get());
+
+            // assert
+            if (switchPortCollection.Count < 1)
+            {
+                var errMsg = string.Format("No SwitchPort for external NIC {0} on Hyper-V server", nic.Name);
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+
+            SwitchPort switchPort = wmiObjCollection.OfType<SwitchPort>().First();
+
+            return switchPort;
+        }
+
+        public static SyntheticEthernetPortSettingData GetEthernetPort(ComputerSystem vm)
+        {
+            // An ASSOCIATOR object provides the cross reference from the ComputerSettings and the 
+            // SyntheticEthernetPortSettingData, via the VirtualSystemSettingData.
+            // However, generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // Instead, we use the System.Management to code the equivalant of 
+            //
+            // string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vm.path, resultclassName);
+            //
+            VirtualSystemSettingData vmSettings = GetVmSettings(vm);
+
+            var wmiObjQuery = new RelatedObjectQuery(vmSettings.Path.Path, SyntheticEthernetPortSettingData.CreatedClassName);
+
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var wmiObjectSearch = new ManagementObjectSearcher(vm.Scope, wmiObjQuery);
+            var wmiObjCollection = new SyntheticEthernetPortSettingData.SyntheticEthernetPortSettingDataCollection(wmiObjectSearch.Get());
+
+            foreach (SyntheticEthernetPortSettingData wmiObj in wmiObjCollection)
+            {
+                return wmiObj;
+            }
+
+            var errMsg = string.Format("No SyntheticEthernetPort for VM {0}, path {1}", vm.ElementName, vm.Path.Path);
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+        public static VirtualSystemSettingData GetVmSettings(ComputerSystem vm)
+        {
+            // An ASSOCIATOR object provides the cross reference from the ComputerSettings and the 
+            // VirtualSystemSettingData, but generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // Instead, we use the System.Management to code the equivalant of 
+            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vm.path, resultclassName);
+            //
+            var wmiObjQuery = new RelatedObjectQuery(vm.Path.Path, VirtualSystemSettingData.CreatedClassName);
+
+            // NB: default scope of ManagementObjectSearcher is '\\.\root\cimv2', which does not contain
+            // the virtualisation objects.
+            var wmiObjectSearch = new ManagementObjectSearcher(vm.Scope, wmiObjQuery);
+            var wmiObjCollection = new VirtualSystemSettingData.VirtualSystemSettingDataCollection(wmiObjectSearch.Get());
+
+            // When snapshots are taken into account, there can be multiple settings objects
+            // take the first one that isn't a snapshot
+            foreach (VirtualSystemSettingData wmiObj in wmiObjCollection)
+            {
+                if (wmiObj.SettingType == 3)
+                {
+                    return wmiObj;
+                }
+            }
+
+            var errMsg = string.Format("No VirtualSystemSettingData for VM {0}, path {1}", vm.ElementName, vm.Path.Path);
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+    }
+
+    public class WmiException : Exception
+    {
+        public WmiException()
+        {
+        }
+
+        public WmiException(string message)
+            : base(message)
+        {
+        }
+
+        public WmiException(string message, Exception inner)
+            : base(message, inner)
+        {
+        }
+    }
+
+    /// <summary>
+    /// http://msdn.microsoft.com/en-us/library/hh850031%28v=vs.85%29.aspx
+    /// </summary>
+    public static class ReturnCode
+    {
+        public const UInt32 Completed = 0;
+        public const UInt32 Started = 4096;
+        public const UInt32 Failed = 32768;
+        public const UInt32 AccessDenied = 32769;
+        public const UInt32 NotSupported = 32770;
+        public const UInt32 Unknown = 32771;
+        public const UInt32 Timeout = 32772;
+        public const UInt32 InvalidParameter = 32773;
+        public const UInt32 SystemInUse = 32774;
+        public const UInt32 InvalidState = 32775;
+        public const UInt32 IncorrectDataType = 32776;
+        public const UInt32 SystemNotAvailable = 32777;
+        public const UInt32 OutofMemory = 32778;
+        public static string ToString(UInt32 value)
+        {
+            string result = "Unknown return code";
+            switch (value)
+            {
+                case Completed: result = "Completed"; break;
+                case Started: result = "Started"; break;
+                case Failed: result = "Failed"; break;
+                case AccessDenied: result = "AccessDenied"; break;
+                case NotSupported: result = "NotSupported"; break;
+                case Unknown: result = "Unknown"; break;
+                case Timeout: result = "Timeout"; break;
+                case InvalidParameter: result = "InvalidParameter"; break;
+                case SystemInUse: result = "SystemInUse"; break;
+                case InvalidState: result = "InvalidState"; break;
+                case IncorrectDataType: result = "IncorrectDataType"; break;
+                case SystemNotAvailable: result = "SystemNotAvailable"; break;
+                case OutofMemory: result = "OutofMemory"; break;
+            }
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// http://msdn.microsoft.com/en-us/library/hh850031%28v=vs.85%29.aspx
+    /// </summary>
+    public static class JobState
+    {
+        public const UInt16 New = 2;
+        public const UInt16 Starting = 3;
+        public const UInt16 Running = 4;
+        public const UInt16 Suspended = 5;
+        public const UInt16 ShuttingDown = 6;
+        public const UInt16 Completed = 7;
+        public const UInt16 Terminated = 8;
+        public const UInt16 Killed = 9;
+        public const UInt16 Exception = 10;
+        public const UInt16 Service = 11;
+        public static string ToString(UInt16 value)
+        {
+            string result = "Unknown JobState code";
+            switch (value)
+            {
+                case New: result = "New"; break;
+                case Starting: result = "Starting"; break;
+                case Running: result = "Running"; break;
+                case Suspended: result = "Suspended"; break;
+                case ShuttingDown: result = "ShuttingDown"; break;
+                case Completed: result = "Completed"; break;
+                case Terminated: result = "Terminated"; break;
+                case Killed: result = "Killed"; break;
+                case Exception: result = "Exception"; break;
+                case Service: result = "Service"; break;
+            }
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// http://msdn.microsoft.com/en-us/library/cc723874%28v=vs.85%29.aspx
+    /// </summary>
+    public class RequiredState
+    {
+        public const UInt16 Enabled = 2;        // Turns the VM on.
+        public const UInt16 Disabled = 3;       // Turns the VM off.
+        public const UInt16 Reboot = 10;        // A hard reset of the VM.
+        public const UInt16 Reset = 11;         // For future use.
+        public const UInt16 Paused = 32768;     // Pauses the VM.
+        public const UInt16 Suspended = 32769;  // Saves the state of the VM.
+        public static string ToString(UInt16 value)
+        {
+            string result = "Unknown RequiredState code";
+            switch (value)
+            {
+                case Enabled: result = "Enabled"; break;
+                case Disabled: result = "Disabled"; break;
+                case Reboot: result = "Reboot"; break;
+                case Reset: result = "Reset"; break;
+                case Paused: result = "Paused"; break;
+                case Suspended: result = "Suspended"; break;
+            }
+            return result;
+        }
+    }
+}
