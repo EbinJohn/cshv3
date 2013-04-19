@@ -1,0 +1,10 @@
+packages
+*.suo
+WmiWrappers/bin/*
+WmiWrappers/obj/*
+AgentShell/bin/*
+AgentShell/obj/*
+ServerResource*/bin/*
+ServerResource*/obj/*
+*.user
+
