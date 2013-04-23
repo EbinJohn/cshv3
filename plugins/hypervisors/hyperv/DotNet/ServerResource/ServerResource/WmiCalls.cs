@@ -7,6 +7,8 @@ using CloudStack.Plugin.WmiWrappers.ROOT.VIRTUALIZATION;
 using log4net;
 using System.Globalization;
 using System.Management;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace ServerResource
 {
@@ -131,12 +133,107 @@ namespace ServerResource
         public const string IDE_HARDDISK_DISK = "Microsoft Virtual Hard Disk"; // For IDE_HARDDISK_DRIVE
 
         /// <summary>
+        /// Create new VM.  By default we start it. 
+        /// </summary>
+        public static ComputerSystem DeployVirtualMachine(string json)
+        {
+            dynamic jsonObj = JsonConvert.DeserializeObject(json);
+            var vmInfo = jsonObj.vm;
+            string vmName = vmInfo.name;
+            var nicInfo = vmInfo.nics;
+            int vcpus = vmInfo.cpus;
+            int memSize = vmInfo.maxRam / 1048576;
+
+            // For existing VMs, return when we spot one of this name not stopped.  In the meantime, remove any existing VMs of same name.
+            ComputerSystem vmWmiObj = null;
+            while ((vmWmiObj = GetComputerSystem(vmName)) != null)
+            {
+                logger.WarnFormat("Create request for existing vm, name {0}", vmName);
+                if (vmWmiObj.EnabledState == RequiredState.Disabled)
+                {
+                    logger.InfoFormat("Deleting existing VM with name {0}, before we go on to create a VM with the same name", vmName);
+                    DestroyVm(vmName);
+                }
+                else
+                {
+                    // TODO: revise exception type
+                    var errMsg = string.Format("Create VM failing, because there exists a VM with name {0}, state {1}", vmName, vmWmiObj.EnabledState);
+                    var ex = new WmiException(errMsg);
+                    logger.Error(errMsg, ex);
+                    throw ex;
+                }
+            }
+
+            // Create vm carcase
+            logger.DebugFormat("Going ahead with create VM {0}, {1} vcpus, {2}MB RAM", vmName, vcpus, memSize);
+            var newVm = WmiCalls.CreateVM(vmName, memSize, vcpus);
+
+            // disks
+            var diskDrives = vmInfo.disks;
+            foreach (var diskDrive in diskDrives)
+            {
+                string vhdFile = diskDrive.path;
+                string driveType = diskDrive.type;
+                string foo = diskDrive.foo;
+                string diskName = diskDrive.name;
+                string ideCtrllr = "0";
+                string driveResourceType = null;
+                switch (driveType) {
+                    case "ROOT":
+                        ideCtrllr = "0";
+                        driveResourceType = IDE_HARDDISK_DRIVE;
+                        break;
+                    case "ISO":
+                        ideCtrllr = "1";
+                        driveResourceType = IDE_ISO_DRIVE;
+                        break;
+                    default: 
+                        // TODO: double check exception type
+                        var errMsg = string.Format("Unknown disk type {0} for disk {1}, vm named {2}", string.IsNullOrEmpty(driveType) ? "NULL" : driveType, diskName, vmName);
+                        var ex = new WmiException(errMsg);
+                        logger.Error(errMsg, ex);
+                        throw ex;
+                }
+                logger.DebugFormat("Create disk drive {0}, type {1} on vm {2}{3}", diskName, driveResourceType, vmName, 
+                                        string.IsNullOrEmpty(vhdFile) ? " not disk to insert" : ", inserting disk" +vhdFile );
+                AddDiskDriveToVm(newVm, vhdFile, ideCtrllr, driveResourceType);
+            }
+
+            // add nics
+            foreach (var nic in nicInfo)
+            {
+                string mac = nic.mac;
+                string vlan = null;
+                string isolationUri = nic.isolationUri;
+                if (isolationUri != null && isolationUri.StartsWith("vlan://"))
+                {
+                    vlan = isolationUri.Substring("vlan://".Length);
+                    int tmp;
+                    if (!int.TryParse(vlan, out tmp))
+                    {
+                        // TODO: double check exception type
+                        var errMsg = string.Format("Invalid VLAN value {0} for on vm {1} for nic uuid {2}", isolationUri, vmName, nic.uuid);
+                        var ex = new WmiException(errMsg);
+                        logger.Error(errMsg, ex);
+                        throw ex;
+                    }
+                }
+                CreateNICforVm(newVm, mac, vlan);
+            }
+
+            logger.DebugFormat("Starting VM {0}", vmName);
+            SetState(newVm, RequiredState.Enabled);
+            logger.InfoFormat("Started VM {0}", vmName);
+            return newVm;
+       }
+
+        /// <summary>
         /// Create a disk and attach it to the vm
         /// </summary>
         /// <param name="vm"></param>
         /// <param name="cntrllerAddr"></param>
-        /// <param name="driveType">IDE_HARDDISK_DRIVE or IDE_ISO_DRIVE</param>
-        public static ManagementPath AddDiskDriveToVm(ComputerSystem vm, string vhdfile, string cntrllerAddr, string driveType)
+        /// <param name="driveResourceType">IDE_HARDDISK_DRIVE or IDE_ISO_DRIVE</param>
+        public static ManagementPath AddDiskDriveToVm(ComputerSystem vm, string vhdfile, string cntrllerAddr, string driveResourceType)
         {
             logger.DebugFormat("Creating DISK for VM {0} (GUID {1}) by attaching {2}", 
                         vm.ElementName,
@@ -145,7 +242,7 @@ namespace ServerResource
 
             // Determine disk type for drive and assert drive type valid
             string diskResourceSubType = null;
-            switch(driveType) {
+            switch(driveResourceType) {
                 case IDE_HARDDISK_DRIVE:
                     diskResourceSubType = IDE_HARDDISK_DISK;
                     break;
@@ -155,7 +252,7 @@ namespace ServerResource
                 default:
                     var errMsg = string.Format(
                         "Unrecognised disk drive type {0} for VM {1} (GUID {2})",
-                        driveType, 
+                        string.IsNullOrEmpty(driveResourceType) ? "NULL": driveResourceType, 
                         vm.ElementName,
                         vm.Name);
                     var ex = new WmiException(errMsg);
@@ -163,7 +260,7 @@ namespace ServerResource
                     throw ex;
             }
 
-            ManagementPath newDrivePath = AttachNewDriveToVm(vm, cntrllerAddr, driveType);
+            ManagementPath newDrivePath = AttachNewDriveToVm(vm, cntrllerAddr, driveResourceType);
 
             // If there's not disk to insert, we are done.
             if (String.IsNullOrEmpty(vhdfile))
