@@ -79,6 +79,7 @@
     <None Include="AgentShell.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>AgentShell.Designer.cs</LastGenOutput>
+      <SubType>Designer</SubType>
     </None>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
