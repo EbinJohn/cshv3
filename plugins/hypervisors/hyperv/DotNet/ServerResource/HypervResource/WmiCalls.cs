@@ -10,10 +10,15 @@ using System.Management;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace ServerResource
+namespace HypervResource
 {
     public class WmiCalls
     {
+        public static void Initialize()
+        {
+            // Trigger assembly load into curren appdomain
+        }
+
         private static ILog logger = LogManager.GetLogger(typeof(WmiCalls));
 
         /// <summary>
