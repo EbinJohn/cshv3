@@ -5,19 +5,18 @@ using System.Net.Http;
 using System.Text;
 using System.Web.Http;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using ServerResource;
-using ServerResource.Controllers;
+using HypervResource;
 
 namespace ServerResource.Tests.Controllers
 {
-    [TestClass]
+    //[TestClass]
     public class HypervResourceControllerTest
     {
-        [TestMethod]
+        //[TestMethod]
         public void Post()
         {
             // Arrange
-            VirtualMachineController controller = new VirtualMachineController();
+            HypervResourceController controller = new HypervResourceController();
 
             // Act
             controller.Post("value");
