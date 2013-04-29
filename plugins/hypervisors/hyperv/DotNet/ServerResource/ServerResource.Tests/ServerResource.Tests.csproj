@@ -108,7 +108,9 @@
     <Compile Include="WmiCallsTest.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="App.config" />
+    <Content Include="App.config">
+      <SubType>Designer</SubType>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <None Include="AgentShell.settings">
@@ -121,6 +123,10 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\HypervResource\HypervResource.csproj">
+      <Project>{c963dfff-65ba-4e71-ada5-526a4da4e0b2}</Project>
+      <Name>HypervResource</Name>
+    </ProjectReference>
     <ProjectReference Include="..\WmiWrappers\WmiWrappers.csproj">
       <Project>{db824727-bdc3-437c-a364-7a811d8a160f}</Project>
       <Name>WmiWrappers</Name>
