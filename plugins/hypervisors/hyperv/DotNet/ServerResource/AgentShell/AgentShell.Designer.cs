@@ -184,15 +184,12 @@ namespace CloudStack.Plugin.AgentShell {
             }
         }
         
-        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("255.255.240.0")]
         public string private_ip_netmask {
             get {
                 return ((string)(this["private_ip_netmask"]));
-            }
-            set {
-                this["private_ip_netmask"] = value;
             }
         }
     }

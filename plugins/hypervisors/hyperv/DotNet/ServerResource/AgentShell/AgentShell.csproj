@@ -59,12 +59,13 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Service1.cs">
+    <Compile Include="AgentService.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="Service1.Designer.cs">
-      <DependentUpon>Service1.cs</DependentUpon>
+    <Compile Include="AgentService.Designer.cs">
+      <DependentUpon>AgentService.cs</DependentUpon>
     </Compile>
+    <Compile Include="AgentShellException.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="AgentShell.Designer.cs">
@@ -81,6 +82,16 @@
       <LastGenOutput>AgentShell.Designer.cs</LastGenOutput>
       <SubType>Designer</SubType>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HypervResource\HypervResource.csproj">
+      <Project>{c963dfff-65ba-4e71-ada5-526a4da4e0b2}</Project>
+      <Name>HypervResource</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\WmiWrappers\WmiWrappers.csproj">
+      <Project>{db824727-bdc3-437c-a364-7a811d8a160f}</Project>
+      <Name>WmiWrappers</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

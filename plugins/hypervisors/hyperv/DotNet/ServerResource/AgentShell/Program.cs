@@ -13,7 +13,8 @@ namespace CloudStack.Plugin.AgentShell
         private static ILog logger = LogManager.GetLogger(typeof(Program));
 
         /// <summary>
-        /// The main entry point for the application.
+        /// Application entry point allows service to run in console application or as a Windows service.
+        /// Add '--console' to the commandline for the former, the latter is the default.
         /// </summary>
         static void Main(params string[] args)
         {
@@ -28,12 +29,12 @@ namespace CloudStack.Plugin.AgentShell
             if (string.Compare(arg1, "--console", true) == 0)
             {
                 logger.InfoFormat("CloudStack ServerResource running as console app");
-                new Service1().RunConsole(args);
+                new AgentService().RunConsole(args);
             }
             else
             {
                 logger.InfoFormat("CloudStack ServerResource running as Windows Service");
-                ServiceBase[] ServicesToRun = new ServiceBase[] { new Service1() };
+                ServiceBase[] ServicesToRun = new ServiceBase[] { new AgentService() };
                 ServiceBase.Run(ServicesToRun);
             }
         }
