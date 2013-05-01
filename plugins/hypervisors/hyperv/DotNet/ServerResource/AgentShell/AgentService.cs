@@ -34,9 +34,11 @@ namespace CloudStack.Plugin.AgentShell
 
             var config = new HttpSelfHostConfiguration(baseUri.Uri);
 
+           // Allow ActionName to be applied to methods in ApiController, which allows it to serve multiple POST URLs
             config.Routes.MapHttpRoute(
-                "API Default", "api/{controller}/{id}",
-                new { id = RouteParameter.Optional });
+                  "API Default", "api/{controller}/{action}",
+                  new { action = RouteParameter.Optional }
+                    );
 
             // Load controller assemblies that we want to config to route to.
             // TODO:  Update to allow assembly to be specified in the settings file.
