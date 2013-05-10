@@ -48,6 +48,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CloudStackTypes.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="HypervResourceController.cs" />
     <Compile Include="WmiCalls.cs" />
