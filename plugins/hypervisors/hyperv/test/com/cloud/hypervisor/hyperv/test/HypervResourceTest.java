@@ -112,7 +112,7 @@ public class HypervResourceTest {
     public HypervResourceTest() {
     }
     
-    @Before
+    //@Before
     public void setUp() throws ConfigurationException
     {
             // Obtain script locations from agent.properties
@@ -228,7 +228,7 @@ public class HypervResourceTest {
     	return;
     }
     
-    @Test 
+    //@Test 
     public void TestGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
@@ -241,7 +241,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
     
-    @Test 
+    //@Test 
     public void TestBadGetVmStatsCommand()
     {
        	// Sample GetVmStatsCommand
@@ -252,7 +252,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
     
-    @Test
+    //@Test
     public void TestCreateStoragePoolCommand()
     {
     	CreateStoragePoolCommand cmd = new CreateStoragePoolCommand();
@@ -261,7 +261,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getResult());
     }
     
-    @Test
+    //@Test
     public void TestModifyStoragePoolCommand()
     {
     	// Create dummy folder
@@ -319,7 +319,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans2.getResult());
     }
     
-    @Test
+    //@Test
     public void TestPrimaryStorageDownloadCommandNFS()
     {
     	PrimaryStorageDownloadCommand cmd = samplePrimaryDownloadCommand();
@@ -331,7 +331,7 @@ public class HypervResourceTest {
     }
 
     // TODO:  note requirements of test in the wiki.
-    @Test
+    //@Test
     public void TestPrimaryStorageDownloadCommandHTTP()
     {
     	PrimaryStorageDownloadCommand cmd = samplePrimaryDownloadCommand();
@@ -380,7 +380,7 @@ public class HypervResourceTest {
     	return cmd;
 	}
 	
-    @Test
+    //@Test
     public void TestCreateCommand()
     {
     	String sample = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\""+testLocalStoreUUID+"\",\"host\":\"10.70.176.29\"" +
@@ -406,7 +406,7 @@ public class HypervResourceTest {
     	newFile.delete();
     }
 
-    @Test
+    //@Test
     public void TestStartCommandCorruptDiskImage()
     {
     	String sampleStart =  "{\"vm\":{\"id\":16,\"name\":\"i-3-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
@@ -435,7 +435,7 @@ public class HypervResourceTest {
     	}
     }
 
-    @Test
+    //@Test
     public void TestStartStopCommand()
     {
        	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
@@ -469,7 +469,7 @@ public class HypervResourceTest {
     	}
     }
    
-    @Test
+    //@Test
     public void TestStartStartCommand()
     {
        	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
@@ -508,7 +508,7 @@ public class HypervResourceTest {
     	}
     }
 
-    @Test
+    //@Test
     public void TestDestroyCommand()
     {
     	// TODO:  how does the command vary when we are only deleting a vm versus deleting a volume?
@@ -526,7 +526,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
 
-    @Test
+    //@Test
     public void TestGetStorageStatsCommand()
     {
     	// TODO:  Update sample data to unsure it is using correct info.
@@ -542,7 +542,7 @@ public class HypervResourceTest {
     	Assert.assertTrue(ans.getByteUsed() != ans.getCapacityBytes());
     }
     
-    @Test 
+    //@Test 
     public void TestAgentGuidCreation()
     {
     	AgentShell shell = new AgentShell();
@@ -560,7 +560,7 @@ public class HypervResourceTest {
     }
     
     
-    @Test
+    //@Test
     public void TestGetHostStatsCommand()
     {
     	String sample = "{\"hostGuid\":\"B4AE5970-FCBF-4780-9F8A-2D2E04FECC34-HypervResource\",\"hostName\":\"CC-SVR11\",\"hostId\":5,\"contextMap\":{},\"wait\":0}";
