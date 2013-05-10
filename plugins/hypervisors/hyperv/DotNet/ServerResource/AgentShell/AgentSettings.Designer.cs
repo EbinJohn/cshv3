@@ -13,11 +13,11 @@ namespace CloudStack.Plugin.AgentShell {
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "11.0.0.0")]
-    internal sealed partial class AgentShell : global::System.Configuration.ApplicationSettingsBase {
+    public sealed partial class AgentSettings : global::System.Configuration.ApplicationSettingsBase {
         
-        private static AgentShell defaultInstance = ((AgentShell)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new AgentShell())));
+        private static AgentSettings defaultInstance = ((AgentSettings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new AgentSettings())));
         
-        public static AgentShell Default {
+        public static AgentSettings Default {
             get {
                 return defaultInstance;
             }
@@ -34,7 +34,7 @@ namespace CloudStack.Plugin.AgentShell {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("10.70.176.29")]
+        [global::System.Configuration.DefaultSettingValueAttribute("localhost")]
         public string private_ip_address {
             get {
                 return ((string)(this["private_ip_address"]));
@@ -157,21 +157,27 @@ namespace CloudStack.Plugin.AgentShell {
             }
         }
         
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("c:\\Secondary")]
         public string local_secondary_storage_path {
             get {
                 return ((string)(this["local_secondary_storage_path"]));
             }
+            set {
+                this["local_secondary_storage_path"] = value;
+            }
         }
         
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("E:\\Disks\\Disks")]
         public string local_storage_path {
             get {
                 return ((string)(this["local_storage_path"]));
+            }
+            set {
+                this["local_storage_path"] = value;
             }
         }
         
@@ -190,6 +196,42 @@ namespace CloudStack.Plugin.AgentShell {
         public string private_ip_netmask {
             get {
                 return ((string)(this["private_ip_netmask"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("4294967296")]
+        public long RootDeviceReservedSpace {
+            get {
+                return ((long)(this["RootDeviceReservedSpace"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute(".\\")]
+        public string hyperv_plugin_root {
+            get {
+                return ((string)(this["hyperv_plugin_root"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("e:\\")]
+        public string RootDeviceName {
+            get {
+                return ((string)(this["RootDeviceName"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("2048")]
+        public ulong dom0MinMemory {
+            get {
+                return ((ulong)(this["dom0MinMemory"]));
             }
         }
     }

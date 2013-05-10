@@ -28,9 +28,10 @@ namespace CloudStack.Plugin.AgentShell
 
         public AgentService()
         {
+            logger.Info("Starting CloudStack agent");
             InitializeComponent();
 
-            UriBuilder baseUri = new UriBuilder("http", AgentShell.Default.private_ip_address, AgentShell.Default.port);
+            UriBuilder baseUri = new UriBuilder("http", AgentSettings.Default.private_ip_address, AgentSettings.Default.port);
 
             var config = new HttpSelfHostConfiguration(baseUri.Uri);
 
@@ -41,12 +42,35 @@ namespace CloudStack.Plugin.AgentShell
                     );
 
             // Load controller assemblies that we want to config to route to.
-            // TODO:  Update to allow assembly to be specified in the settings file.
-            HypervResourceController.Initialize();
-
+            ConfigServerResource();
             AssertControllerAssemblyAvailable(config, typeof(HypervResourceController), "Cannot load Controller of type" + typeof(HypervResourceController));
 
             server = new HttpSelfHostServer(config);
+        }
+
+        public static void ConfigServerResource()
+        {
+            // For simplicity, ServerResource config and settings file are tightly coupled.
+            // An alternative is to pass a dictionary to the server resource and let it find 
+            // required settings.  In contrast, the approach below is strongly typed and makes
+            // use of VisualStudio settings designer.  The designer allows us to avoid
+            // accessing config using their key strings.
+            HypervResourceControllerConfig rsrcCnf = new HypervResourceControllerConfig();
+            rsrcCnf.PrivateIpAddress = AgentSettings.Default.private_ip_address;
+            rsrcCnf.PrivateMacAddress = AgentSettings.Default.private_mac_address;
+            rsrcCnf.PrivateNetmask = AgentSettings.Default.private_ip_netmask;
+            rsrcCnf.StorageIpAddress = rsrcCnf.PrivateIpAddress;
+            rsrcCnf.StorageMacAddress = rsrcCnf.PrivateMacAddress;
+            rsrcCnf.StorageNetmask = rsrcCnf.PrivateNetmask;
+            rsrcCnf.GatewayIpAddress = AgentSettings.Default.gateway_ip_address;
+            rsrcCnf.RootDeviceReservedSpace = AgentSettings.Default.RootDeviceReservedSpace;
+            rsrcCnf.RootDeviceName = AgentSettings.Default.RootDeviceName;
+            rsrcCnf.ParentPartitionMinMemoryMb = AgentSettings.Default.dom0MinMemory;
+
+            // Side effect:  loads the assembly containing HypervResourceController, which
+            // allows HttpSelfHostServer to route requests to the controller.
+            HypervResourceController.Configure(rsrcCnf);
+
         }
 
         // TODO:  update to examine not the assembly resolver, but the list of available controllers themselves!

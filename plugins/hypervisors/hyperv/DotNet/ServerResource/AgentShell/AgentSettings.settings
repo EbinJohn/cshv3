@@ -1,12 +1,12 @@
 ﻿<?xml version='1.0' encoding='utf-8'?>
-<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="CloudStack.Plugin.AgentShell" GeneratedClassName="AgentShell">
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="CloudStack.Plugin.AgentShell" GeneratedClassName="AgentSettings">
   <Profiles />
   <Settings>
     <Setting Name="cpus" Type="System.Int32" Scope="Application">
       <Value Profile="(Default)">8</Value>
     </Setting>
     <Setting Name="private_ip_address" Type="System.String" Scope="Application">
-      <Value Profile="(Default)">10.70.176.29</Value>
+      <Value Profile="(Default)">localhost</Value>
     </Setting>
     <Setting Name="type" Type="System.String" Scope="Application">
       <Value Profile="(Default)">Routing</Value>
@@ -47,10 +47,10 @@
     <Setting Name="zone" Type="System.Int32" Scope="Application">
       <Value Profile="(Default)">1</Value>
     </Setting>
-    <Setting Name="local_secondary_storage_path" Type="System.String" Scope="Application">
+    <Setting Name="local_secondary_storage_path" Type="System.String" Scope="User">
       <Value Profile="(Default)">c:\Secondary</Value>
     </Setting>
-    <Setting Name="local_storage_path" Type="System.String" Scope="Application">
+    <Setting Name="local_storage_path" Type="System.String" Scope="User">
       <Value Profile="(Default)">E:\Disks\Disks</Value>
     </Setting>
     <Setting Name="workers" Type="System.Int32" Scope="Application">
@@ -58,6 +58,18 @@
     </Setting>
     <Setting Name="private_ip_netmask" Type="System.String" Scope="Application">
       <Value Profile="(Default)">255.255.240.0</Value>
+    </Setting>
+    <Setting Name="RootDeviceReservedSpace" Type="System.Int64" Scope="Application">
+      <Value Profile="(Default)">4294967296</Value>
+    </Setting>
+    <Setting Name="hyperv_plugin_root" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">.\</Value>
+    </Setting>
+    <Setting Name="RootDeviceName" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">e:\</Value>
+    </Setting>
+    <Setting Name="dom0MinMemory" Type="System.UInt64" Scope="Application">
+      <Value Profile="(Default)">2048</Value>
     </Setting>
   </Settings>
 </SettingsFile>
