@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Management;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using CloudStack.Plugin.WmiWrappers.ROOT.CIMV2;
 
 namespace HypervResource
 {
@@ -54,7 +55,7 @@ namespace HypervResource
                 procSettings.LateBoundObject.GetText(TextFormat.CimDtd20)
                 });
             logger.InfoFormat("VM with display name {0} has GUID {1}", vm.ElementName, vm.Name);
-            logger.DebugFormat("Resources for vm {0}: {1} MB memory, {2} vcpus", name);
+            logger.DebugFormat("Resources for vm {0}: {1} MB memory, {2} vcpus", name, memory_mb, vcpus);
 
             return vm;
         }
@@ -143,6 +144,11 @@ namespace HypervResource
         public static ComputerSystem DeployVirtualMachine(string json)
         {
             dynamic jsonObj = JsonConvert.DeserializeObject(json);
+            return DeployVirtualMachine(jsonObj);
+        }
+
+        public static ComputerSystem DeployVirtualMachine(dynamic jsonObj)
+        {
             var vmInfo = jsonObj.vm;
             string vmName = vmInfo.name;
             var nicInfo = vmInfo.nics;
@@ -372,7 +378,12 @@ namespace HypervResource
             return new ResourceAllocationSettingData((ManagementBaseObject)defaultDiskDriveSettings.LateBoundObject.Clone());
         }
 
-
+        public static void DestroyVm(dynamic jsonObj)
+        {
+            string vmToDestroy = jsonObj.vmName;
+            DestroyVm(vmToDestroy);
+        }
+        
         /// <summary>
         /// Remove all VMs and all SwitchPorts with the displayName.  VHD gets deleted elsewhere.
         /// </summary>
@@ -811,6 +822,45 @@ namespace HypervResource
             logger.DebugFormat("WMI job succeeded: {0}, Elapsed={1}", jobObj.Description, jobObj.ElapsedTime);
         }
 
+        public static void GetProcessorResources(out uint cores, out uint mhz)
+        {
+            //  Processor processors
+            cores = 0;
+            mhz = 0;
+            Processor.ProcessorCollection procCol = Processor.GetInstances();
+            foreach (Processor procInfo in procCol)
+            {
+                cores += procInfo.NumberOfCores;
+                mhz = procInfo.MaxClockSpeed;
+           }
+        }
+
+        public static void GetMemoryResources(out ulong physicalRam)
+        {
+            OperatingSystem0 os = new OperatingSystem0();
+            physicalRam = os.TotalVisibleMemorySize/1024;
+        }
+
+        public static string GetDefaultVirtualDiskFolder()
+        {
+            VirtualSystemManagementServiceSettingData.VirtualSystemManagementServiceSettingDataCollection coll = VirtualSystemManagementServiceSettingData.GetInstances();
+            string defaultVirtualHardDiskPath = null;
+            foreach (VirtualSystemManagementServiceSettingData settings in coll)
+            {
+                return settings.DefaultVirtualHardDiskPath;
+            }
+
+            // assert
+            if (!System.IO.Directory.Exists(defaultVirtualHardDiskPath) ){
+                var errMsg = string.Format(
+                    "Hyper-V DefaultVirtualHardDiskPath is invalid!");
+                logger.Error(errMsg);
+                return null;
+            }
+            
+            return defaultVirtualHardDiskPath;
+        }
+
         public static ComputerSystem GetComputerSystem(string displayName)
         {
             var wmiQuery = String.Format("ElementName=\"{0}\"", displayName);
@@ -1028,6 +1078,7 @@ namespace HypervResource
             logger.Error(errMsg, ex);
             throw ex;
         }
+
     }
 
     public class WmiException : Exception
