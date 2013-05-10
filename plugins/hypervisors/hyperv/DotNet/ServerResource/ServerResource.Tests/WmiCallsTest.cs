@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using System.IO;
 using log4net;
 using HypervResource;
+using CloudStack.Plugin.AgentShell;
 
 namespace ServerResource.Tests
 {
@@ -14,8 +15,8 @@ namespace ServerResource.Tests
     public class WmiCallsTest
     {
         protected static String testLocalStoreUUID = "5fe2bad3-d785-394e-9949-89786b8a63d2";
-        protected static String testLocalStorePath = Path.Combine(ServerResource.Tests.AgentShell.Default.hyperv_plugin_root, "var", "test", "storagepool");
-        protected static String testSecondaryStoreLocalPath = Path.Combine(ServerResource.Tests.AgentShell.Default.hyperv_plugin_root, "var", "test", "secondary");
+        protected static String testLocalStorePath = Path.Combine(AgentSettings.Default.hyperv_plugin_root, "var", "test", "storagepool");
+        protected static String testSecondaryStoreLocalPath = Path.Combine(AgentSettings.Default.hyperv_plugin_root, "var", "test", "secondary");
 
         // TODO: differentiate between NFS and HTTP template URLs.
         protected static String testSampleTemplateUUID = "TestCopiedLocalTemplate.vhdx";
@@ -46,7 +47,7 @@ namespace ServerResource.Tests
         public void setUp()
         {
             // Used to create existing StoragePool in preparation for the ModifyStoragePool
-            testLocalStoreUUID = ServerResource.Tests.AgentShell.Default.local_storage_uuid.ToString();
+            testLocalStoreUUID = AgentSettings.Default.local_storage_uuid.ToString();
 
             // Make sure secondary store is available.
             DirectoryInfo testSecondarStoreDir = new DirectoryInfo(testSecondaryStoreLocalPath);
@@ -64,7 +65,7 @@ namespace ServerResource.Tests
 
             // Convert to secondary storage string to canonical path
             testSecondaryStoreLocalPath = testSecondarStoreDir.FullName;
-            ServerResource.Tests.AgentShell.Default.local_secondary_storage_path = testSecondaryStoreLocalPath;
+            AgentSettings.Default.local_secondary_storage_path = testSecondaryStoreLocalPath;
 
             // Make sure local primary storage is available
             DirectoryInfo testPoolDir = new DirectoryInfo(testLocalStorePath);
@@ -72,7 +73,7 @@ namespace ServerResource.Tests
 
             // Convert to local primary storage string to canonical path
             testLocalStorePath = testPoolDir.FullName;
-            ServerResource.Tests.AgentShell.Default.local_storage_path = testLocalStorePath;
+            AgentSettings.Default.local_storage_path = testLocalStorePath;
 
             // Clean up old test files in local storage folder
             FileInfo testVolWorks = new FileInfo(Path.Combine(testLocalStorePath, testSampleVolumeWorkingUUID));
@@ -133,7 +134,78 @@ namespace ServerResource.Tests
             return JsonConvert.SerializeObject(newFileInfo.FullName);
         }
 
+        //[TestMethod]
+        public void TestStopVm()
+        {
+	    	String sampleStop =  "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
+            dynamic jsonObj = JsonConvert.DeserializeObject(sampleStop);
+            WmiCalls.DestroyVm(jsonObj.vmName);
+    	}
+
         [TestMethod]
+        public void TestStartStopCommand()
+        {
+            // Arrange
+            HypervResourceController rsrcServer = new HypervResourceController();
+            String sample = "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+                "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+                "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+                "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+                "\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+                ",\"disks\":[" +
+                    "{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                        "\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
+                        "\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0," +
+                        "\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\"" + testLocalStoreUUID + "\"" +
+                        ",\"deviceId\":0}," +
+                    "{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," +
+                "\"nics\":[" +
+                    "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," +
+                    "\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," +
+                    "\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," +
+                    "\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                                      "]},\"contextMap\":{},\"wait\":0}";
+            dynamic jsonStartCmd = JsonConvert.DeserializeObject(sample);
+
+            String sampleStop = "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
+            dynamic jsonStopCmd = JsonConvert.DeserializeObject(sampleStop);
+ 
+
+            // Act
+            rsrcServer.StartCommand(jsonStartCmd);
+
+            // Assert
+            string vmCmdName = jsonStartCmd.vm.name.Value;
+            var vm = WmiCalls.GetComputerSystem(vmCmdName);
+            VirtualSystemSettingData vmSettings = WmiCalls.GetVmSettings(vm);
+            MemorySettingData memSettings = WmiCalls.GetMemSettings(vmSettings);
+            ProcessorSettingData procSettings = WmiCalls.GetProcSettings(vmSettings);
+            dynamic jsonObj = JsonConvert.DeserializeObject(sample);
+            var vmInfo = jsonObj.vm;
+            string vmName = vmInfo.name;
+            var nicInfo = vmInfo.nics;
+            int vcpus = vmInfo.cpus;
+            int memSize = vmInfo.maxRam / 1048576;
+            Assert.IsTrue((long)memSettings.VirtualQuantity == memSize);
+            Assert.IsTrue((long)memSettings.Reservation == memSize);
+            Assert.IsTrue((long)memSettings.Limit == memSize);
+            Assert.IsTrue((int)procSettings.VirtualQuantity == vcpus);
+            Assert.IsTrue((int)procSettings.Reservation == vcpus);
+            Assert.IsTrue((int)procSettings.Limit == 100000);
+
+            // TODO: System is now running.  Compare the resources allocated for the VM with what the VM is using.
+
+
+            // Act
+            rsrcServer.StopCommand(jsonStopCmd);
+
+            // Assert VM is gone!
+            var finalVm = WmiCalls.GetComputerSystem(vmName);
+            Assert.IsTrue(WmiCalls.GetComputerSystem(vmName) == null);
+        }
+
+
+        //[TestMethod]
         public void TestDeployVm()
         {
             // Arrange
