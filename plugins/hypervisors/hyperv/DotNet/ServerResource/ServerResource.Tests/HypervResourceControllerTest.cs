@@ -8,6 +8,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using HypervResource;
 using Newtonsoft.Json;
 using CloudStack.Plugin.AgentShell;
+using Newtonsoft.Json.Linq;
 
 namespace ServerResource.Tests.Controllers
 {
@@ -21,7 +22,60 @@ namespace ServerResource.Tests.Controllers
         public void setUp()
         {
             AgentService.ConfigServerResource();
+
+            // Test tweaks
+            HypervResourceController.config.PrivateMacAddress = AgentSettings.Default.private_mac_address;
+            HypervResourceController.config.PrivateNetmask = AgentSettings.Default.private_ip_netmask;
+            HypervResourceController.config.StorageIpAddress = HypervResourceController.config.PrivateIpAddress;
+            HypervResourceController.config.StorageMacAddress = HypervResourceController.config.PrivateMacAddress;
+            HypervResourceController.config.StorageNetmask = HypervResourceController.config.PrivateNetmask;
+
         }
+
+        [TestMethod]
+        public void GetHostStatsCommand()
+        {
+            // Arrange
+            long hostIdVal = 123;
+            HypervResourceController controller = new HypervResourceController();
+            var cmd = new { GetHostStatsCommand = new { hostId = hostIdVal } };
+            JToken tok = JToken.FromObject(cmd);
+ 
+            // Act
+            dynamic jsonResult = controller.GetHostStatsCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].GetHostStatsAnswer;
+            Assert.IsTrue((bool)ans.result);
+            Assert.IsTrue(hostIdVal == (long)ans.hostStats.hostId);
+            Assert.IsTrue(0.0 < (double)ans.hostStats.totalMemoryKBs);
+            Assert.IsTrue(0.0 < (double)ans.hostStats.freeMemoryKBs);
+            Assert.IsTrue(0.0 <= (double)ans.hostStats.networkReadKBs);
+            Assert.IsTrue(0.0 <= (double)ans.hostStats.networkWriteKBs);
+            Assert.IsTrue(0.0 <= (double)ans.hostStats.cpuUtilization);
+            Assert.IsTrue(100.0 >= (double)ans.hostStats.cpuUtilization);
+            Assert.IsTrue("host".Equals((string)ans.hostStats.entityType));
+            Assert.IsTrue(String.IsNullOrEmpty((string)ans.details));
+        }
+
+        [TestMethod]
+        public void GetHostStatsCommandFail()
+        {
+            // Arrange
+            HypervResourceController controller = new HypervResourceController();
+            var cmd = new { GetHostStatsCommand = new { hostId = "badvalueType" } };
+            JToken tokFail = JToken.FromObject(cmd);
+
+            // Act
+            dynamic jsonResult = controller.GetHostStatsCommand(tokFail);
+
+            // Assert
+            dynamic ans = jsonResult[0].GetHostStatsAnswer;
+            Assert.IsFalse((bool)ans.result);
+            Assert.IsNull((string)ans.hostStats);
+            Assert.IsNotNull(ans.details);
+        }
+        
 
         [TestMethod]
         public void StartupCommand()
@@ -58,7 +112,9 @@ namespace ServerResource.Tests.Controllers
             uint mhz;
             WmiCalls.GetProcessorResources(out cores, out mhz);
             ulong memory_mb;
-            WmiCalls.GetMemoryResources(out memory_mb);
+            ulong freememory;
+            WmiCalls.GetMemoryResources(out memory_mb, out freememory);
+            memory_mb = memory_mb / 1024;
 
             string expected =
                 #region string_literal
