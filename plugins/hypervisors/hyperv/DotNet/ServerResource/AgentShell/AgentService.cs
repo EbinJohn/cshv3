@@ -57,11 +57,6 @@ namespace CloudStack.Plugin.AgentShell
             // accessing config using their key strings.
             HypervResourceControllerConfig rsrcCnf = new HypervResourceControllerConfig();
             rsrcCnf.PrivateIpAddress = AgentSettings.Default.private_ip_address;
-            rsrcCnf.PrivateMacAddress = AgentSettings.Default.private_mac_address;
-            rsrcCnf.PrivateNetmask = AgentSettings.Default.private_ip_netmask;
-            rsrcCnf.StorageIpAddress = rsrcCnf.PrivateIpAddress;
-            rsrcCnf.StorageMacAddress = rsrcCnf.PrivateMacAddress;
-            rsrcCnf.StorageNetmask = rsrcCnf.PrivateNetmask;
             rsrcCnf.GatewayIpAddress = AgentSettings.Default.gateway_ip_address;
             rsrcCnf.RootDeviceReservedSpace = AgentSettings.Default.RootDeviceReservedSpace;
             rsrcCnf.RootDeviceName = AgentSettings.Default.RootDeviceName;

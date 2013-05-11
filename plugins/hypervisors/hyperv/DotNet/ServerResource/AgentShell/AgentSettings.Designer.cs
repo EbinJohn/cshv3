@@ -34,7 +34,7 @@ namespace CloudStack.Plugin.AgentShell {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("localhost")]
+        [global::System.Configuration.DefaultSettingValueAttribute("10.70.176.29")]
         public string private_ip_address {
             get {
                 return ((string)(this["private_ip_address"]));
@@ -47,15 +47,6 @@ namespace CloudStack.Plugin.AgentShell {
         public string type {
             get {
                 return ((string)(this["type"]));
-            }
-        }
-        
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("10:1F:74:2C:6B:88")]
-        public string private_mac_address {
-            get {
-                return ((string)(this["private_mac_address"]));
             }
         }
         
@@ -232,6 +223,15 @@ namespace CloudStack.Plugin.AgentShell {
         public ulong dom0MinMemory {
             get {
                 return ((ulong)(this["dom0MinMemory"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("101F742C6B88")]
+        public string private_mac_address {
+            get {
+                return ((string)(this["private_mac_address"]));
             }
         }
     }
