@@ -834,11 +834,27 @@ namespace HypervResource
                 mhz = procInfo.MaxClockSpeed;
            }
         }
+        
+        public static void GetProcessorUsageInfo(out double cpuUtilization)
+        {
+            PerfFormattedData_Counters_ProcessorInformation.PerfFormattedData_Counters_ProcessorInformationCollection coll = 
+                            PerfFormattedData_Counters_ProcessorInformation.GetInstances("Name=\"_Total\"");
+            cpuUtilization = 100;
+            // Use the first one
+            foreach (PerfFormattedData_Counters_ProcessorInformation procInfo in coll)
+            {
+                // Idle during a given internal 
+                // See http://library.wmifun.net/cimv2/win32_perfformatteddata_counters_processorinformation.html
+                cpuUtilization = 100.0 - (double)procInfo.PercentIdleTime;            
+            }
+        }
 
-        public static void GetMemoryResources(out ulong physicalRam)
+
+        public static void GetMemoryResources(out ulong physicalRamKBs, out ulong freeMemoryKBs)
         {
             OperatingSystem0 os = new OperatingSystem0();
-            physicalRam = os.TotalVisibleMemorySize/1024;
+            physicalRamKBs = os.TotalVisibleMemorySize;
+            freeMemoryKBs = os.FreePhysicalMemory;
         }
 
         public static string GetDefaultVirtualDiskFolder()
@@ -1078,7 +1094,6 @@ namespace HypervResource
             logger.Error(errMsg, ex);
             throw ex;
         }
-
     }
 
     public class WmiException : Exception

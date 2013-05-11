@@ -13,7 +13,36 @@ namespace HypervResource
 
     public struct HypervResourceControllerConfig
     {
-        public string PrivateIpAddress;
+        private string privateIpAddress;
+        private static ILog logger = LogManager.GetLogger(typeof(HypervResourceControllerConfig));
+
+        public string PrivateIpAddress
+        {
+            get
+            {
+                return privateIpAddress;
+            }
+            set
+            {
+                ValidateIpAddress(value);
+                privateIpAddress = value;
+                var nic = HypervResourceController.GetNicInfoFromIpAddress(privateIpAddress, out PrivateNetmask);
+                PrivateMacAddress = nic.GetPhysicalAddress().ToString();
+            }
+        }
+
+        private static void ValidateIpAddress(string value)
+        {
+            // Convert to IP address;f
+            IPAddress ipAddress;
+            if (!IPAddress.TryParse(value, out ipAddress))
+            {
+                String errMsg = "Invalid PrivateIpAddress: " + value;
+                logger.Error(errMsg);
+                throw new ArgumentException(errMsg);
+            }
+
+        }
         public string GatewayIpAddress;
         public string PrivateMacAddress;
         public string PrivateNetmask;
@@ -40,7 +69,7 @@ namespace HypervResource
             HypervResourceController.config = config;
         }
 
-        static HypervResourceControllerConfig config = new HypervResourceControllerConfig();
+        public static HypervResourceControllerConfig config = new HypervResourceControllerConfig();
 
         private static ILog logger = LogManager.GetLogger(typeof(WmiCalls));
 
@@ -57,6 +86,7 @@ namespace HypervResource
         }
 
         // POST api/HypervResource/StartCommand
+        [HttpPost]
         [ActionName("StartCommand")]
         public JContainer StartCommand([FromBody]dynamic cmd)
         {
@@ -66,6 +96,7 @@ namespace HypervResource
         }
 
         // POST api/HypervResource/StartCommand
+        [HttpPost]
         [ActionName("StopCommand")]
         public JContainer StopCommand([FromBody]dynamic cmd)
         {
@@ -74,7 +105,104 @@ namespace HypervResource
             return cmd;
         }
 
+        // POST api/HypervResource/GetHostStatsCommand
+        [HttpPost]
+        [ActionName("GetHostStatsCommand")]
+        public JContainer GetHostStatsCommand([FromBody]dynamic cmd)
+        {
+            bool result = false;
+            string details = null;
+            dynamic hostStats = null;
+
+            JArray answer = new JArray();
+            var entityType = "host";
+            ulong totalMemoryKBs;
+            ulong freeMemoryKBs;
+            double networkReadKBs;
+            double networkWriteKBs;
+            double cpuUtilization;
+
+            try
+            {
+                long hostId = cmd.hostId;
+                WmiCalls.GetMemoryResources(out totalMemoryKBs, out freeMemoryKBs);
+                WmiCalls.GetProcessorUsageInfo(out cpuUtilization);
+
+                // TODO: can we assume that the host has only one adaptor?
+                string tmp;
+                var privateNic = GetNicInfoFromIpAddress(config.PrivateIpAddress, out tmp);
+                var nicStats = privateNic.GetIPStatistics();
+                networkReadKBs = nicStats.BytesReceived;
+                networkWriteKBs = nicStats.BytesSent;
+
+                // Generate GetHostStatsAnswer
+                result = true;
+
+                hostStats = new {
+                    hostId = hostId,
+                    entityType = entityType,
+                    cpuUtilization = cpuUtilization,
+                    networkReadKBs = networkReadKBs,
+                    networkWriteKBs = networkWriteKBs,
+                    totalMemoryKBs = (double)totalMemoryKBs,
+                    freeMemoryKBs = (double)freeMemoryKBs
+                };
+
+            }
+            catch (FormatException exFormat)
+            {
+                details = "GetHostStatsCommand fail on exception" + exFormat.Message;
+                logger.Error(details, exFormat);
+            }
+            catch (WmiException wmiEx)
+            {
+                details = "GetHostStatsCommand fail on exception" + wmiEx.Message;
+                logger.Error(details, wmiEx);
+            }
+
+            var answerObj = new
+            {
+                GetHostStatsAnswer = new
+                {
+                    result = result,
+                    hostStats = hostStats,
+                    details = details
+                }
+            };
+            JToken answerTok = JToken.FromObject(answerObj);
+            answer.Add(answerTok); 
+            return answer;
+        }
+
+        public static System.Net.NetworkInformation.NetworkInterface GetNicInfoFromIpAddress(string ipAddress, out string subnet)
+        {
+            System.Net.NetworkInformation.NetworkInterface[] nics = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+            foreach (var nic in nics)
+            {
+                subnet = null;
+                // TODO: use to remove NETMASK and MAC from the config file, and to validate the IPAddress.
+                var nicProps = nic.GetIPProperties();
+                bool found = false;
+                foreach (var addr in nicProps.UnicastAddresses)
+                {
+                    if (addr.Address.Equals(IPAddress.Parse(ipAddress)))
+                    {
+                        subnet = addr.IPv4Mask.ToString();
+                        found = true;
+                    }
+                }
+                if (!found)
+                {
+                    continue;
+                }
+                return nic;
+            }
+            throw new ArgumentException("No NIC for ipAddress " + ipAddress);
+        }
+
+
         // POST api/HypervResource/StartupCommand
+        [HttpPost]
         [ActionName("StartupCommand")]
         public JContainer StartupCommand([FromBody]dynamic cmdArray)
         {
@@ -97,9 +225,10 @@ namespace HypervResource
             WmiCalls.GetProcessorResources(out cores, out mhz);
             strtRouteCmd.cpus = cores;
             strtRouteCmd.speed = mhz;
-            ulong memory_mb;
-            WmiCalls.GetMemoryResources(out memory_mb);
-            strtRouteCmd.memory = memory_mb;
+            ulong memoryKBs;
+            ulong freeMemoryKBs;
+            WmiCalls.GetMemoryResources(out memoryKBs, out freeMemoryKBs);
+            strtRouteCmd.memory = memoryKBs/1024;
 
             // Need 2 Gig for DOM0, see http://technet.microsoft.com/en-us/magazine/hh750394.aspx
             strtRouteCmd.dom0MinMemory = config.ParentPartitionMinMemoryMb;
