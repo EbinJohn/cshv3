@@ -89,7 +89,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		return null;
 	}
 
-	@Override
+	//@Override
 	public StartupCommand[] initialize() {
 		// Create default StartupRoutingCommand, then customise
 		StartupRoutingCommand defaultStartRoutCmd = new StartupRoutingCommand(
@@ -120,33 +120,76 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		StartupRoutingCommand startCmd = (StartupRoutingCommand)startCmds[0];
 
 		// Assert that host identity is consistent with existing values.
-		if (startCmd == null)
-		{
-			String errMsg = String
-					.format("Host %s (IP %s) changed zone/pod/cluster/guid/name when it returned a StartupRoutingCommand",
-							this._name, this._agentIp);
+		if (startCmd == null) {
+			String errMsg = String.format(
+					"Host %s (IP %s) did not return a StartupRoutingCommand",
+					this._name, this._agentIp);
 			s_logger.error(errMsg);
 			// TODO: valid to return null, or should we throw?
 			return null;
 		}
-			if (!startCmd.getDataCenter().equals(
-						defaultStartRoutCmd.getDataCenter())
-				|| !startCmd.getPod().equals(defaultStartRoutCmd.getPod())
-				|| !startCmd.getCluster().equals(
-						defaultStartRoutCmd.getCluster())
-				|| !startCmd.getGuid().equals(defaultStartRoutCmd.getGuid())
-				|| !startCmd.getPrivateIpAddress().equals(
-						defaultStartRoutCmd.getPrivateIpAddress())
-				|| !startCmd.getName().equals(defaultStartRoutCmd.getName())) {
-			String errMsg = String
-					.format("Host %s (IP %s) changed zone/pod/cluster/guid/name.  Was " +  
-								s_gson.toJson(defaultStartRoutCmd) + " NOW its " +
-								s_gson.toJson(startCmd),
-							this._name, this._agentIp);
+		if (!startCmd.getDataCenter().equals(
+				defaultStartRoutCmd.getDataCenter())) {
+			String errMsg = String.format(
+					"Host %s (IP %s) changed zone/data center.  Was "
+							+ defaultStartRoutCmd.getDataCenter() + " NOW its "
+							+ startCmd.getDataCenter(), this._name,
+					this._agentIp);
 			s_logger.error(errMsg);
 			// TODO: valid to return null, or should we throw?
 			return null;
-			}
+		}
+		if (!startCmd.getPod().equals(defaultStartRoutCmd.getPod())) {
+			String errMsg = String.format(
+					"Host %s (IP %s) changed pod.  Was "
+							+ defaultStartRoutCmd.getPod() + " NOW its "
+							+ startCmd.getPod(), this._name,
+					this._agentIp);
+			s_logger.error(errMsg);
+			// TODO: valid to return null, or should we throw?
+			return null;
+		}
+		if (!startCmd.getCluster().equals(defaultStartRoutCmd.getCluster())) {
+			String errMsg = String.format(
+					"Host %s (IP %s) changed cluster.  Was "
+							+ defaultStartRoutCmd.getCluster() + " NOW its "
+							+ startCmd.getCluster(), this._name,
+					this._agentIp);
+			s_logger.error(errMsg);
+			// TODO: valid to return null, or should we throw?
+			return null;
+		}
+		if (!startCmd.getGuid().equals(defaultStartRoutCmd.getGuid())) {
+			String errMsg = String.format(
+					"Host %s (IP %s) changed guid.  Was "
+							+ defaultStartRoutCmd.getGuid() + " NOW its "
+							+ startCmd.getGuid(), this._name,
+					this._agentIp);
+			s_logger.error(errMsg);
+			// TODO: valid to return null, or should we throw?
+			return null;
+		}
+		if (!startCmd.getPrivateIpAddress().equals(
+				defaultStartRoutCmd.getPrivateIpAddress())) {
+			String errMsg = String.format(
+					"Host %s (IP %s) IP address.  Was "
+							+ defaultStartRoutCmd.getPrivateIpAddress() + " NOW its "
+							+ startCmd.getPrivateIpAddress(), this._name,
+					this._agentIp);
+			s_logger.error(errMsg);
+			// TODO: valid to return null, or should we throw?
+			return null;
+		}
+		if (!startCmd.getName().equals(defaultStartRoutCmd.getName())) {
+			String errMsg = String.format(
+					"Host %s (IP %s) name.  Was "
+							+ startCmd.getName() + " NOW its "
+							+ defaultStartRoutCmd.getName(), this._name,
+					this._agentIp);
+			s_logger.error(errMsg);
+			// TODO: valid to return null, or should we throw?
+			return null;
+		}
 
 		// Host will also supply details of an existing StoragePool if it has
 		// been configured with one.
