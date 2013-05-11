@@ -194,7 +194,9 @@ public class HypervDirectConnectResourceTest {
         	
         	testLocalStorePathJSON = s_gson.toJson(testLocalStorePath);
 
-        	params.put("agentIp", "localhost");
+        	String agentIp = (String)params.get("private.ip.address");
+        	s_logger.info("Test using agent IP address " + agentIp); 
+        	params.put("agentIp", agentIp);
         	SetTestJsonResult(params);
         	s_hypervresource.configure("hypervresource",  params);
 	        // Verify sample template is in place storage pool
@@ -284,8 +286,32 @@ public class HypervDirectConnectResourceTest {
         }
 		s_logger.debug("TestInitialize returned " + result);
 		s_logger.debug("TestInitialize expected " + s_SetTestJsonResultStr);
-		Assert.assertEquals(s_SetTestJsonResultStr, result);
+		Assert.assertTrue("StartupCommand[] not what we expected", s_SetTestJsonResultStr.equals(result));
+		return;
     }
+    
+	@Test
+	public void TestGetHostStatsCommand() {
+		// Arrange
+		long hostIdVal = 123;
+		GetHostStatsCommand cmd = new GetHostStatsCommand("1", "testHost",
+				hostIdVal);
+
+		// Act
+		GetHostStatsAnswer ans = (GetHostStatsAnswer) s_hypervresource
+				.executeRequest(cmd);
+
+		// Assert
+		Assert.assertTrue(ans.getResult());
+		Assert.assertTrue(0.0 < ans.getTotalMemoryKBs());
+		Assert.assertTrue(0.0 < ans.getFreeMemoryKBs());
+		Assert.assertTrue(0.0 <= ans.getNetworkReadKBs());
+		Assert.assertTrue(0.0 <= ans.getNetworkWriteKBs());
+		Assert.assertTrue(0.0 <= ans.getCpuUtilization());
+		Assert.assertTrue(100 >= ans.getCpuUtilization());
+		Assert.assertTrue(ans.getEntityType().equals("host"));
+		Assert.assertTrue(ans.getDetails() == null);
+	}
     
     public static Properties loadProperties() throws ConfigurationException {
     	Properties _properties = new Properties();
@@ -324,9 +350,9 @@ public class HypervDirectConnectResourceTest {
                         "\"com.cloud.network.Networks.RouterPrivateIpStrategy\":\"HostLocal\"" +
                         "}," +
                         "\"type\":\"Routing\"," +
-                        "\"dataCenter\":\"1\"," +
-                        "\"pod\":\"1\"," +
-                        "\"cluster\":\"1\"," +
+                        "\"dataCenter\":%s," +
+                        "\"pod\":%s," +
+                        "\"cluster\":%s," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"name\":\"hypervresource\"," +
                         "\"version\":\"4.1.0\"," +
@@ -344,7 +370,7 @@ public class HypervDirectConnectResourceTest {
                         "\"totalSize\":0,"+
                         "\"poolInfo\":{" +
                         "\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
-                        "\"host\":\"localhost\"," +
+                        "\"host\":%s," +
                         "\"localPath\":%s," +
                         "\"hostPath\":%s," +
                         "\"poolType\":\"Filesystem\"," +
@@ -363,6 +389,9 @@ public class HypervDirectConnectResourceTest {
                         params.get("TestCoreMhz"),
                         params.get("TestMemoryMb"),
                         params.get("TestDom0MinMemoryMb"),
+                        s_gson.toJson((String) params.get("zone")),
+                        s_gson.toJson((String) params.get("pod")),
+                        s_gson.toJson((String) params.get("cluster")),
                         s_gson.toJson((String) params.get("private.ip.address")),
                         s_gson.toJson((String) params.get("private.mac.address")),
                         s_gson.toJson((String) params.get("private.ip.netmask")),
@@ -370,8 +399,10 @@ public class HypervDirectConnectResourceTest {
                         s_gson.toJson((String) params.get("private.ip.netmask")),
                         s_gson.toJson((String) params.get("private.mac.address")),
                         s_gson.toJson((String) params.get("gateway.ip.address")),
+        				s_gson.toJson((String) params.get("private.ip.address")),
                         s_gson.toJson((String) params.get("DefaultVirtualDiskFolder")),
-                        s_gson.toJson((String) params.get("DefaultVirtualDiskFolder")));
+                        s_gson.toJson((String) params.get("DefaultVirtualDiskFolder"))
+        				);
     }
 }
 
