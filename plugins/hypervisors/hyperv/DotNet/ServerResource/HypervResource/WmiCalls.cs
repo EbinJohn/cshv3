@@ -160,7 +160,7 @@ namespace HypervResource
             while ((vmWmiObj = GetComputerSystem(vmName)) != null)
             {
                 logger.WarnFormat("Create request for existing vm, name {0}", vmName);
-                if (vmWmiObj.EnabledState == RequiredState.Disabled)
+                if (vmWmiObj.EnabledState == EnabledState.Disabled)
                 {
                     logger.InfoFormat("Deleting existing VM with name {0}, before we go on to create a VM with the same name", vmName);
                     DestroyVm(vmName);
@@ -168,7 +168,9 @@ namespace HypervResource
                 else
                 {
                     // TODO: revise exception type
-                    var errMsg = string.Format("Create VM failing, because there exists a VM with name {0}, state {1}", vmName, vmWmiObj.EnabledState);
+                    var errMsg = string.Format("Create VM failing, because there exists a VM with name {0}, state {1}", 
+                        vmName,
+                        EnabledState.ToString(vmWmiObj.EnabledState));
                     var ex = new WmiException(errMsg);
                     logger.Error(errMsg, ex);
                     throw ex;
@@ -773,10 +775,11 @@ namespace HypervResource
             throw ex;
         }
 
-        private static VirtualSystemManagementService GetVirtualisationSystemManagementService()
+        public static VirtualSystemManagementService GetVirtualisationSystemManagementService()
         {
             // VirtualSystemManagementService is a singleton, most anonymous way of lookup is by asking for the set
             // of local instances, which should be size 1.
+           
             var virtSysMgmtSvcCollection = VirtualSystemManagementService.GetInstances();
             foreach (VirtualSystemManagementService item in virtSysMgmtSvcCollection)
             {
@@ -1211,6 +1214,105 @@ namespace HypervResource
                 case Reset: result = "Reset"; break;
                 case Paused: result = "Paused"; break;
                 case Suspended: result = "Suspended"; break;
+            }
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// http://msdn.microsoft.com/en-us/library/cc136822%28v=vs.85%29.aspx
+    /// </summary>
+        public class EnabledState
+    {
+            /// <summary>
+            /// The state of the VM could not be determined.
+            /// </summary>
+        public const UInt16 Unknown = 0;
+            /// <summary>
+            /// The VM is running.
+            /// </summary>
+        public const UInt16 Enabled = 2;
+            /// <summary>
+            /// The VM is turned off.
+            /// </summary>
+        public const UInt16 Disabled = 3;
+            /// <summary>
+            /// The VM is paused.
+            /// </summary>
+        public const UInt16 Paused = 32768;
+            /// <summary>
+            /// The VM is in a saved state.
+            /// </summary>
+        public const UInt16 Suspended = 32769;
+            /// <summary>
+            /// The VM is starting. This is a transitional state between 3 (Disabled)
+            /// or 32769 (Suspended) and 2 (Enabled) initiated by a call to the 
+            /// RequestStateChange method with a RequestedState parameter of 2 (Enabled).
+            /// </summary>
+        public const UInt16 Starting = 32770;
+            /// <summary>
+            /// Starting with Windows Server 2008 R2 this value is not supported. 
+            /// If the VM is performing a snapshot operation, the element at index 1 
+            /// of the OperationalStatus property array will contain 32768 (Creating Snapshot), 
+            /// 32769 (Applying Snapshot), or 32770 (Deleting Snapshot).
+            /// </summary>
+        public const UInt16 Snapshotting = 32771;
+            /// <summary>
+            /// The VM is saving its state. This is a transitional state between 2 (Enabled)
+            /// and 32769 (Suspended) initiated by a call to the RequestStateChange method 
+            /// with a RequestedState parameter of 32769 (Suspended).
+            /// </summary>
+        public const UInt16 Saving = 32773;
+            /// <summary>
+            /// The VM is turning off. This is a transitional state between 2 (Enabled) 
+            /// and 3 (Disabled) initiated by a call to the RequestStateChange method 
+            /// with a RequestedState parameter of 3 (Disabled) or a guest operating system 
+            /// initiated power off.
+            /// </summary>
+        public const UInt16 Stopping = 32774;
+            /// <summary>
+            /// The VM is pausing. This is a transitional state between 2 (Enabled) and 32768 (Paused) initiated by a call to the RequestStateChange method with a RequestedState parameter of 32768 (Paused).
+            /// </summary>
+        public const UInt16 Pausing = 32776;
+            /// <summary>
+            /// The VM is resuming from a paused state. This is a transitional state between 32768 (Paused) and 2 (Enabled).
+            /// </summary>
+        public const UInt16 Resuming = 32777;
+
+        public static string ToString(UInt16 value)
+        {
+            string result = "Unknown";
+            switch (value)
+            {
+                case Enabled: result = "Enabled"; break;
+                case Disabled: result = "Disabled"; break;
+                case Paused: result = "Paused"; break;
+                case Suspended: result = "Suspended"; break;
+                case Starting: result = "Starting"; break;
+                case Snapshotting: result = "Snapshotting"; break; // NOT used
+                case Saving: result = "Saving"; break;
+                case Stopping: result = "Stopping"; break;
+                case Pausing: result = "Pausing"; break;
+                case Resuming: result = "Resuming"; break;
+            }
+            return result;
+        }
+
+        public static string ToCloudStackState(UInt16 value)
+        {
+            string result = "Unknown";
+            switch (value)
+            {
+                case Enabled: result = "Running"; break;
+                case Disabled: result = "Stopped"; break;
+                case Paused: result = "Unknown"; break;
+                case Suspended: result = "Unknown"; break;
+                case Starting: result = "Starting"; break;
+                case Snapshotting: result = "Unknown"; break; // NOT used
+                case Saving: result = "Saving"; break;
+                case Stopping: result = "Stopping"; break;
+                case Pausing: result = "Unknown"; break;
+                case Resuming: result = "Starting"; break; 
             }
             return result;
         }
