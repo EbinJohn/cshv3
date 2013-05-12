@@ -112,4 +112,18 @@ namespace HypervResource
             this.details = details;
         }
     }
+
+    public class VmStatsEntry
+    {
+        [JsonProperty("cpuUtilization")]
+        public double cpuUtilization;
+        [JsonProperty("networkReadKBs")]
+        public double networkReadKBs;
+        [JsonProperty("networkWriteKBs")]
+        public double networkWriteKBs;
+        [JsonProperty("numCPUs")]
+        public int numCPUs;
+        [JsonProperty("entityType")]
+        public String entityType;
+    }
 }
