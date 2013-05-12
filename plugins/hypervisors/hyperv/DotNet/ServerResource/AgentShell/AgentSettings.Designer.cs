@@ -193,9 +193,9 @@ namespace CloudStack.Plugin.AgentShell {
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("4294967296")]
-        public long RootDeviceReservedSpace {
+        public long RootDeviceReservedSpaceBytes {
             get {
-                return ((long)(this["RootDeviceReservedSpace"]));
+                return ((long)(this["RootDeviceReservedSpaceBytes"]));
             }
         }
         
