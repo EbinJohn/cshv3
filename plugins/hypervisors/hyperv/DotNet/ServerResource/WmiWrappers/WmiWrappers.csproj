@@ -68,6 +68,9 @@
     <Compile Include="ROOT.virtualization.Msvm_ResourceAllocationSettingData.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="ROOT.virtualization.Msvm_SummaryInformation.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ROOT.virtualization.Msvm_SwitchLANEndpoint.cs">
       <SubType>Component</SubType>
     </Compile>
