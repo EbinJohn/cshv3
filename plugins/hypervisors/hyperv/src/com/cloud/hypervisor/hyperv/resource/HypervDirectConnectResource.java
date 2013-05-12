@@ -41,15 +41,18 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.apache.log4j.Logger;
+import org.junit.Assert;
 
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
+import com.cloud.agent.api.CreateStoragePoolCommand;
 import com.cloud.agent.api.PingCommand;
 import com.cloud.agent.api.StartupAnswer;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.agent.api.StartupStorageCommand;
 import com.cloud.agent.api.StoragePoolInfo;
+import com.cloud.agent.api.UnsupportedAnswer;
 import com.cloud.agent.api.StartupRoutingCommand.VmState;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
 import com.cloud.host.Host;
@@ -326,17 +329,26 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 					+ " cmd data:" + jsonCmd);
 			HttpResponse response = httpClient.execute(request);
 
+			// Unsupported commands will not route.
+			if (response.getStatusLine().getStatusCode() == 405) {
+				String errMsg = "Failed to send : HTTP error code : "
+						+ response.getStatusLine().getStatusCode();
+				s_logger.error(errMsg);
+				Answer ans =  new UnsupportedAnswer(null, "Unsupported command " + agentUri.getPath() + ".  Are you sure you got the right type of server?");
+				s_logger.error(ans);
+				result = s_gson.toJson(new Answer[] {ans});
+			}
 			// Look for status errors
-			if (response.getStatusLine().getStatusCode() != 200) {
+			else if (response.getStatusLine().getStatusCode() != 200) {
 				String errMsg = "Failed to send : HTTP error code : "
 						+ response.getStatusLine().getStatusCode();
 				s_logger.error(errMsg);
 				return null;
 			}
-
-			result = EntityUtils.toString(response.getEntity());
-			s_logger.debug("POST response is"  +  result);
-
+			else {
+				result = EntityUtils.toString(response.getEntity());
+				s_logger.debug("POST response is"  +  result);
+			}
 		} catch (ClientProtocolException protocolEx) {
 			// Problem with HTTP message exchange
 			s_logger.error(protocolEx);
