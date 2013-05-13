@@ -61,6 +61,7 @@ namespace CloudStack.Plugin.AgentShell
             rsrcCnf.RootDeviceReservedSpaceBytes = AgentSettings.Default.RootDeviceReservedSpaceBytes;
             rsrcCnf.RootDeviceName = AgentSettings.Default.RootDeviceName;
             rsrcCnf.ParentPartitionMinMemoryMb = AgentSettings.Default.dom0MinMemory;
+            rsrcCnf.LocalSecondaryStoragePath = AgentSettings.Default.local_secondary_storage_path;
 
             // Side effect:  loads the assembly containing HypervResourceController, which
             // allows HttpSelfHostServer to route requests to the controller.
