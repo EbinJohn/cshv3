@@ -59,6 +59,9 @@
     <Compile Include="ROOT.virtualization.Msvm_ExternalEthernetPort.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="ROOT.virtualization.Msvm_ImageManagementService.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ROOT.virtualization.Msvm_MemorySettingData.cs">
       <SubType>Component</SubType>
     </Compile>
