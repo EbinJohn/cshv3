@@ -775,6 +775,48 @@ namespace HypervResource
             throw ex;
         }
 
+        public static void CreateDynamicVirtualHardDisk(ulong MaxInternalSize, string Path)
+        {
+            // Resource settings are changed through the management service
+            System.Management.ManagementPath jobPath;
+            var imgMgr = GetImageManagementService();
+            var ret_val = imgMgr.CreateDynamicVirtualHardDisk(MaxInternalSize, Path, out jobPath);
+            // If the Job is done asynchronously
+            if (ret_val == ReturnCode.Started)
+            {
+                JobCompleted(jobPath);
+            }
+            else if (ret_val != ReturnCode.Completed)
+            {
+                var errMsg = string.Format(
+                    "Failed to CreateDynamicVirtualHardDisk size {0}, path {1} to {2}",
+                    MaxInternalSize,
+                    Path,
+                    ReturnCode.ToString(ret_val));
+                var ex = new WmiException(errMsg);
+                logger.Error(errMsg, ex);
+                throw ex;
+            }
+        }
+
+        public static ImageManagementService GetImageManagementService()
+        {
+            // VirtualSystemManagementService is a singleton, most anonymous way of lookup is by asking for the set
+            // of local instances, which should be size 1.
+
+            var coll = ImageManagementService.GetInstances();
+            foreach (ImageManagementService item in coll)
+            {
+                return item;
+            }
+
+            var errMsg = string.Format("No Hyper-V subsystem on server");
+            var ex = new WmiException(errMsg);
+            logger.Error(errMsg, ex);
+            throw ex;
+        }
+
+
         public static VirtualSystemManagementService GetVirtualisationSystemManagementService()
         {
             // VirtualSystemManagementService is a singleton, most anonymous way of lookup is by asking for the set

@@ -1,4 +1,5 @@
-﻿using log4net;
+﻿using CloudStack.Plugin.WmiWrappers.ROOT.VIRTUALIZATION;
+using log4net;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -42,7 +43,6 @@ namespace HypervResource
                 logger.Error(errMsg);
                 throw new ArgumentException(errMsg);
             }
-
         }
         public string GatewayIpAddress;
         public string PrivateMacAddress;
@@ -53,6 +53,7 @@ namespace HypervResource
         public long RootDeviceReservedSpaceBytes;
         public string RootDeviceName;
         public ulong ParentPartitionMinMemoryMb;
+        public string LocalSecondaryStoragePath;
     }
 
     // Supports HTTP GET and HTTP POST
@@ -84,6 +85,307 @@ namespace HypervResource
         public string Get()
         {
             return "HypervResource controller, use POST to send send JSON encoded objects";
+        }
+
+        // POST api/HypervResource/DestroyCommand
+        [HttpPost]
+        [ActionName("DestroyCommand")]
+        public JContainer DestroyCommand([FromBody]dynamic cmd)
+        {
+            string details = null;
+            JToken answerTok;
+            bool result = false;
+
+            try
+            {
+                string path = cmd.volume.path;
+                string vmName = cmd.vmName;
+
+                // TODO: detach volume
+                var imgmgr = WmiCalls.GetImageManagementService();
+                if (!string.IsNullOrEmpty(vmName))
+                {
+                    var returncode = imgmgr.Unmount(path);
+                    if (returncode != ReturnCode.Completed)
+                    {
+                        details = "Could not detach driver from vm " + vmName + " for drive " + path;
+                        logger.Error(details);
+                    }
+                    File.Delete(path);
+                    result = true;
+                }
+                else
+                {
+                    File.Delete(path);
+                    result = true;
+                }
+            }
+            catch (System.SystemException sysEx)
+            {
+                details = "DestroyCommand failed due to " + sysEx.Message;
+                logger.Error(details, sysEx);
+            }
+            var answerObj = new
+            {
+                DestroyAnswer = new
+                {
+                    result = result,
+                    details = details
+                }
+            };
+
+            answerTok = JToken.FromObject(answerObj);
+            JArray answer = new JArray();
+            answer.Add(answerTok);
+            logger.Info("DestroyCommand result is " + answer.ToString());
+            return answer;
+        }
+
+        // POST api/HypervResource/CreateCommand
+        [HttpPost]
+        [ActionName("CreateCommand")]
+        public JContainer CreateCommand([FromBody]dynamic cmd)
+        {
+            string details = null;
+            JToken answerTok;
+            bool result = false;
+            VolumeInfo volume = new VolumeInfo();
+
+            try
+            {
+                string diskType = cmd.diskCharacteristics.type;
+                ulong disksize = cmd.diskCharacteristics.size;
+                string templateUri = cmd.templateUrl;
+
+                // assert: valid storagepool?
+                string poolTypeStr = cmd.pool.type;
+                string poolLocalPath = cmd.pool.path;
+                string poolUuid = cmd.pool.uuid;
+                string volPath = null;
+                long volId = cmd.volId;
+                string volName = null;
+
+                if (ValidStoragePool(poolTypeStr, poolLocalPath, poolUuid, ref details))
+                {
+                    // No template URI?  Its a blank disk.
+                    if (string.IsNullOrEmpty(templateUri))
+                    {
+                        // assert
+                        VolumeType volType;
+                        if (!Enum.TryParse<VolumeType>(diskType, out volType) && volType != VolumeType.DATADISK)
+                        {
+                            details = "Cannot create volumes of type " + (string.IsNullOrEmpty(diskType) ? "NULL" : diskType);
+                        }
+                        else
+                        {
+                            volName = cmd.diskCharacteristics.name;
+                            volPath = Path.Combine(poolLocalPath, volName, diskType.ToLower());
+                            // TODO: how do you specify format as VHD or VHDX?
+                            WmiCalls.CreateDynamicVirtualHardDisk(disksize, volPath);
+                            if (File.Exists(volPath))
+                            {
+                                result = true;
+                            }
+                            else
+                            {
+                                details = "Failed to create DATADISK with name " + volName;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // TODO:  Does this always work, or do I need to download template at times?
+                        if (templateUri.Contains("/") || templateUri.Contains("\\"))
+                        {
+                            details = "Problem with templateURL " + templateUri +
+                                            " the URL should be volume UUID in primary storage created by previous PrimaryStorageDownloadCommand";
+                            logger.Error(details);
+                        }
+                        else
+                        {
+                            logger.Debug("Template's name in primary store should be " + templateUri);
+                            //            HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(tmplturl);
+                            FileInfo srcFileInfo = new FileInfo(templateUri);
+                            string newVolName = Guid.NewGuid() + srcFileInfo.Extension;
+                            string newVolPath = Path.Combine(poolLocalPath, newVolName);
+                            logger.Debug("New volume will be at " + newVolPath);
+                            string oldVolPath = Path.Combine(poolLocalPath, templateUri);
+                            File.Copy(oldVolPath, newVolPath);
+                            if (File.Exists(volPath))
+                            {
+                                result = true;
+                            }
+                            else
+                            {
+                                details = "Failed to create DATADISK with name " + volName;
+                            }
+                        }
+                        volume = new VolumeInfo(
+                                  volId, diskType,
+                                poolTypeStr, poolUuid, volName,
+                                volPath, volPath, (long)disksize, null);
+                    }
+                }
+            }
+            catch (System.SystemException sysEx)
+            {
+                // TODO: consider this as model for error processing in all commands
+                details = "CreateCommand failed due to " + sysEx.Message;
+                logger.Error(details, sysEx);
+            }
+            var answerObj = new
+            {
+                CreateAnswer = new
+                {
+                    result = result,
+                    details = details,
+                    volume = volume
+                }
+            };
+
+            answerTok = JToken.FromObject(answerObj);
+            JArray answer = new JArray();
+            answer.Add(answerTok);
+            logger.Info("CreateCommand result is " + answer.ToString());
+            return answer;
+        }
+
+        // POST api/HypervResource/PrimaryStorageDownloadCommand
+        [HttpPost]
+        [ActionName("PrimaryStorageDownloadCommand")]
+        public JContainer PrimaryStorageDownloadCommand([FromBody]dynamic cmd)
+        {
+            string details = null;
+            JToken answerTok;
+            bool result = false;
+            long size = 0;
+
+            string newCopyFileName = null;
+
+            string poolTypeStr = cmd.primaryPool.type;
+            string poolLocalPath = cmd.localPath;
+            string poolUuid = cmd.poolUuid;
+            if (ValidStoragePool(poolTypeStr, poolLocalPath, poolUuid, ref details))
+            {
+                // Compose name for downloaded file.
+                string sourceUrl = cmd.url;
+                if (sourceUrl.ToLower().EndsWith(".vhd"))
+                {
+                    newCopyFileName =  Guid.NewGuid() + ".vhdx";
+                }
+                if (sourceUrl.ToLower().EndsWith(".vhdx"))
+                {
+                    newCopyFileName =  Guid.NewGuid() + ".vhdx";
+                }
+
+                // assert
+                if (newCopyFileName == null)
+                {
+                    details = "Invalid file extension for hypervisor type in source URL " + sourceUrl;
+                    logger.Error(details);
+                }
+                else
+                {
+                    try
+                    {
+                        FileInfo newFile = CopyURI(sourceUrl, newCopyFileName, poolLocalPath);
+                        size = newFile.Length;
+                        result = true;
+                    }
+                    catch (System.SystemException ex)
+                    {
+                        details = "Cannot download source URL " + sourceUrl + " due to " + ex.Message;
+                        logger.Error(details, ex);
+                    }
+                }
+            }
+            var answerObj = new
+            {
+                PrimaryStorageDownloadAnswer = new
+                {
+                    result = result,
+                    details = details,
+                    size = size,
+                    name = newCopyFileName
+                }
+            };
+
+            answerTok = JToken.FromObject(answerObj);
+            JArray answer = new JArray();
+            answer.Add(answerTok);
+            logger.Info("PrimaryStorageDownloadCommand result is " + answer.ToString());
+            return answer;
+        }
+
+        private static bool ValidStoragePool(string poolTypeStr, string poolLocalPath, string poolUuid, ref string details)
+        {
+            StoragePoolType poolType;
+            if (!Enum.TryParse<StoragePoolType>(poolTypeStr, out poolType) || poolType != StoragePoolType.Filesystem)
+            {
+                details = "Primary storage pool " + poolUuid + " type " + poolType + " local path " + poolLocalPath + " has invalid StoragePoolType";
+                logger.Error(details);
+                return false;
+            }
+            else if (!Directory.Exists(poolLocalPath))
+            {
+                details = "Primary storage pool " + poolUuid + " type " + poolType + " local path " + poolLocalPath + " has invalid local path";
+                logger.Error(details);
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Exceptions to watch out for:
+        /// Exceptions related to URI creation
+        /// System.SystemException
+        /// +-System.ArgumentNullException
+        /// +-System.FormatException
+        ///   +-System.UriFormatException
+        ///
+        /// Exceptions related to NFS URIs
+        /// System.SystemException
+        /// +-System.NotSupportedException
+        /// +-System.ArgumentException
+        /// +-System.ArgumentNullException
+        ///   +-System.Security.SecurityException;
+        /// +-System.UnauthorizedAccessException
+        /// +-System.IO.IOException
+        ///   +-System.IO.PathTooLongException
+        ///   
+        /// Exceptions related to HTTP URIs
+        /// System.SystemException
+        /// +-System.InvalidOperationException
+        ///    +-System.Net.WebException
+        /// +-System.NotSupportedException
+        /// +-System.ArgumentNullException
+        /// </summary>
+        /// <param name="sourceUrl"></param>
+        /// <param name="newCopyFileName"></param>
+        /// <param name="poolLocalPath"></param>
+        /// <returns></returns>
+        private FileInfo CopyURI(string sourceUrl, string newCopyFileName, string poolLocalPath)
+        {
+            Uri source = new Uri(sourceUrl);
+            String destFilePath = Path.Combine(poolLocalPath, newCopyFileName);
+            string[] pathSegments = source.Segments;
+            String templateUUIDandExtension = pathSegments[pathSegments.Length-1];
+
+            // NFS URI assumed to already be mounted locally.  Mount location given by settings.
+        	if (source.Scheme.ToLower().Equals("nfs"))
+        	{
+            	String srcDiskPath = Path.Combine(HypervResourceController.config.LocalSecondaryStoragePath, templateUUIDandExtension);
+            	String taskMsg = "Copy NFS url in " + sourceUrl + " at " + srcDiskPath + " to pool " + poolLocalPath;
+                logger.Debug(taskMsg);
+
+                File.Copy(srcDiskPath, destFilePath);
+        	}
+        	else if (source.Scheme.ToLower().Equals("http"))
+        	{
+                System.Net.WebClient webclient = new WebClient();
+                webclient.DownloadFile(source, destFilePath);
+			}
+            return new FileInfo(destFilePath);
         }
 
 

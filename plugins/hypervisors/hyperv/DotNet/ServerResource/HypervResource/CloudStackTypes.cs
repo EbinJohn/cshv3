@@ -11,6 +11,12 @@ using System.Threading.Tasks;
 // later adoption of C# naming conventions if requried. 
 namespace HypervResource
 {
+
+        enum VolumeType
+        {
+            UNKNOWN, ROOT, SWAP, DATADISK, ISO
+        };
+
         public enum StoragePoolType {
             /// <summary>
             /// local directory
@@ -71,6 +77,31 @@ namespace HypervResource
             STORAGE_POOL, STORAGE_HOST, SECONDARY_STORAGE, LOCAL_SECONDARY_STORAGE
         }
 
+        public struct VolumeInfo
+        {
+            public long id;
+            public string type;
+            public string storagePoolType;
+            public string storagePoolUuid;
+            public string name;
+            public string mountPoint;
+            public string path;
+            long size;
+            string chainInfo;
+
+            public VolumeInfo(long id, string type, string poolType, String poolUuid, String name, String mountPoint, String path, long size, String chainInfo)
+            {
+                this.id = id;
+                this.name = name;
+                this.path = path;
+                this.size = size;
+                this.type = type;
+                this.storagePoolType = poolType;
+                this.storagePoolUuid = poolUuid;
+                this.mountPoint = mountPoint;
+                this.chainInfo = chainInfo;
+            }
+        }
 
     public struct StoragePoolInfo
     {
