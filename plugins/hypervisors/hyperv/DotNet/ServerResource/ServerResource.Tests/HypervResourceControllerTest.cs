@@ -1,4 +1,20 @@
-﻿using System;
+﻿// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -9,6 +25,7 @@ using HypervResource;
 using Newtonsoft.Json;
 using CloudStack.Plugin.AgentShell;
 using Newtonsoft.Json.Linq;
+using System.IO;
 
 namespace ServerResource.Tests.Controllers
 {
@@ -33,12 +50,163 @@ namespace ServerResource.Tests.Controllers
         }
 
         [TestMethod]
+        public void TestModifyStoragePoolCommand()
+        {
+            // Create dummy folder
+            String folderName = Path.Combine(".", "Dummy");
+            if (!Directory.Exists(folderName))
+            {
+                Directory.CreateDirectory(folderName);
+            }
+
+            var pool = new {
+                poolType = Enum.GetName(typeof(StoragePoolType), StoragePoolType.Filesystem),
+                hostAddress = "127.0.0.1",
+                port = -1,
+                path = folderName,
+                uuid = Guid.NewGuid().ToString()
+            };
+
+            var cmd = new
+            {
+                add = true,
+                pool = pool,
+                localPath = folderName
+            };
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.ModifyStoragePoolCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].ModifyStoragePoolAnswer;
+            Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
+
+            // Clean up
+            var cmd2 = new
+            {
+                pool = pool,
+                localPath = folderName
+            };
+            JToken tok2 = JToken.FromObject(cmd);
+
+            // Act
+            dynamic jsonResult2 = controller.DeleteStoragePoolCommand(tok2);
+
+            // Assert
+            dynamic ans2 = jsonResult2[0].Answer;
+            Assert.IsTrue((bool)ans2.result, (string)ans2.details);  // always succeeds
+        }
+
+        [TestMethod]
+        public void CreateStoragePoolCommand()
+        {
+            var cmd = new { localPath = "NULL" };
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.CreateStoragePoolCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].Answer;
+            Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
+        }
+
+        [TestMethod]
+        public void GetVmStatsCommandFail()
+        {
+            // Use WMI to find existing VMs
+            List<String> vmNames = new List<String>();
+            vmNames.Add("FakeVM");
+
+            var cmd = new
+            {
+                hostGuid = "FAKEguid",
+                hostName = AgentSettings.Default.host,
+                vmNames = vmNames
+            };
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.GetVmStatsCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].GetVmStatsAnswer;
+            Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds, fake VM means no answer for the named VM
+        }
+
+        [TestMethod]
+        public void GetVmStatsCommand()
+        {
+            // Use WMI to find existing VMs
+            List<String> vmNames = WmiCalls.GetVmElementNames();
+
+            var cmd = new
+            {
+                hostGuid = "FAKEguid",
+                hostName = AgentSettings.Default.host,
+                vmNames = vmNames
+            };
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.GetVmStatsCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].GetVmStatsAnswer;
+            Assert.IsTrue((bool)ans.result, (string)ans.details);
+        }
+
+        [TestMethod]
+        public void GetStorageStatsCommand()
+        {
+    	    // TODO:  Update sample data to unsure it is using correct info.
+    	    String sample = String.Format(
+            #region string_literal
+                "{{\"" +
+                "id\":{0},"+
+                "\"localPath\":{1}," +
+    			"\"pooltype\":\"Filesystem\","+
+                "\"contextMap\":{{}},"+
+                "\"wait\":0}}",
+                JsonConvert.SerializeObject(AgentSettings.Default.testLocalStoreUUID),
+                JsonConvert.SerializeObject(AgentSettings.Default.testLocalStorePath)
+                );
+            #endregion
+            var cmd = JsonConvert.DeserializeObject(sample);
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.GetStorageStatsCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].GetStorageStatsAnswer;
+            Assert.IsTrue((bool)ans.result, (string)ans.details);
+            Assert.IsTrue((long)ans.used <= (long)ans.capacity);  // TODO: verify that capacity is indeed capacity and not used.
+        }
+
+        [TestMethod]
         public void GetHostStatsCommand()
         {
             // Arrange
-            long hostIdVal = 123;
+            long hostIdVal = 5;
             HypervResourceController controller = new HypervResourceController();
-            var cmd = new { GetHostStatsCommand = new { hostId = hostIdVal } };
+            string sample = string.Format(
+            #region string_literal
+                    "{{" + 
+                    "\"hostGuid\":\"B4AE5970-FCBF-4780-9F8A-2D2E04FECC34-HypervResource\"," +
+                    "\"hostName\":\"CC-SVR11\"," +
+                    "\"hostId\":{0}," +
+                    "\"contextMap\":{{}}," +
+                    "\"wait\":0}}",
+                    JsonConvert.SerializeObject(hostIdVal));
+            #endregion
+            var cmd = JsonConvert.DeserializeObject(sample);
             JToken tok = JToken.FromObject(cmd);
  
             // Act
@@ -119,10 +287,10 @@ namespace ServerResource.Tests.Controllers
             string expected =
                 #region string_literal
                         String.Format("[{{\"StartupRoutingCommand\":{{" +
-                        "\"cpus\":{9}," +
-                        "\"speed\":{10}," +
-                        "\"memory\":{11}," +
-                        "\"dom0MinMemory\":{12}," +
+                        "\"cpus\":{0}," +
+                        "\"speed\":{11}," +
+                        "\"memory\":{12}," +
+                        "\"dom0MinMemory\":{13}," +
                         "\"poolSync\":false," +
                         "\"vms\":{{}}," +
                         "\"hypervisorType\":\"Hyperv\"," +
@@ -136,7 +304,7 @@ namespace ServerResource.Tests.Controllers
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"name\":\"localhost\"," +
                         "\"version\":\"4.1.0\"," +
-                        "\"privateIpAddress\":{0}," +
+                        "\"privateIpAddress\":{9}," +
                         "\"storageIpAddress\":{1}," +
                         "\"contextMap\":{{}}," +
                         "\"wait\":0," +
@@ -149,7 +317,7 @@ namespace ServerResource.Tests.Controllers
                         "{{\"StartupStorageCommand\":{{" +
                         "\"poolInfo\":{{" +
                         "\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
-                        "\"host\":\"localhost\"," +
+                        "\"host\":{9}," +
                         "\"localPath\":{7}," +
                         "\"hostPath\":{8}," +
                         "\"poolType\":\"Filesystem\"," +
@@ -161,7 +329,7 @@ namespace ServerResource.Tests.Controllers
                         "\"dataCenter\":\"1\"," +
                         "\"resourceType\":\"STORAGE_POOL\"" +
                         "}}}}]",
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
+                        JsonConvert.SerializeObject(cores),
                         JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
                         JsonConvert.SerializeObject(AgentSettings.Default.private_ip_netmask),
                         JsonConvert.SerializeObject(AgentSettings.Default.private_mac_address),
@@ -170,7 +338,8 @@ namespace ServerResource.Tests.Controllers
                         JsonConvert.SerializeObject(AgentSettings.Default.gateway_ip_address),
                         JsonConvert.SerializeObject(WmiCalls.GetDefaultVirtualDiskFolder()),
                         JsonConvert.SerializeObject(WmiCalls.GetDefaultVirtualDiskFolder()),
-                        JsonConvert.SerializeObject(cores),
+                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
+                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
                         JsonConvert.SerializeObject(mhz),
                         JsonConvert.SerializeObject(memory_mb),
                         JsonConvert.SerializeObject(AgentSettings.Default.dom0MinMemory)

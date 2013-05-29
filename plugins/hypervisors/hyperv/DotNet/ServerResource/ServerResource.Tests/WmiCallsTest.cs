@@ -1,4 +1,20 @@
-﻿using System;
+﻿// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using CloudStack.Plugin.WmiWrappers.ROOT.VIRTUALIZATION;
 using System.Management;
@@ -50,7 +66,9 @@ namespace ServerResource.Tests
             testLocalStoreUUID = AgentSettings.Default.local_storage_uuid.ToString();
 
             // Make sure secondary store is available.
-            DirectoryInfo testSecondarStoreDir = new DirectoryInfo(testSecondaryStoreLocalPath);
+            string fullPath = Path.GetFullPath(testSecondaryStoreLocalPath);
+            s_logger.Info("Test secondary storage in " + fullPath);
+            DirectoryInfo testSecondarStoreDir = new DirectoryInfo(fullPath);
             if (!testSecondarStoreDir.Exists)
             {
                 try
@@ -134,16 +152,17 @@ namespace ServerResource.Tests
             return JsonConvert.SerializeObject(newFileInfo.FullName);
         }
 
-        //[TestMethod]
-        public void TestStopVm()
-        {
-	    	String sampleStop =  "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
-            dynamic jsonObj = JsonConvert.DeserializeObject(sampleStop);
-            WmiCalls.DestroyVm(jsonObj.vmName);
-    	}
-
+        /// <summary>
+        /// Possible additional tests:  place an ISO in the drive
+        /// </summary>
         [TestMethod]
         public void TestStartStopCommand()
+        {
+            string vmName = TestStartCommand();
+            TestStopCommand(vmName);
+        }
+
+        private static string TestStartCommand()
         {
             // Arrange
             HypervResourceController rsrcServer = new HypervResourceController();
@@ -167,14 +186,13 @@ namespace ServerResource.Tests
                                       "]},\"contextMap\":{},\"wait\":0}";
             dynamic jsonStartCmd = JsonConvert.DeserializeObject(sample);
 
-            String sampleStop = "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
-            dynamic jsonStopCmd = JsonConvert.DeserializeObject(sampleStop);
- 
 
             // Act
-            rsrcServer.StartCommand(jsonStartCmd);
+            dynamic startAns = rsrcServer.StartCommand(jsonStartCmd);
 
             // Assert
+            Assert.IsTrue((bool)startAns[0].StartAnswer.result, "StartCommand did not succeed " +  startAns[0].StartAnswer.details);
+            Assert.IsNotNull(startAns[0].StartAnswer, "StartCommand should return a StartAnswer in all cases");
             string vmCmdName = jsonStartCmd.vm.name.Value;
             var vm = WmiCalls.GetComputerSystem(vmCmdName);
             VirtualSystemSettingData vmSettings = WmiCalls.GetVmSettings(vm);
@@ -193,132 +211,37 @@ namespace ServerResource.Tests
             Assert.IsTrue((int)procSettings.Reservation == vcpus);
             Assert.IsTrue((int)procSettings.Limit == 100000);
 
-            // TODO: System is now running.  Compare the resources allocated for the VM with what the VM is using.
+            // examine NIC
+            SyntheticEthernetPortSettingData[] nicSettingsViaVm = WmiCalls.GetEthernetPorts(vm);
+            Assert.IsTrue(nicSettingsViaVm.Length > 0, "Should be at least one ethernet port on VM");
+            string expectedMac = (string)jsonStartCmd.vm.nics[0].mac;
+            string strippedExpectedMac = expectedMac.Replace(":", string.Empty);
+            Assert.AreEqual(nicSettingsViaVm[0].Address.ToLower(), strippedExpectedMac.ToLower());
 
+            // Assert switchport has correct VLAN 
+            SwitchPort[] switchPorts = WmiCalls.GetSwitchPorts(vm);
+            VirtualSwitchManagementService vmNetMgmtSvc = WmiCalls.GetVirtualSwitchManagementService();
+            VLANEndpointSettingData vlanSettings = WmiCalls.GetVlanEndpointSettings(vmNetMgmtSvc, switchPorts[0].Path);
+            string isolationUri = (string)jsonStartCmd.vm.nics[0].isolationUri;
+            string vlan = isolationUri.Replace("vlan://", string.Empty);
+            Assert.AreEqual(vlanSettings.AccessVLAN.ToString(), vlan);
 
-            // Act
-            rsrcServer.StopCommand(jsonStopCmd);
-
-            // Assert VM is gone!
-            var finalVm = WmiCalls.GetComputerSystem(vmName);
-            Assert.IsTrue(WmiCalls.GetComputerSystem(vmName) == null);
+            return vmName;
         }
 
-
-        //[TestMethod]
-        public void TestDeployVm()
+        private static void TestStopCommand(string vmName)
         {
             // Arrange
-            String sample = "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
-                "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
-                "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
-                "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
-                "\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
-                ",\"disks\":[" +
-                    "{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
-                        "\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
-                        "\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0," +
-                        "\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\"" + testLocalStoreUUID + "\"" +
-                        ",\"deviceId\":0}," +
-                    "{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," +
-                "\"nics\":[" +
-                    "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," +
-                    "\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," +
-                    "\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," +
-                    "\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
-                                      "]},\"contextMap\":{},\"wait\":0}";
+            HypervResourceController rsrcServer = new HypervResourceController();
+            String sampleStop = "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
+            dynamic jsonStopCmd = JsonConvert.DeserializeObject(sampleStop);
 
             // Act
-            var vm = WmiCalls.DeployVirtualMachine(sample);
-
-            // Assert
-            VirtualSystemSettingData vmSettings = WmiCalls.GetVmSettings(vm);
-            MemorySettingData memSettings = WmiCalls.GetMemSettings(vmSettings);
-            ProcessorSettingData procSettings = WmiCalls.GetProcSettings(vmSettings);
-            dynamic jsonObj = JsonConvert.DeserializeObject(sample);
-            var vmInfo = jsonObj.vm;
-            string vmName = vmInfo.name;
-            var nicInfo = vmInfo.nics;
-            int vcpus = vmInfo.cpus;
-            int memSize = vmInfo.maxRam / 1048576;
-            Assert.IsTrue((long)memSettings.VirtualQuantity == memSize);
-            Assert.IsTrue((long)memSettings.Reservation == memSize);
-            Assert.IsTrue((long)memSettings.Limit == memSize);
-            Assert.IsTrue((int)procSettings.VirtualQuantity == vcpus);
-            Assert.IsTrue((int)procSettings.Reservation == vcpus);
-            Assert.IsTrue((int)procSettings.Limit == 100000);
-
-            // TODO: System is now running.  Compare the resources allocated for the VM with what the VM is using.
-
-            // Clean up
-            // Destory VM resources
-            WmiCalls.DestroyVm(vmName);
+            dynamic stopAns = rsrcServer.StopCommand(jsonStopCmd);
 
             // Assert VM is gone!
-            var finalVm = WmiCalls.GetComputerSystem(vmName);
-            Assert.IsTrue(WmiCalls.GetComputerSystem(vmName) == null);
-        }
-
-        //[TestMethod]
-        public void TestDeployVmConstituents()
-        {
-            // Arrange
-            var vmName = "UnitTestVm_CreateVMCall";
-            long memory_mb = 512;
-            int vcpus = 1;
-
-            // WmiCalls.DeleteSwitchPort(vmName);
-
-            // Act
-            var vm = WmiCalls.CreateVM(vmName, memory_mb, vcpus);
-
-            // Assert
-            VirtualSystemSettingData vmSettings = WmiCalls.GetVmSettings(vm);
-            MemorySettingData memSettings = WmiCalls.GetMemSettings(vmSettings);
-            ProcessorSettingData procSettings = WmiCalls.GetProcSettings(vmSettings);
-            Assert.IsTrue((long)memSettings.VirtualQuantity == memory_mb);
-            Assert.IsTrue((long)memSettings.Reservation == memory_mb);
-            Assert.IsTrue((long)memSettings.Limit == memory_mb);
-            Assert.IsTrue((int)procSettings.VirtualQuantity == vcpus);
-            Assert.IsTrue((int)procSettings.Reservation == vcpus);
-            Assert.IsTrue((int)procSettings.Limit == 100000);
-
-            // Act
-            // Add a HD and DVD to the new vm
-            // TODO: Use relative that for test vhdLocation.
-            string vhdLocation = JsonConvert.DeserializeObject(testSampleVolumeWorkingURIJSON).ToString();
-            ManagementPath hdPath = WmiCalls.AddDiskDriveToVm(vm, vhdLocation, "0", WmiCalls.IDE_HARDDISK_DRIVE);
-            ManagementPath isoPath = WmiCalls.AddDiskDriveToVm(vm, null, "1", WmiCalls.IDE_ISO_DRIVE);
-
-            // TODO:  Add an ISO as well.
-
-            // Act
-            // TODO:  Use the following invalid MAC address to trigger the error handling (check that it is indeed the wrong format)
-            //            var nic = WmiCalls.CreateNICforVm(vm, "ff:01:02:03:04:06", "501");  
-            SyntheticEthernetPortSettingData nicSettings = WmiCalls.CreateNICforVm(vm, "02:00:33:F8:00:09", "501");
-
-            // Assert by looking of the nic vi the VM.
-            SyntheticEthernetPortSettingData nicSettingsViaVm = WmiCalls.GetEthernetPort(vm);
-            Assert.AreEqual(nicSettingsViaVm.InstanceID, nicSettings.InstanceID);
-
-            // TODO:  NIC seems only to appear when VM is started, which prevents tests below.  Can we work around this problem by starting the VM?
-
-            // Assert NIC is associated with switchport (via its LANEndPoint)
-            // 
-            //SwitchPort switchPort = WmiCalls.GetSwitchPort(nic);
-            //Assert.AreEqual(switchPort.ElementName, nic.ElementName);
-
-            // TODO:  verify that the switch port has the correct VLAN.  Not clear how switch port references a NIC.
-
-            // Assert switchport has correct VLAN (via Msvm_VLANEndpoint via Msvm_VLANEndpointSettings) of the switch port
-            //VirtualSwitchManagementService vmNetMgmtSvc = WmiCalls.GetVirtualSwitchManagementService();
-            //VLANEndpointSettingData vlanSettings = WmiCalls.GetVlanEndpointSettings(vmNetMgmtSvc, switchPort.Path);
-
-            // Clean up
-            // Destory VM resources
-            WmiCalls.DestroyVm(vmName);
-
-            // Assert VM is gone!
+            Assert.IsNotNull(stopAns[0].StopAnswer, "StopCommand should return a StopAnswer in all cases");
+            Assert.IsTrue((bool)stopAns[0].StopAnswer.result, "StopCommand did not succeed " + stopAns[0].StopAnswer.details);
             var finalVm = WmiCalls.GetComputerSystem(vmName);
             Assert.IsTrue(WmiCalls.GetComputerSystem(vmName) == null);
         }
