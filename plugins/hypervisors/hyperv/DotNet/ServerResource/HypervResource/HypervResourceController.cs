@@ -1,5 +1,22 @@
-﻿using CloudStack.Plugin.WmiWrappers.ROOT.VIRTUALIZATION;
+﻿// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+using CloudStack.Plugin.WmiWrappers.ROOT.VIRTUALIZATION;
 using log4net;
+using Microsoft.CSharp.RuntimeBinder;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -56,14 +73,28 @@ namespace HypervResource
         public string LocalSecondaryStoragePath;
     }
 
-    // Supports HTTP GET and HTTP POST
-    // POST takes dynamic to allow it to receive JSON without concern for what is the underlying object.
-    // E.g. http://stackoverflow.com/questions/14071715/passing-dynamic-json-object-to-web-api-newtonsoft-example 
-    // and http://stackoverflow.com/questions/3142495/deserialize-json-into-c-sharp-dynamic-object
-    // Use ActionName attribute to allow multiple POST URLs, one for each supported command
-    // E.g. http://stackoverflow.com/a/12703423/939250
-    // Strictly speaking, this goes against the purpose of an ApiController, which is to provide one GET/POST/PUT/DELETE, etc.
-    // However, it reduces the amount of code by removing the need for a switch according to the incoming command type.
+    /// <summary>
+    /// Supports one HTTP GET and multiple HTTP POST URIs
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// POST takes dynamic to allow it to receive JSON without concern for what is the underlying object.
+    /// E.g. http://stackoverflow.com/questions/14071715/passing-dynamic-json-object-to-web-api-newtonsoft-example 
+    /// and http://stackoverflow.com/questions/3142495/deserialize-json-into-c-sharp-dynamic-object
+    /// Use ActionName attribute to allow multiple POST URLs, one for each supported command
+    /// E.g. http://stackoverflow.com/a/12703423/939250
+    /// Strictly speaking, this goes against the purpose of an ApiController, which is to provide one GET/POST/PUT/DELETE, etc.
+    /// However, it reduces the amount of code by removing the need for a switch according to the incoming command type.
+    /// http://weblogs.asp.net/fredriknormen/archive/2012/06/11/asp-net-web-api-exception-handling.aspx
+    /// </para>
+    /// <para>
+    /// Exceptions handled on command by command basis rather than globally to allow details of the command
+    /// to be reflected in the response.  Default error handling is in the catch for Exception, but
+    /// other exception types may be caught where the feedback would be different.
+    /// NB: global alternatives discussed at 
+    /// http://weblogs.asp.net/fredriknormen/archive/2012/06/11/asp-net-web-api-exception-handling.aspx
+    /// </para>
+    /// </remarks>
     public class HypervResourceController : ApiController
     {
         public static void Configure(HypervResourceControllerConfig config)
@@ -125,6 +156,7 @@ namespace HypervResource
                 details = "DestroyCommand failed due to " + sysEx.Message;
                 logger.Error(details, sysEx);
             }
+
             var answerObj = new
             {
                 DestroyAnswer = new
@@ -227,7 +259,7 @@ namespace HypervResource
                     }
                 }
             }
-            catch (System.SystemException sysEx)
+            catch (Exception sysEx)
             {
                 // TODO: consider this as model for error processing in all commands
                 details = "CreateCommand failed due to " + sysEx.Message;
@@ -292,7 +324,7 @@ namespace HypervResource
                         size = newFile.Length;
                         result = true;
                     }
-                    catch (System.SystemException ex)
+                    catch (System.Exception ex)
                     {
                         details = "Cannot download source URL " + sourceUrl + " due to " + ex.Message;
                         logger.Error(details, ex);
@@ -434,13 +466,13 @@ namespace HypervResource
         [ActionName("DeleteStoragePoolCommand")]
         public JContainer DeleteStoragePoolCommand([FromBody]dynamic cmd)
         {
-            string details = "Current implementation does not delete storage pools!";
+            string details = "Current implementation does not delete local path corresponding to storage pool!";
             JToken answerTok;
             var answerObj = new
             {
                 Answer = new
                 {
-                    result = false,
+                    result = true,
                     details = details
                 }
             };
@@ -451,41 +483,28 @@ namespace HypervResource
             return answer;
         }
 
-        // POST api/HypervResource/CreateStoragePoolCommand
+        /// <summary>
+        /// NOP - legacy command -
+        /// POST api/HypervResource/CreateStoragePoolCommand
+        /// </summary>
+        /// <param name="cmd"></param>
+        /// <returns></returns>
         [HttpPost]
         [ActionName("CreateStoragePoolCommand")]
         public JContainer CreateStoragePoolCommand([FromBody]dynamic cmd)
         {
             string details = "success - NOP";
-            string localPath;
             JToken answerTok;
 
-            bool result = ValidateStoragePoolCommand(cmd, out localPath);
-            if (!result)
+            var answerObj = new
             {
-                details = "Failed to create storage pool, invalid path or FileSystem type!";
-                var answerObj = new
+                Answer = new
                 {
-                    Answer = new
-                    {
-                        result = result,
-                        details = details
-                    }
-                };
-                answerTok = JToken.FromObject(answerObj);
-            }
-            else
-            {
-                var answerObj = new
-                {
-                    Answer = new
-                    {
-                        result = true,
-                        details = details
-                    }
-                };
-                answerTok = JToken.FromObject(answerObj);
-            }
+                    result = true,
+                    details = details
+                }
+            };
+            answerTok = JToken.FromObject(answerObj);
 
             JArray answer = new JArray();
             answer.Add(answerTok);
@@ -534,7 +553,6 @@ namespace HypervResource
 		            availableBytes = availableBytes
                 };
 
-
                 var answerObj = new
                 {
                     ModifyStoragePoolAnswer = new
@@ -546,7 +564,6 @@ namespace HypervResource
                     }
                 };
                 answerTok = JToken.FromObject(answerObj);
-
             }
 
             JArray answer = new JArray();
@@ -558,12 +575,12 @@ namespace HypervResource
         private bool ValidateStoragePoolCommand(dynamic cmd, out string localPath)
         {
             dynamic pool = cmd.pool;
-            string poolTypeStr = pool.type;
+            string poolTypeStr = pool.poolType;
             StoragePoolType poolType;
             localPath = cmd.localPath;
             if (!Enum.TryParse<StoragePoolType>(poolTypeStr, out poolType) || poolType != StoragePoolType.Filesystem)
             {
-                String msg = "Request to create / modify unsupported pool type: " + poolTypeStr;
+                String msg = "Request to create / modify unsupported pool type: " + (poolTypeStr==null ? "NULL": poolTypeStr);
                 logger.Error(msg);
                 return false;
             }
@@ -664,7 +681,7 @@ namespace HypervResource
                 WmiCalls.DeployVirtualMachine(cmd);
                 result = true;
             }
-            catch (WmiException wmiEx)
+            catch (Exception wmiEx)
             {
                 details = "StartCommand fail on exception" + wmiEx.Message;
                 logger.Error(details, wmiEx);
@@ -699,8 +716,9 @@ namespace HypervResource
             try
             {
                 WmiCalls.DestroyVm(cmd);
+                result = true;
             }
-            catch (WmiException wmiEx)
+            catch (Exception wmiEx)
             {
                 details = "StopCommand fail on exception" + wmiEx.Message;
                 logger.Error(details, wmiEx);
@@ -708,7 +726,7 @@ namespace HypervResource
 
             var answerObj = new
             {
-                StartAnswer = new
+                StopAnswer = new
                 {
                     result = result,
                     details = details,
@@ -732,8 +750,8 @@ namespace HypervResource
         {
             bool result = false;
             string details = null;
-
-            String[] vmNames = cmd.vmNames;
+            JArray vmNamesJson = cmd.vmNames;
+            string[] vmNames = vmNamesJson.ToObject<string[]>();
             Dictionary<string, VmStatsEntry> vmProcessorInfo = new Dictionary<string,VmStatsEntry>(vmNames.Length);
 
 
@@ -749,7 +767,6 @@ namespace HypervResource
                 var sysInfo = WmiCalls.GetVmSettings(sys);
                 vmsToInspect.Add(sysInfo.Path);
             }
-
 
             // Process info available from WMI, 
             // See http://msdn.microsoft.com/en-us/library/cc160706%28v=vs.85%29.aspx
@@ -785,7 +802,7 @@ namespace HypervResource
             // TODO: Network usage comes from Performance Counter API; however it is only available in kb/s, and not in total terms.
             // Curious about these?  Use perfmon to inspect them, e.g. http://msdn.microsoft.com/en-us/library/xhcx5a20%28v=vs.100%29.aspx
             // Recent post on these counter at http://blogs.technet.com/b/cedward/archive/2011/07/19/hyper-v-networking-optimizations-part-6-of-6-monitoring-hyper-v-network-consumption.aspx
-
+            result = true;
             var answerObj = new
             {
                 GetVmStatsAnswer = new
@@ -818,17 +835,12 @@ namespace HypervResource
                 long available;
                 GetCapacityForLocalPath(localPath, out capacity, out available);
                 used = capacity - available;
-
+                result = true;
             }
-            catch (FormatException exFormat)
+            catch (Exception ex)
             {
-                details = "GetStorageStatsCommand fail on exception" + exFormat.Message;
-                logger.Error(details, exFormat);
-            }
-            catch (WmiException wmiEx)
-            {
-                details = "GetStorageStatsCommand fail on exception" + wmiEx.Message;
-                logger.Error(details, wmiEx);
+                details = "GetStorageStatsCommand failed on exception" + ex.Message;
+                logger.Error(details, ex);
             }
 
             var answerObj = new
@@ -866,12 +878,11 @@ namespace HypervResource
 
             try
             {
-                long hostId = cmd.hostId;
+                long hostId = (long)cmd.hostId;
                 WmiCalls.GetMemoryResources(out totalMemoryKBs, out freeMemoryKBs);
                 WmiCalls.GetProcessorUsageInfo(out cpuUtilization);
 
                 // TODO: can we assume that the host has only one adaptor?
-
                 string tmp;
                 var privateNic = GetNicInfoFromIpAddress(config.PrivateIpAddress, out tmp);
                 var nicStats = privateNic.GetIPStatistics();
@@ -890,17 +901,11 @@ namespace HypervResource
                     totalMemoryKBs = (double)totalMemoryKBs,
                     freeMemoryKBs = (double)freeMemoryKBs
                 };
-
             }
-            catch (FormatException exFormat)
+            catch (Exception ex)
             {
-                details = "GetHostStatsCommand fail on exception" + exFormat.Message;
-                logger.Error(details, exFormat);
-            }
-            catch (WmiException wmiEx)
-            {
-                details = "GetHostStatsCommand fail on exception" + wmiEx.Message;
-                logger.Error(details, wmiEx);
+                details = "GetHostStatsCommand failed on exception" + ex.Message;
+                logger.Error(details, ex);
             }
 
             var answerObj = new
@@ -1038,7 +1043,9 @@ namespace HypervResource
         private static void GetCapacityForLocalPath(string localStoragePath, out long capacityBytes, out long availableBytes)
         {
             // NB: DriveInfo does not work for remote folders (http://stackoverflow.com/q/1799984/939250)
-            System.IO.DriveInfo poolInfo = new System.IO.DriveInfo(localStoragePath);
+            // DriveInfo requires a driver letter...
+            string fullPath = Path.GetFullPath(localStoragePath);
+            System.IO.DriveInfo poolInfo = new System.IO.DriveInfo(fullPath);
             capacityBytes = poolInfo.TotalSize;
             availableBytes = poolInfo.AvailableFreeSpace;
 
