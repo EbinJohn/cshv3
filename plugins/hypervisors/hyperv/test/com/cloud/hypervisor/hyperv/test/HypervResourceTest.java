@@ -330,7 +330,6 @@ public class HypervResourceTest {
     	corePrimaryStorageDownloadCommandTestCycle(cmd);
     }
 
-    // TODO:  note requirements of test in the wiki.
     //@Test
     public void TestPrimaryStorageDownloadCommandHTTP()
     {
@@ -359,7 +358,7 @@ public class HypervResourceTest {
 
 	private PrimaryStorageDownloadCommand samplePrimaryDownloadCommand() {
 		String cmdJson = "{\"localPath\":" +testLocalStorePathJSON + 
-    			",\"poolUuid\":" +testLocalStoreUUID + ",\"poolId\":201,"+ 
+    			",\"poolUuid\":\"" +testLocalStoreUUID + "\",\"poolId\":201,"+ 
     			"\"secondaryStorageUrl\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage\"," +
     			"\"primaryStorageUrl\":\"nfs://10.70.176.29E:\\\\Disks\\\\Disks\"," + 
     			"\"url\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage/template/tmpl//2/204//af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx\","+
