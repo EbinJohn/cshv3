@@ -116,7 +116,7 @@ namespace ServerResource.Tests
             testSampleVolumeCorruptURIJSON = CreateTestDiskImageFromExistingImage(testVolWorks, testLocalStorePath, testSampleVolumeCorruptUUID);
             s_logger.Info("Created " + testSampleVolumeCorruptURIJSON);
             CreateTestDiskImageFromExistingImage(testVolWorks, testLocalStorePath, testSampleTemplateUUID);
-            testSampleTemplateURLJSON = testSampleTemplateUUID;
+            testSampleTemplateURLJSON = JsonConvert.SerializeObject(testSampleTemplateUUID);
             s_logger.Info("Created " + testSampleTemplateURLJSON + " in local storage.");
 
             // ... including a secondary storage template:
@@ -152,6 +152,109 @@ namespace ServerResource.Tests
             return JsonConvert.SerializeObject(newFileInfo.FullName);
         }
 
+        [TestMethod]
+        public void TestPrimaryStorageDownloadCommandHTTP()
+        {
+            string downloadURI = "https://s3-eu-west-1.amazonaws.com/cshv3eu/SmallDisk.vhdx";
+            corePrimaryStorageDownloadCommandTestCycle(downloadURI);
+        }
+
+        private void corePrimaryStorageDownloadCommandTestCycle(string downloadURI)
+        {
+            // Arrange
+            HypervResourceController rsrcServer = new HypervResourceController();
+            dynamic jsonPSDCmd = JsonConvert.DeserializeObject(samplePrimaryDownloadCommand());
+            jsonPSDCmd.url = downloadURI;
+
+            // Act
+            dynamic jsonResult = rsrcServer.PrimaryStorageDownloadCommand(jsonPSDCmd);
+
+            // Assert
+            dynamic ans = jsonResult[0].PrimaryStorageDownloadAnswer;
+            Assert.IsTrue((bool)ans.result, "PrimaryStorageDownloadCommand did not succeed " + ans.details);
+
+            // Test that URL of downloaded template works for file creation.
+            dynamic jsonCreateCmd = JsonConvert.DeserializeObject(CreateCommandSample());
+            jsonCreateCmd.templateUrl = ans.installPath;
+            dynamic jsonAns2 = rsrcServer.CreateCommand(jsonCreateCmd);
+            dynamic ans2 = jsonAns2[0].CreateAnswer;
+            Assert.IsTrue((bool)ans2.result, (string)ans2.details);
+
+            FileInfo newFile = new FileInfo((string)ans2.volume.path);
+            Assert.IsTrue(newFile.Length > 0, "The new file should have a size greater than zero");
+            newFile.Delete();
+        }
+
+	    private string samplePrimaryDownloadCommand() {
+		    String cmdJson = "{\"localPath\":" +testLocalStorePathJSON +
+                    ",\"poolUuid\":\"" + testLocalStoreUUID + "\",\"poolId\":201," + 
+    			    "\"secondaryStorageUrl\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage\"," +
+    			    "\"primaryStorageUrl\":\"nfs://10.70.176.29E:\\\\Disks\\\\Disks\"," + 
+    			    "\"url\":\"nfs://10.70.176.36/mnt/cshv3/secondarystorage/template/tmpl//2/204//af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx\","+
+    			    "\"format\":\"VHDX\",\"accountId\":2,\"name\":\"204-2-5a1db1ac-932b-3e7e-a0e8-5684c72cb862\"" +
+    			    ",\"contextMap\":{},\"wait\":10800}";
+            return cmdJson;
+	    }
+    
+	    public string CreateCommandSample()
+	    {
+		    String sample = "{\"volId\":17,\"pool\":{\"id\":201,\"uuid\":\""+testLocalStoreUUID+"\",\"host\":\"10.70.176.29\"" +
+						    ",\"path\":"+testLocalStorePathJSON+",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
+						    "\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-15\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
+						    "\"volumeId\":17,\"hyperType\":\"Hyperv\"},\"templateUrl\":"+ testSampleTemplateURLJSON +",\"wait\":0}";
+            return sample;
+	    }
+
+        [TestMethod]
+        public void TestDestroyCommand()
+        {
+            // Arrange
+            String destoryCmd = "{\"volume\":{\"name\":\"" + testSampleVolumeWorkingUUID + 
+        		    "\",\"storagePoolType\":\"Filesystem\",\"mountPoint\":"+testLocalStorePathJSON+
+        		    ",\"path\":" + testSampleVolumeTempURIJSON +
+        		    ",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"," + 
+        		    "\"type\":\"ROOT\",\"id\":9,\"size\":0}}";
+            HypervResourceController rsrcServer = new HypervResourceController();
+            dynamic jsonDestoryCmd = JsonConvert.DeserializeObject(destoryCmd);
+
+            // Act
+            dynamic destoryAns = rsrcServer.DestroyCommand(jsonDestoryCmd);
+
+            // Assert
+            dynamic ans = destoryAns[0].DestroyAnswer;
+            Assert.IsTrue((bool)ans.result, "DestroyCommand did not succeed " + ans.details);
+        }
+
+        [TestMethod]
+        public void TestCreateCommand()
+        {
+            // Arrange
+            String createCmd = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\"" + testLocalStoreUUID + "\",\"host\":\"10.70.176.29\"" +
+    					    ",\"path\":"+testLocalStorePathJSON+",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
+    					    "\"tags\":[],\"type\":\"ROOT\",\"name\":\"ROOT-9\",\"useLocalStorage\":true,\"recreatable\":true,\"diskOfferingId\":11," +
+    					    "\"volumeId\":10,\"hyperType\":\"Hyperv\"},\"templateUrl\":"+testSampleTemplateURLJSON+",\"contextMap\":{},\"wait\":0}";
+            dynamic jsonCreateCmd = JsonConvert.DeserializeObject(createCmd);
+            HypervResourceController rsrcServer = new HypervResourceController();
+
+        	Assert.IsTrue(Directory.Exists(testLocalStorePath));
+            string filePath = Path.Combine(testLocalStorePath, (string)JsonConvert.DeserializeObject(testSampleTemplateURLJSON));
+        	Assert.IsTrue(File.Exists(filePath), "The template we make volumes from is missing from path " + filePath);
+            int fileCount = Directory.GetFiles(testLocalStorePath).Length;
+    	    s_logger.Debug(" test local store has " + fileCount + "files");
+
+            // Act
+            // Test requires there to be a template at the tempalteUrl, which is its location in the local file system.
+            dynamic jsonResult = rsrcServer.CreateCommand(jsonCreateCmd);
+
+            dynamic ans = jsonResult[0].CreateAnswer;
+            Assert.IsNotNull(ans, "Should be an answer object of type CreateAnswer");
+    	    Assert.IsTrue((bool)ans.result, "Failed to CreateCommand due to "  + (string)ans.result);
+            Assert.AreEqual(Directory.GetFiles(testLocalStorePath).Length, fileCount + 1);
+            FileInfo newFile = new FileInfo((string)ans.volume.path);
+            Assert.IsTrue(newFile.Length > 0, "The new file should have a size greater than zero");
+            newFile.Delete();
+        }
+
         /// <summary>
         /// Possible additional tests:  place an ISO in the drive
         /// </summary>
@@ -161,6 +264,7 @@ namespace ServerResource.Tests
             string vmName = TestStartCommand();
             TestStopCommand(vmName);
         }
+
 
         private static string TestStartCommand()
         {

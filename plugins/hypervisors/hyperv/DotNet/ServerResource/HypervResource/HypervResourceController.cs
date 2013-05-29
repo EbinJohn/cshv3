@@ -151,7 +151,7 @@ namespace HypervResource
                     result = true;
                 }
             }
-            catch (System.SystemException sysEx)
+            catch (Exception sysEx)
             {
                 details = "DestroyCommand failed due to " + sysEx.Message;
                 logger.Error(details, sysEx);
@@ -193,9 +193,9 @@ namespace HypervResource
                 string poolTypeStr = cmd.pool.type;
                 string poolLocalPath = cmd.pool.path;
                 string poolUuid = cmd.pool.uuid;
-                string volPath = null;
+                string newVolPath = null;
                 long volId = cmd.volId;
-                string volName = null;
+                string newVolName = null;
 
                 if (ValidStoragePool(poolTypeStr, poolLocalPath, poolUuid, ref details))
                 {
@@ -210,17 +210,17 @@ namespace HypervResource
                         }
                         else
                         {
-                            volName = cmd.diskCharacteristics.name;
-                            volPath = Path.Combine(poolLocalPath, volName, diskType.ToLower());
+                            newVolName = cmd.diskCharacteristics.name;
+                            newVolPath = Path.Combine(poolLocalPath, newVolName, diskType.ToLower());
                             // TODO: how do you specify format as VHD or VHDX?
-                            WmiCalls.CreateDynamicVirtualHardDisk(disksize, volPath);
-                            if (File.Exists(volPath))
+                            WmiCalls.CreateDynamicVirtualHardDisk(disksize, newVolPath);
+                            if (File.Exists(newVolPath))
                             {
                                 result = true;
                             }
                             else
                             {
-                                details = "Failed to create DATADISK with name " + volName;
+                                details = "Failed to create DATADISK with name " + newVolName;
                             }
                         }
                     }
@@ -238,24 +238,24 @@ namespace HypervResource
                             logger.Debug("Template's name in primary store should be " + templateUri);
                             //            HypervPhysicalDisk BaseVol = primaryPool.getPhysicalDisk(tmplturl);
                             FileInfo srcFileInfo = new FileInfo(templateUri);
-                            string newVolName = Guid.NewGuid() + srcFileInfo.Extension;
-                            string newVolPath = Path.Combine(poolLocalPath, newVolName);
+                            newVolName = Guid.NewGuid() + srcFileInfo.Extension;
+                            newVolPath = Path.Combine(poolLocalPath, newVolName);
                             logger.Debug("New volume will be at " + newVolPath);
                             string oldVolPath = Path.Combine(poolLocalPath, templateUri);
                             File.Copy(oldVolPath, newVolPath);
-                            if (File.Exists(volPath))
+                            if (File.Exists(newVolPath))
                             {
                                 result = true;
                             }
                             else
                             {
-                                details = "Failed to create DATADISK with name " + volName;
+                                details = "Failed to create DATADISK with name " + newVolName;
                             }
                         }
                         volume = new VolumeInfo(
                                   volId, diskType,
-                                poolTypeStr, poolUuid, volName,
-                                volPath, volPath, (long)disksize, null);
+                                poolTypeStr, poolUuid, newVolName,
+                                newVolPath, newVolPath, (long)disksize, null);
                     }
                 }
             }
@@ -294,16 +294,19 @@ namespace HypervResource
 
             string newCopyFileName = null;
 
-            string poolTypeStr = cmd.primaryPool.type;
             string poolLocalPath = cmd.localPath;
             string poolUuid = cmd.poolUuid;
-            if (ValidStoragePool(poolTypeStr, poolLocalPath, poolUuid, ref details))
+            if (!Directory.Exists(poolLocalPath))
+            {
+                details = "None existent local path " + poolLocalPath;
+            }
+            else
             {
                 // Compose name for downloaded file.
                 string sourceUrl = cmd.url;
                 if (sourceUrl.ToLower().EndsWith(".vhd"))
                 {
-                    newCopyFileName =  Guid.NewGuid() + ".vhdx";
+                    newCopyFileName =  Guid.NewGuid() + ".vhd";
                 }
                 if (sourceUrl.ToLower().EndsWith(".vhdx"))
                 {
@@ -320,9 +323,12 @@ namespace HypervResource
                 {
                     try
                     {
-                        FileInfo newFile = CopyURI(sourceUrl, newCopyFileName, poolLocalPath);
-                        size = newFile.Length;
-                        result = true;
+                        FileInfo newFile;
+                        if (CopyURI(sourceUrl, newCopyFileName, poolLocalPath, out newFile, ref details))
+                        {
+                            size = newFile.Length;
+                            result = true;
+                        }
                     }
                     catch (System.Exception ex)
                     {
@@ -337,8 +343,8 @@ namespace HypervResource
                 {
                     result = result,
                     details = details,
-                    size = size,
-                    name = newCopyFileName
+                    templateSize = size,
+                    installPath = newCopyFileName
                 }
             };
 
@@ -392,32 +398,45 @@ namespace HypervResource
         /// +-System.NotSupportedException
         /// +-System.ArgumentNullException
         /// </summary>
-        /// <param name="sourceUrl"></param>
+        /// <param name="sourceUri"></param>
         /// <param name="newCopyFileName"></param>
         /// <param name="poolLocalPath"></param>
         /// <returns></returns>
-        private FileInfo CopyURI(string sourceUrl, string newCopyFileName, string poolLocalPath)
+        private bool CopyURI(string sourceUri, string newCopyFileName, string poolLocalPath, out FileInfo newFile, ref string details)
         {
-            Uri source = new Uri(sourceUrl);
+            Uri source = new Uri(sourceUri);
             String destFilePath = Path.Combine(poolLocalPath, newCopyFileName);
             string[] pathSegments = source.Segments;
             String templateUUIDandExtension = pathSegments[pathSegments.Length-1];
+            newFile = new FileInfo(destFilePath);
 
             // NFS URI assumed to already be mounted locally.  Mount location given by settings.
         	if (source.Scheme.ToLower().Equals("nfs"))
         	{
             	String srcDiskPath = Path.Combine(HypervResourceController.config.LocalSecondaryStoragePath, templateUUIDandExtension);
-            	String taskMsg = "Copy NFS url in " + sourceUrl + " at " + srcDiskPath + " to pool " + poolLocalPath;
+            	String taskMsg = "Copy NFS url in " + sourceUri + " at " + srcDiskPath + " to pool " + poolLocalPath;
                 logger.Debug(taskMsg);
-
                 File.Copy(srcDiskPath, destFilePath);
         	}
-        	else if (source.Scheme.ToLower().Equals("http"))
-        	{
+            else if (source.Scheme.ToLower().Equals("http") || source.Scheme.ToLower().Equals("https"))
+            {
                 System.Net.WebClient webclient = new WebClient();
                 webclient.DownloadFile(source, destFilePath);
-			}
-            return new FileInfo(destFilePath);
+            }
+            else
+            {
+                details = "Unsupported URI scheme " + source.Scheme.ToLower() + " in source URI " + sourceUri;
+                logger.Error(details);
+                return false;
+            }
+
+            if (!File.Exists(destFilePath))
+            {
+                details = "Filed to copy " + sourceUri + " to primary pool destination " + destFilePath;
+                logger.Error(details);
+                return false;
+            }
+            return true;
         }
 
 
