@@ -334,7 +334,7 @@ public class HypervResourceTest {
     public void TestPrimaryStorageDownloadCommandHTTP()
     {
     	PrimaryStorageDownloadCommand cmd = samplePrimaryDownloadCommand();
-    	cmd.setUrl("http://10.70.177.13/cshv3/SampleHyperVCentOS63VM.vhdx");
+    	cmd.setUrl("http://s3-eu-west-1.amazonaws.com/cshv3eu/SmallDisk.vhdx");
     	corePrimaryStorageDownloadCommandTestCycle(cmd);
     }
 	private void corePrimaryStorageDownloadCommandTestCycle(
