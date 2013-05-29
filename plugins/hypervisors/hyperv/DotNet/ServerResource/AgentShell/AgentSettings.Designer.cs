@@ -201,7 +201,7 @@ namespace CloudStack.Plugin.AgentShell {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute(".\\")]
+        [global::System.Configuration.DefaultSettingValueAttribute("..\\..\\..\\..\\..\\")]
         public string hyperv_plugin_root {
             get {
                 return ((string)(this["hyperv_plugin_root"]));
@@ -232,6 +232,27 @@ namespace CloudStack.Plugin.AgentShell {
         public string private_mac_address {
             get {
                 return ((string)(this["private_mac_address"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("5fe2bad3-d785-394e-9949-89786b8a63d2\r\n")]
+        public string testLocalStoreUUID {
+            get {
+                return ((string)(this["testLocalStoreUUID"]));
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute(".\\var\\test\\storagepool")]
+        public string testLocalStorePath {
+            get {
+                return ((string)(this["testLocalStorePath"]));
+            }
+            set {
+                this["testLocalStorePath"] = value;
             }
         }
     }
