@@ -1,4 +1,20 @@
-﻿using System;
+﻿// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -935,6 +951,23 @@ namespace HypervResource
             return null;
         }
 
+        public static List<string> GetVmElementNames()
+        {
+            List<string> result = new List<string>();
+            ComputerSystem.ComputerSystemCollection vmCollection = ComputerSystem.GetInstances();
+
+            // Return the first one
+            foreach (ComputerSystem vm in vmCollection)
+            {
+                if (vm.Caption.StartsWith("Hosting Computer System") )
+                {
+                    continue;
+                }
+                result.Add(vm.ElementName);
+            }
+            return result;
+        }
+
         public static ProcessorSettingData GetProcSettings(VirtualSystemSettingData vmSettings)
         {
             // An ASSOCIATOR object provides the cross reference from the VirtualSystemSettingData and the 
@@ -1039,12 +1072,33 @@ namespace HypervResource
             throw ex;
         }
 
+        public static SwitchPort[] GetSwitchPorts(ComputerSystem vm)
+        {
+            var virtSwitchMgmtSvc = GetVirtualSwitchManagementService();
+            // Get NIC path
+            var condition = string.Format("ElementName=\"{0}\"", vm.ElementName);
+            var switchPortCollection = SwitchPort.GetInstances(virtSwitchMgmtSvc.Scope, condition);
+
+            List<SwitchPort> result = new List<SwitchPort>(switchPortCollection.Count);
+            foreach (SwitchPort item in switchPortCollection)
+            {
+                result.Add(item);
+            }
+            return result.ToArray();
+        }
+
+
+        /// <summary>
+        /// Deprecated
+        /// </summary>
+        /// <param name="nic"></param>
+        /// <returns></returns>
         public static SwitchPort GetSwitchPort(SyntheticEthernetPort nic)
         {
-            // An ASSOCIATOR object provides the cross reference from the VirtualSystemSettingData and the 
-            // ProcessorSettingData, but generated wrappers do not expose a ASSOCIATOR OF query as a method.
+            // An ASSOCIATOR object provides the cross reference between WMI objects, 
+            // but generated wrappers do not expose a ASSOCIATOR OF query as a method.
             // Instead, we use the System.Management to code the equivalant of 
-            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", vmSettings.path, resultclassName);
+            //  string query = string.Format( "ASSOCIATORS OF {{{0}}} WHERE ResultClass = {1}", wmiObject.path, resultclassName);
             //
             var wmiObjQuery = new RelatedObjectQuery(nic.Path.Path, VmLANEndpoint.CreatedClassName);
 
@@ -1081,7 +1135,7 @@ namespace HypervResource
             return switchPort;
         }
 
-        public static SyntheticEthernetPortSettingData GetEthernetPort(ComputerSystem vm)
+        public static SyntheticEthernetPortSettingData[] GetEthernetPorts(ComputerSystem vm)
         {
             // An ASSOCIATOR object provides the cross reference from the ComputerSettings and the 
             // SyntheticEthernetPortSettingData, via the VirtualSystemSettingData.
@@ -1099,15 +1153,13 @@ namespace HypervResource
             var wmiObjectSearch = new ManagementObjectSearcher(vm.Scope, wmiObjQuery);
             var wmiObjCollection = new SyntheticEthernetPortSettingData.SyntheticEthernetPortSettingDataCollection(wmiObjectSearch.Get());
 
-            foreach (SyntheticEthernetPortSettingData wmiObj in wmiObjCollection)
+            List<SyntheticEthernetPortSettingData> results = new List<SyntheticEthernetPortSettingData>(wmiObjCollection.Count);
+            foreach (SyntheticEthernetPortSettingData item in wmiObjCollection)
             {
-                return wmiObj;
+                results.Add(item);
             }
 
-            var errMsg = string.Format("No SyntheticEthernetPort for VM {0}, path {1}", vm.ElementName, vm.Path.Path);
-            var ex = new WmiException(errMsg);
-            logger.Error(errMsg, ex);
-            throw ex;
+            return results.ToArray();
         }
 
         public static VirtualSystemSettingData GetVmSettings(ComputerSystem vm)
