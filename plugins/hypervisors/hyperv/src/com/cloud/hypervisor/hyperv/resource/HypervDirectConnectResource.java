@@ -41,7 +41,6 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.apache.log4j.Logger;
-import org.junit.Assert;
 
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;

@@ -77,7 +77,7 @@ namespace ServerResource.Tests
                 }
                 catch (System.IO.IOException ex)
                 {
-                    Assert.Fail("Need to be able to create the folder " + testSecondarStoreDir.FullName);
+                    Assert.Fail("Need to be able to create the folder " + testSecondarStoreDir.FullName + " failed due to " + ex.Message);
                 }
             }
 
@@ -170,14 +170,17 @@ namespace ServerResource.Tests
             dynamic jsonResult = rsrcServer.PrimaryStorageDownloadCommand(jsonPSDCmd);
 
             // Assert
-            dynamic ans = jsonResult[0].PrimaryStorageDownloadAnswer;
+            JObject ansAsProperty = jsonResult[0];
+            dynamic ans = ansAsProperty.GetValue("storage.PrimaryStorageDownloadAnswer");
             Assert.IsTrue((bool)ans.result, "PrimaryStorageDownloadCommand did not succeed " + ans.details);
 
             // Test that URL of downloaded template works for file creation.
             dynamic jsonCreateCmd = JsonConvert.DeserializeObject(CreateCommandSample());
             jsonCreateCmd.templateUrl = ans.installPath;
             dynamic jsonAns2 = rsrcServer.CreateCommand(jsonCreateCmd);
-            dynamic ans2 = jsonAns2[0].CreateAnswer;
+            JObject ansAsProperty2 = jsonAns2[0];
+            dynamic ans2 = ansAsProperty2.GetValue("storage.CreateAnswer");
+
             Assert.IsTrue((bool)ans2.result, (string)ans2.details);
 
             FileInfo newFile = new FileInfo((string)ans2.volume.path);
@@ -221,7 +224,9 @@ namespace ServerResource.Tests
             dynamic destoryAns = rsrcServer.DestroyCommand(jsonDestoryCmd);
 
             // Assert
-            dynamic ans = destoryAns[0].DestroyAnswer;
+            JObject ansAsProperty2 = destoryAns[0];
+            dynamic ans = ansAsProperty2.GetValue("storage.DestroyAnswer");
+
             Assert.IsTrue((bool)ans.result, "DestroyCommand did not succeed " + ans.details);
         }
 
@@ -246,7 +251,8 @@ namespace ServerResource.Tests
             // Test requires there to be a template at the tempalteUrl, which is its location in the local file system.
             dynamic jsonResult = rsrcServer.CreateCommand(jsonCreateCmd);
 
-            dynamic ans = jsonResult[0].CreateAnswer;
+            JObject ansAsProperty2 = jsonResult[0];
+            dynamic ans = ansAsProperty2.GetValue("storage.CreateAnswer");
             Assert.IsNotNull(ans, "Should be an answer object of type CreateAnswer");
     	    Assert.IsTrue((bool)ans.result, "Failed to CreateCommand due to "  + (string)ans.result);
             Assert.AreEqual(Directory.GetFiles(testLocalStorePath).Length, fileCount + 1);

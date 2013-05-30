@@ -59,12 +59,14 @@ namespace ServerResource.Tests.Controllers
                 Directory.CreateDirectory(folderName);
             }
 
-            var pool = new {
-                poolType = Enum.GetName(typeof(StoragePoolType), StoragePoolType.Filesystem),
-                hostAddress = "127.0.0.1",
+            var pool = new
+            {  // From java class StorageFilerTO
+                type = Enum.GetName(typeof(StoragePoolType), StoragePoolType.Filesystem),
+                host = "127.0.0.1",
                 port = -1,
                 path = folderName,
-                uuid = Guid.NewGuid().ToString()
+                uuid = Guid.NewGuid().ToString(),
+                userInfo = string.Empty // Used in future to hold credential
             };
 
             var cmd = new
@@ -283,6 +285,10 @@ namespace ServerResource.Tests.Controllers
             ulong freememory;
             WmiCalls.GetMemoryResources(out memory_mb, out freememory);
             memory_mb = memory_mb / 1024;
+            long capacityBytes;
+            long availableBytes;
+            HypervResourceController.GetCapacityForLocalPath(WmiCalls.GetDefaultVirtualDiskFolder(),
+                    out capacityBytes, out availableBytes);
 
             string expected =
                 #region string_literal
@@ -321,8 +327,8 @@ namespace ServerResource.Tests.Controllers
                         "\"localPath\":{7}," +
                         "\"hostPath\":{8}," +
                         "\"poolType\":\"Filesystem\"," +
-                        "\"capacityBytes\":995907072000," +
-                        "\"availableBytes\":945659260928," +
+                        "\"capacityBytes\":{14}," +
+                        "\"availableBytes\":{15}," +
                         "\"details\":null" +
                         "}}," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
@@ -342,7 +348,9 @@ namespace ServerResource.Tests.Controllers
                         JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
                         JsonConvert.SerializeObject(mhz),
                         JsonConvert.SerializeObject(memory_mb),
-                        JsonConvert.SerializeObject(AgentSettings.Default.dom0MinMemory)
+                        JsonConvert.SerializeObject(AgentSettings.Default.dom0MinMemory),
+                        JsonConvert.SerializeObject(capacityBytes),
+                        JsonConvert.SerializeObject(availableBytes)
                         );
                 #endregion
 

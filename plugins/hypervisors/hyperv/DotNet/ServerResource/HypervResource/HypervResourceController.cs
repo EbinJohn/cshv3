@@ -124,7 +124,6 @@ namespace HypervResource
         public JContainer DestroyCommand([FromBody]dynamic cmd)
         {
             string details = null;
-            JToken answerTok;
             bool result = false;
 
             try
@@ -166,11 +165,14 @@ namespace HypervResource
                 }
             };
 
-            answerTok = JToken.FromObject(answerObj);
+            dynamic ansToken = JToken.FromObject(answerObj);
+            JObject vals = ansToken.DestroyAnswer;
+            JProperty ansAsProperty = new JProperty("storage.DestroyAnswer", vals);
             JArray answer = new JArray();
-            answer.Add(answerTok);
+            answer.Add(new JObject(ansAsProperty));
             logger.Info("DestroyCommand result is " + answer.ToString());
             return answer;
+
         }
 
         // POST api/HypervResource/CreateCommand
@@ -179,7 +181,6 @@ namespace HypervResource
         public JContainer CreateCommand([FromBody]dynamic cmd)
         {
             string details = null;
-            JToken answerTok;
             bool result = false;
             VolumeInfo volume = new VolumeInfo();
 
@@ -275,9 +276,11 @@ namespace HypervResource
                 }
             };
 
-            answerTok = JToken.FromObject(answerObj);
+            dynamic ansToken = JToken.FromObject(answerObj);
+            JObject vals = ansToken.CreateAnswer;
+            JProperty ansAsProperty = new JProperty("storage.CreateAnswer", vals);
             JArray answer = new JArray();
-            answer.Add(answerTok);
+            answer.Add(new JObject(ansAsProperty));
             logger.Info("CreateCommand result is " + answer.ToString());
             return answer;
         }
@@ -288,7 +291,6 @@ namespace HypervResource
         public JContainer PrimaryStorageDownloadCommand([FromBody]dynamic cmd)
         {
             string details = null;
-            JToken answerTok;
             bool result = false;
             long size = 0;
 
@@ -337,9 +339,10 @@ namespace HypervResource
                     }
                 }
             }
+
             var answerObj = new
             {
-                PrimaryStorageDownloadAnswer = new
+                primaryStorageDownloadAnswer = new
                 {
                     result = result,
                     details = details,
@@ -348,9 +351,11 @@ namespace HypervResource
                 }
             };
 
-            answerTok = JToken.FromObject(answerObj);
+            dynamic ansToken = JToken.FromObject(answerObj);
+            JObject vals = ansToken.primaryStorageDownloadAnswer;
+            JProperty ansAsProperty = new JProperty("storage.PrimaryStorageDownloadAnswer", vals);
             JArray answer = new JArray();
-            answer.Add(answerTok);
+            answer.Add(new JObject(ansAsProperty));
             logger.Info("PrimaryStorageDownloadCommand result is " + answer.ToString());
             return answer;
         }
@@ -540,10 +545,9 @@ namespace HypervResource
             string localPath;
             JToken answerTok;
 
-            bool result = ValidateStoragePoolCommand(cmd, out localPath);
+            bool result = ValidateStoragePoolCommand(cmd, out localPath, ref details);
             if (!result)
             {
-                details = " Failed to create storage pool";
                 var answerObj = new
                 {
                     Answer = new {
@@ -591,22 +595,22 @@ namespace HypervResource
             return answer;
         }
 
-        private bool ValidateStoragePoolCommand(dynamic cmd, out string localPath)
+        private bool ValidateStoragePoolCommand(dynamic cmd, out string localPath, ref string details)
         {
             dynamic pool = cmd.pool;
-            string poolTypeStr = pool.poolType;
+            string poolTypeStr = pool.type;
             StoragePoolType poolType;
             localPath = cmd.localPath;
             if (!Enum.TryParse<StoragePoolType>(poolTypeStr, out poolType) || poolType != StoragePoolType.Filesystem)
             {
-                String msg = "Request to create / modify unsupported pool type: " + (poolTypeStr==null ? "NULL": poolTypeStr);
-                logger.Error(msg);
+                details = "Request to create / modify unsupported pool type: " + (poolTypeStr == null ? "NULL" : poolTypeStr) + "in cmd " + JsonConvert.SerializeObject(cmd);
+                logger.Error(details);
                 return false;
             }
             if (!Directory.Exists(localPath))
             {
-                String msg = "Request to create / modify unsupported StoragePoolType.Filesystem with non-existent path:" + localPath;
-                logger.Error(msg);
+                details = "Request to create / modify unsupported StoragePoolType.Filesystem with non-existent path:" + (localPath == null ? "NULL" : localPath) + "in cmd " + JsonConvert.SerializeObject(cmd);
+                logger.Error(details);
                 return false;
             }
             return true;
@@ -1024,6 +1028,8 @@ namespace HypervResource
                                 resourceType = StorageResourceType.STORAGE_POOL.ToString()
                             }
                     };
+
+
                 JToken tok = JToken.FromObject(startupStorageCommand);
                 cmdArray.Add(tok);
             }
@@ -1059,7 +1065,7 @@ namespace HypervResource
             throw new ArgumentException("No NIC for ipAddress " + ipAddress);
         }
 
-        private static void GetCapacityForLocalPath(string localStoragePath, out long capacityBytes, out long availableBytes)
+        public static void GetCapacityForLocalPath(string localStoragePath, out long capacityBytes, out long availableBytes)
         {
             // NB: DriveInfo does not work for remote folders (http://stackoverflow.com/q/1799984/939250)
             // DriveInfo requires a driver letter...
