@@ -36,25 +36,35 @@ import com.cloud.agent.api.AgentControlAnswer;
 import com.cloud.agent.api.AgentControlCommand;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
+import com.cloud.agent.api.ReadyCommand;
+import com.cloud.agent.api.SetupAnswer;
+import com.cloud.agent.api.SetupCommand;
 import com.cloud.agent.api.ShutdownCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.agent.transport.Request;
 import com.cloud.alert.AlertManager;
+import com.cloud.configuration.Config;
 import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterVO;
+import com.cloud.dc.DataCenterVO;
+import com.cloud.dc.HostPodVO;
 import com.cloud.dc.dao.ClusterDao;
+import com.cloud.dc.dao.DataCenterDao;
+import com.cloud.dc.dao.HostPodDao;
 import com.cloud.exception.AgentUnavailableException;
+import com.cloud.exception.ConnectionException;
 import com.cloud.exception.DiscoveredWithErrorException;
 import com.cloud.exception.DiscoveryException;
 import com.cloud.exception.OperationTimedoutException;
 import com.cloud.host.Host;
+import com.cloud.host.HostEnvironment;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.hypervisor.hyperv.resource.HypervDummyResourceBase;
+import com.cloud.hypervisor.hyperv.resource.HypervDirectConnectResource;
 import com.cloud.network.NetworkManager;
 import com.cloud.network.PhysicalNetworkSetupInfo;
 import com.cloud.resource.Discoverer;
@@ -64,6 +74,9 @@ import com.cloud.resource.ResourceStateAdapter;
 import com.cloud.resource.ServerResource;
 import com.cloud.resource.UnableDeleteHostException;
 import com.cloud.resource.ResourceStateAdapter.DeleteHostAnswer;
+import com.cloud.utils.NumbersUtil;
+import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.utils.exception.HypervisorVersionChangedException;
 
 @Local(value=Discoverer.class)
 public class HypervServerDiscoverer extends DiscovererBase implements Discoverer, 
@@ -72,158 +85,196 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     private int _waitTime = 1; /*Change to wait for 5 minutes */
 
     @Inject HostDao _hostDao = null;
-    // TODO:  What is the difference between each table?
     @Inject ClusterDao _clusterDao;
     @Inject ClusterDetailsDao _clusterDetailsDao;
     @Inject ResourceManager _resourceMgr;
+    @Inject HostPodDao _podDao;
+    @Inject DataCenterDao _dcDao;
+   
     
-    // TODO:  Why doesn't KvmServerDiscoverer make use of AlertManager when error occurs?
-	@Inject AgentManager _agentMgr;
-    @Inject AlertManager _alertMgr;
+	@Inject AgentManager _agentMgr;	// TODO:  should we be using this mgr?
+    @Inject AlertManager _alertMgr;	// TODO:  should we be using this mgr?
     
 	// Listener interface methods
 	
 	@Override
 	public boolean processAnswers(long agentId, long seq, Answer[] answers) {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean processCommands(long agentId, long seq, Command[] commands) {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
-	public AgentControlAnswer processControlCommand(long agentId,
-			AgentControlCommand cmd) {
-		// TODO Auto-generated method stub
+	public AgentControlAnswer processControlCommand(long agentId, AgentControlCommand cmd) {
 		return null;
 	}
 
 	@Override
-	public void processConnect(HostVO host, StartupCommand cmd, boolean forRebalance) {
-	}
+	public void processConnect(HostVO agent, StartupCommand cmd, boolean forRebalance) throws ConnectionException  {
+		// Limit the commands we can process
+		if (!(cmd instanceof StartupRoutingCommand )) {
+            return;
+        }       
+		
+        StartupRoutingCommand startup = (StartupRoutingCommand)cmd;
+
+        // assert
+        if (startup.getHypervisorType() != HypervisorType.Hyperv) {
+            s_logger.debug("Not Hyper-V hypervisor, so moving on.");
+            return;
+        }
+        
+        // TODO:  not clear why we need to fetch, this code comes from XcpServerDiscover.processConnect
+        long agentId = agent.getId();
+        HostVO host = _hostDao.findById(agentId);
+        
+        ClusterVO cluster = _clusterDao.findById(host.getClusterId());
+        if ( cluster.getGuid() == null) {
+            cluster.setGuid(startup.getPool());
+            _clusterDao.update(cluster.getId(), cluster);
+        } else if (! cluster.getGuid().equals(startup.getPool()) ) {
+            String msg = "pool uuid for cluster " + cluster.getId() + " changed from " + cluster.getGuid() + " to " + cmd.getPod();
+            s_logger.warn(msg);
+            throw new CloudRuntimeException(msg);
+        }
+
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Setting up host " + agentId);
+        }
+        
+        HostEnvironment env = new HostEnvironment();
+        SetupCommand setup = new SetupCommand(env);
+        if (!host.isSetup()) {
+            setup.setNeedSetup(true);
+        }
+        
+        try {
+            SetupAnswer answer = (SetupAnswer)_agentMgr.send(agentId, setup);
+            if (answer != null && answer.getResult()) {
+                host.setSetup(true);
+                host.setLastPinged((System.currentTimeMillis()>>10) - 5 * 60 );
+                _hostDao.update(host.getId(), host);
+                if ( answer.needReconnect() ) {
+                    throw new ConnectionException(false, "Reinitialize agent after setup.");
+                }
+                return;
+            } else {
+                s_logger.warn("Unable to setup agent " + agentId + " due to " + ((answer != null)?answer.getDetails():"return null"));
+            }
+        // Error handling borrowed from XcpServerDiscoverer, may need to be updated.
+        } catch (AgentUnavailableException e) {
+            s_logger.warn("Unable to setup agent " + agentId + " because it became unavailable.", e);
+        } catch (OperationTimedoutException e) {
+            s_logger.warn("Unable to setup agent " + agentId + " because it timed out", e);
+        }
+        throw new ConnectionException(true, "Reinitialize agent after setup.");
+    }
 
 	@Override
 	public boolean processDisconnect(long agentId, Status state) {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean isRecurring() {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public int getTimeout() {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
 	@Override
 	public boolean processTimeout(long agentId, long seq) {
-		// TODO Auto-generated method stub
 		return false;
 	}
 	
 	// End Listener implementation
 
-    // Discoverer implementation:
-    // Overrides find - find used to when agent connects.
-    // Overrides postDiscovery - used to configure ServerResource after object found ?
-    // Overrides matchHypervisor - indicates of supports hypervisor type in requested (why is this not in DiscoverBase?
-    // Overrides getHypervisorType - returns supported hypervisor type.  (why is this not in base class?)
-    // Inherits putParam
-    // Inhertis reloadResource
-	//
-	// implements Adapter (see below)
-	//
-	// Discoverer.find() causes an agent capable of controlling the hypervisor to call home.
-	// If a remote agent is required and not running, 'find' launches the agent using remote invocation.
-	// Previously, the code below sent a StartupVMMAgentCommand to trigger a registration.
-	// However, this was to make use of a custom IAgentShell to operate in the SCVMM, class VmmAgentShell
-	// We no longer want to use VmmAgentShell.  It's purpose was to add a ServerResource to the process.
-	// Problem is that it uses an Agent that is at present untested.
+	// Returns server component used by server manager to operate the plugin. 
+	// Server component is a ServerResource.  If a connected agent is used, the ServerResource is 
+	// ignored in favour of another created in response to 
     @SuppressWarnings("static-access")
     @Override
     public Map<? extends ServerResource, Map<String, String>> find(long dcId, 
 			Long podId, Long clusterId, URI uri, String username, 
 			String password, List<String> hostTags) throws DiscoveryException {
 
-		// Sanity checks
+        if(s_logger.isInfoEnabled()) {
+            s_logger.info("Discover host. dc(zone): " + dcId + ", pod: " + podId + ", cluster: " + clusterId + ", uri host: " + uri.getHost());
+        }
+
+		// Assertions
         if(podId == null ) {
             if(s_logger.isInfoEnabled()) {
                 s_logger.info("No pod is assigned, skipping the discovery in Hyperv discoverer");
             }
             return null;
         }
-		
-        if(s_logger.isInfoEnabled()) {
-            s_logger.info("Discover host. dc: " + dcId + ", pod: " + podId + ", cluster: " + clusterId + ", uri host: " + uri.getHost());
-        }
-		
-		// ClusterVO is object from database.
-        ClusterVO cluster = _clusterDao.findById(clusterId);
-        if(cluster == null || cluster.getHypervisorType() != HypervisorType.Hyperv) {
+        ClusterVO cluster = _clusterDao.findById(clusterId); // ClusterVO exists in the database
+        if(cluster == null) {
             if(s_logger.isInfoEnabled()) 
-                s_logger.info("invalid cluster id or cluster is not for Hyperv hypervisors");
+                s_logger.info("No cluster in database for cluster id " + clusterId);
             return null;
         }
-
-		Map<HypervDummyResourceBase, Map<String, String>> resources = new HashMap<HypervDummyResourceBase, Map<String, String>>();
-	    Map<String, String> details = new HashMap<String, String>();
+        if(cluster.getHypervisorType() != HypervisorType.Hyperv) {
+            if(s_logger.isInfoEnabled()) 
+                s_logger.info("Cluster " + clusterId + "is not for Hyperv hypervisors");
+            return null;
+        }
         if (!uri.getScheme().equals("http")) {
             String msg = "urlString is not http so we're not taking care of the discovery for this: " + uri;
             s_logger.debug(msg);
             return null;
         }
-        //String clusterName = cluster.getName();
-		String agentIp = null;
+        
         try {
-        	
     		String hostname = uri.getHost();
     		InetAddress ia = InetAddress.getByName(hostname);
-    		agentIp = ia.getHostAddress();
+    		String agentIp = ia.getHostAddress();
     		String uuidSeed = agentIp;
-    		String guid = CalcServerResourceGuid(uuidSeed);
-    		String guidWithTail = guid + "-HypervResource";/*tail added by agent.java*/
+    		String guidWithTail = CalcServerResourceGuid(uuidSeed)+ "-HypervResource";;
+    		
     		if (_resourceMgr.findHostByGuid(guidWithTail) != null) {
     			s_logger.debug("Skipping " + agentIp + " because " + guidWithTail + " is already in the database.");
     			return null;
     		}
         	
-			// Find expects to trigger agent to connect back to mgmt server,
-			// KVM uses SSH to do this, first attempt at HyperV used a custom IAgentShell
-			
-			// Management server expects this step to succeed if the GUI is to be used to
-    		// register the HyperV server.
-    		
     		s_logger.info("Creating HypervDummyResourceBase for zone/pod/cluster " +dcId + "/"+podId + "/"+ clusterId);
-
-	        Map<String, Object> params = new HashMap<String, Object>();
-	        HypervDummyResourceBase resource = new HypervDummyResourceBase(); 
 	
+		    Map<String, String> details = new HashMap<String, String>();
 	        details.put("url", uri.getHost());
 	        details.put("username", username);
 	        details.put("password", password);
-	
+			details.put("guid", guidWithTail);
+
+	        // TODO: what parameters are required to satisfy the resource.configure call?
+	        Map<String, Object> params = new HashMap<String, Object>();
 	        params.put("zone", Long.toString(dcId));
 	        params.put("pod", Long.toString(podId));
 	        params.put("cluster", Long.toString(clusterId));
-			params.put("guid", guid); 
+			params.put("guid", guidWithTail);
 			params.put("agentIp", agentIp);
-            resource.configure("Hyperv agent", params);
+						
+			HypervDirectConnectResource resource = new HypervDirectConnectResource(); 
+            resource.configure("Hyper-V agent", params);
+            
+            // Assert 
+            // TODO:  test by using bogus URL and bogus virtual path in URL
+            ReadyCommand ping = new ReadyCommand();
+            if (resource.executeRequest(ping) != null)
+            {
+                String errMsg = "Agent not running, or new route to agent on at " + uri;
+                s_logger.debug(errMsg);
+                throw new DiscoveryException(errMsg);
+            }
+            
+			Map<HypervDirectConnectResource, Map<String, String>> resources = new HashMap<HypervDirectConnectResource, Map<String, String>>();
 			resources.put(resource, details);
-			
-			HostVO connectedHost = waitForHostConnect(dcId, podId, clusterId, guidWithTail);
-			if (connectedHost == null)
-				return null;
-			
-			details.put("guid", guidWithTail);
 			
 			 // place a place holder guid derived from cluster ID
 			if (cluster.getGuid() == null) {
@@ -231,22 +282,7 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 			    _clusterDao.update(clusterId, cluster);
 			}
 			
-			//correct zone/dc/cluster ids
-			_hostDao.loadDetails(connectedHost);
-			long oldClusterId = connectedHost.getClusterId();
-			long oldPodId = connectedHost.getPodId();
-			long oldDataCenterId = connectedHost.getDataCenterId();
-			
-    		s_logger.debug("Changing Host " + guidWithTail + " zone/pod/cluster of " 
-			    		+ oldDataCenterId + "/"+oldPodId + "/"+ oldClusterId
-			    		+ " to " 
-			    		+ dcId + "/"+podId + "/"+ clusterId);
-
-			connectedHost.setClusterId(clusterId);
-			connectedHost.setDataCenterId(dcId);
-			connectedHost.setPodId(podId);
-			_hostDao.saveDetails(connectedHost);
-
+			// TODO: does the resource have to create a connection?
             return resources;
         } catch (ConfigurationException e) {
             _alertMgr.sendAlert(AlertManager.ALERT_TYPE_HOST, dcId, podId, "Unable to add " + uri.getHost(), "Error is " + e.getMessage());
@@ -266,29 +302,6 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 		return guid;
 	}
 
-	// Watches database for confirmation that agent has called in.
-	private HostVO waitForHostConnect(long dcId, long podId, long clusterId, String guid) {
-        for (int i = 0; i < _waitTime *2; i++) {
-            List<HostVO> hosts = _resourceMgr.listAllUpAndEnabledHosts(Host.Type.Routing, clusterId, podId, dcId);
-            for (HostVO host : hosts) {
-                if (host.getGuid().equalsIgnoreCase(guid)) {
-                    return host;
-                }
-            }
-            try {
-                Thread.sleep(30000);
-            } catch (InterruptedException e) {
-                s_logger.debug("Failed to sleep: " + e.toString());
-            }
-        }
-        s_logger.debug("Timeout, to wait for the host connecting to mgt svr, assuming it is failed");
-		List<HostVO> hosts = _resourceMgr.findHostByGuid(dcId, guid);
-		if (hosts.size() == 1) {
-			return hosts.get(0);
-		} else {
-        	return null;
-    	}
-	}
     // Adapter implementation:  (facilitates plug in loading)
     // Required because Discoverer extends Adapter
     // Overrides Adapter.configure to always return true
@@ -299,19 +312,24 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
         super.configure(name, params);
     	_resourceMgr.registerResourceStateAdapter(this.getClass().getSimpleName(), this);
+    	
+    	// TODO: we may want to configure the timeout on HTTPRequests and pass the value through this configure call
+    	// TODO: we may want to add an ISO containing the Hyper-V Integration services
+        
+        _agentMgr.registerForHostEvents(this, true, false, true);
+        _resourceMgr.registerResourceStateAdapter(this.getClass().getSimpleName(), this);
         return true;
     }
     // end of Adapter
 
 	@Override
-	public void postDiscovery(List<HostVO> hosts, long msId)
-			throws DiscoveryException {
-		// TODO Auto-generated method stub
+	public void postDiscovery(List<HostVO> hosts, long msId) throws DiscoveryException {
 	}
 	public Hypervisor.HypervisorType getHypervisorType() {
 		return Hypervisor.HypervisorType.Hyperv;
 	}
 	
+	// TODO:  verify that it is okay to return true on null hypervisor
     @Override
 	public boolean matchHypervisor(String hypervisor) {
     	if(hypervisor == null)
@@ -319,56 +337,57 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     	
         return Hypervisor.HypervisorType.Hyperv.toString().equalsIgnoreCase(hypervisor);
     }
-
     // end of Discoverer
 	
 
 	// ResourceStateAdapter
-
-	// Two kinds of agent:  ConnectedAgent and DirectConnectAgent.  
-	// Former is remote, resource-based; latter is based on mgmt server.
 	@Override	
     public HostVO createHostVOForConnectedAgent(HostVO host, StartupCommand[] cmd) {
-		// Sanity check
-		StartupCommand firstCmd = cmd[0];
+	    return null;
+    }
+	
+	// TODO: test
+	@Override
+    public HostVO createHostVOForDirectConnectAgent(HostVO host, StartupCommand[] startup, ServerResource resource, Map<String, String> details,
+			List<String> hostTags) {
+		StartupCommand firstCmd = startup[0];
 		if (!(firstCmd instanceof StartupRoutingCommand)) {
 			return null;
 		}
-    
+
 		StartupRoutingCommand ssCmd = ((StartupRoutingCommand) firstCmd);
 		if (ssCmd.getHypervisorType() != HypervisorType.Hyperv) {
 			return null;
 		}
-		/* TODO:  Should Hyperv force all hosts to be of the same hypervisor type? */
-		_hostDao.loadDetails(host);
+
+		s_logger.info("Host: " + host.getName() + " connected with hypervisor type: " + HypervisorType.Hyperv + ". Checking CIDR...");
+
+		HostPodVO pod = _podDao.findById(host.getPodId());
+		DataCenterVO dc = _dcDao.findById(host.getDataCenterId());
+		// TODO: what does this do?
+		_resourceMgr.checkCIDR(pod, dc, ssCmd.getPrivateIpAddress(), ssCmd.getPrivateNetmask());
 		
-		return _resourceMgr.fillRoutingHostVO(host, ssCmd, HypervisorType.Hyperv, host.getDetails(), null);
+		return _resourceMgr.fillRoutingHostVO(host, ssCmd, HypervisorType.Hyperv, details, hostTags);
     }
-	@Override
-    public HostVO createHostVOForDirectConnectAgent(HostVO host, StartupCommand[] startup, ServerResource resource, Map<String, String> details,
-			List<String> hostTags) {
-	    // TODO Auto-generated method stub
-	    return null;
-    }
+	
+	// TODO: test
 	@Override
     public DeleteHostAnswer deleteHost(HostVO host, boolean isForced, boolean isForceDeleteStorage) throws UnableDeleteHostException {
+		// assert
         if (host.getType() != Host.Type.Routing || host.getHypervisorType() != HypervisorType.Hyperv) {
             return null;
         }
-        
         _resourceMgr.deleteRoutingHost(host, isForced, isForceDeleteStorage);
-        try {
-            ShutdownCommand cmd = new ShutdownCommand(ShutdownCommand.DeleteHost, null);
-            _agentMgr.send(host.getId(), cmd);
-        } catch (AgentUnavailableException e) {
-            s_logger.warn("Sending ShutdownCommand failed: ", e);
-        } catch (OperationTimedoutException e) {
-            s_logger.warn("Sending ShutdownCommand failed: ", e);
-        }
-        
         return new DeleteHostAnswer(true);
     }
+	
+    @Override
+    public boolean stop() {
+    	_resourceMgr.unregisterResourceStateAdapter(this.getClass().getSimpleName());
+        return super.stop();
+    }
 	// end of ResourceStateAdapter
+
 }
 
 
