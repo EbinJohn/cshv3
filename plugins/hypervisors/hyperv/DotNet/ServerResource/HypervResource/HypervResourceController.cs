@@ -118,6 +118,38 @@ namespace HypervResource
             return "HypervResource controller, use POST to send send JSON encoded objects";
         }
 
+        /// <summary>
+        /// NOP - placeholder for future setup, e.g. delete existing VMs or Network ports 
+        /// POST api/HypervResource/SetupCommand
+        /// </summary>
+        /// <param name="cmd"></param>
+        /// <returns></returns>
+        /// TODO: produce test
+        [HttpPost]
+        [ActionName("SetupCommand")]
+        public JContainer SetupCommand([FromBody]dynamic cmd)
+        {
+            string details = "success - NOP";
+            JToken answerTok;
+
+            var answerObj = new
+            {
+                SetupAnswer = new
+                {
+                    result = true,
+                    details = details,
+                    _reconnect = false
+                }
+            };
+            answerTok = JToken.FromObject(answerObj);
+
+            JArray answer = new JArray();
+            answer.Add(answerTok);
+            logger.Info("SetupCommand result is " + answer.ToString());
+            return answer;
+        }
+
+
         // POST api/HypervResource/DestroyCommand
         [HttpPost]
         [ActionName("DestroyCommand")]
