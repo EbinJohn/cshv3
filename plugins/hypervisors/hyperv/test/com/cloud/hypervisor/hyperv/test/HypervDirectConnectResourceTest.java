@@ -78,9 +78,6 @@ import com.cloud.agent.api.storage.DestroyCommand;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.hyperv.discoverer.HypervServerDiscoverer;
 import com.cloud.hypervisor.hyperv.resource.HypervDirectConnectResource;
-import com.cloud.hypervisor.hyperv.resource.HypervResource;
-import com.cloud.hypervisor.hyperv.resource.PythonUtils;
-import com.cloud.hypervisor.hyperv.storage.HypervStoragePool;
 
 import org.apache.log4j.Logger;
 
@@ -288,7 +285,7 @@ public class HypervDirectConnectResourceTest {
 		s_logger.debug("Commands[] first element has type" + result[0].toString());
     }
     
-    //@Test 
+    //@Test
     public void TestJson() {
     	StartupStorageCommand sscmd = null;
     		com.cloud.agent.api.StoragePoolInfo pi = new com.cloud.agent.api.StoragePoolInfo(
@@ -343,7 +340,38 @@ public class HypervDirectConnectResourceTest {
     	Answer ans2 = s_hypervresource.executeRequest(delCmd);
     	Assert.assertTrue(ans2.getResult());
     }
-	
+    
+    // Check
+    @Test
+    public void TestModifyStoragePoolCommand2()
+    {
+    	// Should return existing pool
+    	// Create dummy folder
+    	String folderName = "." + File.separator + "Dummy";
+    	File folder = new File(folderName);
+    	if (!folder.exists()) {
+    		if (!folder.mkdir()) {
+    			Assert.assertTrue(false);
+    		}
+    	}
+    	
+    	// Use same spec for pool
+    	s_logger.info("Createing pool at : " + folderName );
+
+        StoragePoolVO pool = new StoragePoolVO(StoragePoolType.Filesystem, 
+        		"127.0.0.1", -1, folderName);
+        pool.setUuid(testLocalStoreUUID);
+
+    	ModifyStoragePoolCommand cmd = new ModifyStoragePoolCommand(
+    			true, pool, folderName);
+    	Answer ans = s_hypervresource.executeRequest(cmd);
+    	Assert.assertTrue(ans.getResult());
+    	
+    	DeleteStoragePoolCommand delCmd = new DeleteStoragePoolCommand(pool, folderName);
+    	Answer ans2 = s_hypervresource.executeRequest(delCmd);
+    	Assert.assertTrue(ans2.getResult());
+    }
+    
   	public StoragePoolVO CreateTestStoragePoolVO(String folderName) {
 		File folder = new File(folderName);
     	if (!folder.exists()) {
@@ -451,6 +479,35 @@ public class HypervDirectConnectResourceTest {
     }
 
     @Test
+    public void TestStartCommandCorruptDiskImage()
+    {
+    	String sampleStart =  "{\"vm\":{\"id\":16,\"name\":\"i-3-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+              	",\"disks\":[" +
+                  	"{\"id\":18,\"name\":\"" + testSampleVolumeCorruptUUID + "\"," +
+                  		"\"mountPoint\":" + testSampleVolumeCorruptURIJSON + "," +
+                  		"\"path\":" + testSampleVolumeCorruptURIJSON + ",\"size\":0,"+
+                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
+                  		",\"deviceId\":0}," + 
+                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
+              	"\"nics\":[" +
+                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
+                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
+                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
+                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                  "]},\"contextMap\":{},\"wait\":0}";
+
+    	{
+	       	StartCommand cmd = s_gson.fromJson(sampleStart, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertFalse(ans.getDetails(), ans.getResult());
+    	}
+    }
+    
+    @Test
     public void TestStartStopCommand()
     {
        	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
@@ -475,6 +532,45 @@ public class HypervDirectConnectResourceTest {
 	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
 	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
 	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+       	}
+    	{
+	    	String sampleStop =  "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
+	       	StopCommand cmd = s_gson.fromJson(sampleStop, StopCommand.class);
+	       	StopAnswer ans = (StopAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+    	}
+    }
+    
+    @Test
+    public void TestStartStartCommand()
+    {
+       	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+              	",\"disks\":[" +
+                  	"{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                  		"\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
+                  		"\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0,"+
+                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
+                  		",\"deviceId\":0}," + 
+                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
+              	"\"nics\":[" +
+                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
+                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
+                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
+                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                  "]},\"contextMap\":{},\"wait\":0}";
+       	{
+	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
+       	}
+       	{
+	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
+	    	Assert.assertFalse(ans.getDetails(), ans.getResult());
        	}
     	{
 	    	String sampleStop =  "{\"isProxy\":false,\"vmName\":\"i-2-17-VM\",\"contextMap\":{},\"wait\":0}";
