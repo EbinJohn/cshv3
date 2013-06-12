@@ -117,6 +117,22 @@ namespace ServerResource.Tests.Controllers
         }
 
         [TestMethod]
+        public void SetupCommand()
+        {
+            // Omit HostEnvironment object, as this is a series of settings currently not used.
+            var cmd = new { multipath = false, needSetup = true };
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.SetupCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0].SetupAnswer;
+            Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
+        }
+
+        [TestMethod]
         public void GetVmStatsCommandFail()
         {
             // Use WMI to find existing VMs
