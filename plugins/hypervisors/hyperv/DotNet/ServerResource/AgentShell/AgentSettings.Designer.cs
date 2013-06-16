@@ -235,12 +235,15 @@ namespace CloudStack.Plugin.AgentShell {
             }
         }
         
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("5fe2bad3-d785-394e-9949-89786b8a63d2\r\n")]
         public string testLocalStoreUUID {
             get {
                 return ((string)(this["testLocalStoreUUID"]));
+            }
+            set {
+                this["testLocalStoreUUID"] = value;
             }
         }
         
@@ -253,6 +256,66 @@ namespace CloudStack.Plugin.AgentShell {
             }
             set {
                 this["testLocalStorePath"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("testS3Bucket")]
+        public string testS3Bucket {
+            get {
+                return ((string)(this["testS3Bucket"]));
+            }
+            set {
+                this["testS3Bucket"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("testS3Endpoint")]
+        public string testS3Endpoint {
+            get {
+                return ((string)(this["testS3Endpoint"]));
+            }
+            set {
+                this["testS3Endpoint"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("testS3AccessKey")]
+        public string testS3AccessKey {
+            get {
+                return ((string)(this["testS3AccessKey"]));
+            }
+            set {
+                this["testS3AccessKey"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("testS3SecretKey")]
+        public string testS3SecretKey {
+            get {
+                return ((string)(this["testS3SecretKey"]));
+            }
+            set {
+                this["testS3SecretKey"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("206-2-73592258-559a-3b38-8f66-b667aab143eb")]
+        public string testS3TemplateName {
+            get {
+                return ((string)(this["testS3TemplateName"]));
+            }
+            set {
+                this["testS3TemplateName"] = value;
             }
         }
     }
