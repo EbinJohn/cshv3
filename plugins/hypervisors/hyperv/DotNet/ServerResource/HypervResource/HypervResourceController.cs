@@ -1,4 +1,7 @@
-﻿// Licensed to the Apache Software Foundation (ASF) under one
+﻿using Amazon;
+using Amazon.S3;
+using Amazon.S3.Model;
+// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -875,6 +878,151 @@ namespace HypervResource
             return answer;
         }
 
+        // POST api/HypervResource/StartupCommand
+        [HttpPost]
+        [ActionName("CopyCommand")]
+        public dynamic CopyCommand(dynamic jsonCmd)
+        {
+            bool result = false;
+            string details = null;
+            object newData = null;
+
+            try
+            {
+                dynamic timeout = jsonCmd.wait;  // Useful?
+
+                TemplateObjectTO srcTemplateObjectTO = TemplateObjectTO.ParseJson(jsonCmd.srcTO);
+                TemplateObjectTO destTemplateObjectTO = TemplateObjectTO.ParseJson(jsonCmd.destTO);
+                VolumeObjectTO destVolumeObjectTO = VolumeObjectTO.ParseJson(jsonCmd.destTO);
+
+                // Create local copy of a template?
+                if (srcTemplateObjectTO != null && destTemplateObjectTO != null)
+                {
+                    S3TO srcS3TO = S3TO.ParseJson(srcTemplateObjectTO.imageDataStore);
+                    PrimaryDataStoreTO destPrimaryDataStore = PrimaryDataStoreTO.ParseJson(destTemplateObjectTO.imageDataStore);
+
+                    // S3 download?
+                    if (srcS3TO != null && destPrimaryDataStore != null)
+                    {
+                        string destFile = Path.Combine(destPrimaryDataStore.path, destTemplateObjectTO.FileName);
+                        if (!File.Exists(destFile))
+                        {
+                            // Download form S3 to primary storage
+                            DownloadS3ObjectToFile(srcTemplateObjectTO.FileName, srcS3TO, destFile);
+                            newData = jsonCmd.destTO;
+                            result = true;
+                        }
+                        else
+                        {
+                            details = "File already exists at " + destFile;
+                        }
+                    }
+                    else
+                    {
+                        details = "Data store combination not supported";
+                    }
+                }
+                // Create volume from a template?
+                else if (srcTemplateObjectTO != null && destVolumeObjectTO != null)
+                {
+                    PrimaryDataStoreTO srcPrimaryDataStore = PrimaryDataStoreTO.ParseJson(srcTemplateObjectTO.imageDataStore);
+                    PrimaryDataStoreTO destPrimaryDataStore = PrimaryDataStoreTO.ParseJson(destVolumeObjectTO.dataStore);
+                    string destFile = Path.Combine(destPrimaryDataStore.path, destVolumeObjectTO.FileName);
+                    string srcFile = Path.Combine(srcPrimaryDataStore.path, srcTemplateObjectTO.FileName);
+
+                    if (File.Exists(destFile))
+                    {
+                        details = "File already exists at " + destFile;
+                    }
+                    else if (!File.Exists(srcFile))
+                    {
+                        details = "Local template file missing from " + srcFile;
+                    }
+                    else
+                    {
+                        // TODO: thin provision instead of copying the full file.
+                        File.Copy(srcFile, destFile);
+                        newData = jsonCmd.destTO;
+                        result = true;
+                    }
+                }
+                else
+                {
+                    details = "Data store combination not supported";
+                }
+            }
+            catch (Exception ex)
+            {
+                // Test by providing wrong key
+                details = "GetStorageStatsCommand failed on exception, " + ex.Message;
+                logger.Error(details, ex);
+            }
+
+            var answerObj = new
+            {
+                CopyCmdAnswer = new
+                {
+                    result = result,
+                    details = details,
+                    newData = newData
+                }
+            };
+
+            JArray answer = new JArray();
+            JToken answerTok = JToken.FromObject(answerObj);
+            answer.Add(answerTok);
+            logger.Info("CopyCommand result is " + answer.ToString());
+            return answer;
+        }
+
+        private static void DownloadS3ObjectToFile(string srcObjectKey, S3TO srcS3TO, string destFile)
+        {
+            AmazonS3Config S3Config = new AmazonS3Config
+            {
+                ServiceURL = srcS3TO.endpoint,
+                CommunicationProtocol = Amazon.S3.Model.Protocol.HTTP
+            };
+
+            if (srcS3TO.httpsFlag)
+            {
+                S3Config.CommunicationProtocol = Protocol.HTTPS;
+            }
+
+            try
+            {
+                using (AmazonS3 client = Amazon.AWSClientFactory.CreateAmazonS3Client(srcS3TO.accessKey, srcS3TO.secretKey, S3Config))
+                {
+                    GetObjectRequest getObjectRequest = new GetObjectRequest().WithBucketName(srcS3TO.bucketName).WithKey(srcObjectKey);
+
+                    using (S3Response getObjectResponse = client.GetObject(getObjectRequest))
+                    {
+                        using (Stream s = getObjectResponse.ResponseStream)
+                        {
+                            using (FileStream fs = new FileStream(destFile, FileMode.Create, FileAccess.Write))
+                            {
+                                byte[] data = new byte[524288];
+                                int bytesRead = 0;
+                                do
+                                {
+                                    bytesRead = s.Read(data, 0, data.Length);
+                                    fs.Write(data, 0, bytesRead);
+                                }
+                                while (bytesRead > 0);
+                                fs.Flush();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                string errMsg = "Download from S3 url" + srcS3TO.endpoint + " said: " + ex.Message;
+                logger.Error(errMsg, ex);
+                throw new Exception(errMsg, ex);
+            }
+        }
+
+
         // POST api/HypervResource/GetStorageStatsCommand
         [HttpPost]
         [ActionName("GetStorageStatsCommand")]
@@ -945,8 +1093,6 @@ namespace HypervResource
                 networkWriteKBs = nicStats.BytesSent;
 
                 // Generate GetHostStatsAnswer
-                result = true;
-
                 hostStats = new {
                     hostId = hostId,
                     entityType = entityType,
@@ -956,6 +1102,7 @@ namespace HypervResource
                     totalMemoryKBs = (double)totalMemoryKBs,
                     freeMemoryKBs = (double)freeMemoryKBs
                 };
+                result = true;
             }
             catch (Exception ex)
             {
