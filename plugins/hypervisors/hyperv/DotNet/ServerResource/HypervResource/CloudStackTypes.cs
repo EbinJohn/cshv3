@@ -28,6 +28,116 @@ using System.Threading.Tasks;
 namespace HypervResource
 {
 
+
+    public class PrimaryDataStoreTO
+    {
+        public string path;
+
+        public static PrimaryDataStoreTO ParseJson(dynamic json)
+        {
+            PrimaryDataStoreTO result = null;
+            dynamic primaryDataStoreTOJson = json["org.apache.cloudstack.storage.to.PrimaryDataStoreTO"];
+            if (primaryDataStoreTOJson != null)
+            {
+                result = new PrimaryDataStoreTO()
+                {
+                    path = (string)primaryDataStoreTOJson.path
+                };
+            }
+            return result;
+        }
+    }
+
+    public class VolumeObjectTO
+    {
+        public string FileName
+        {
+            get { return this.name + '.' + this.formatExtension; }
+        }
+
+        public dynamic dataStore;
+        public string formatExtension;
+        public string name;
+        public string uuid;
+
+        public static VolumeObjectTO ParseJson(dynamic json)
+        {
+            VolumeObjectTO result = null;
+            dynamic volumeObjectTOJson = json["org.apache.cloudstack.storage.to.VolumeObjectTO"];
+            if (volumeObjectTOJson != null)
+            {
+                result = new VolumeObjectTO()
+                {
+                    dataStore = volumeObjectTOJson.dataStore,
+                    formatExtension = ((string)volumeObjectTOJson.format),
+                    name = (string)volumeObjectTOJson.name,
+                    uuid = (string)volumeObjectTOJson.uuid
+                };
+                result.formatExtension = !String.IsNullOrEmpty(result.formatExtension) ? result.formatExtension.ToLowerInvariant() : result.formatExtension;
+            }
+            return result;
+        }
+    }
+
+    public class TemplateObjectTO
+    {
+        public string FileName
+        {
+            get { return this.name + '.' + this.formatExtension; }
+        }
+
+        public dynamic imageDataStore;
+        public string formatExtension;
+        public string name;
+        public string uuid;
+
+        public static TemplateObjectTO ParseJson(dynamic json)
+        {
+            TemplateObjectTO result = null;
+            dynamic templateObjectTOJson = json["org.apache.cloudstack.storage.to.TemplateObjectTO"];
+            if (templateObjectTOJson != null)
+            {
+                result = new TemplateObjectTO()
+                {
+                    imageDataStore = templateObjectTOJson.imageDataStore,
+                    formatExtension = ((string)templateObjectTOJson.format),
+                    name = (string)templateObjectTOJson.name,
+                    uuid = (string)templateObjectTOJson.uuid
+                };
+                result.formatExtension = !String.IsNullOrEmpty(result.formatExtension) ? result.formatExtension.ToLowerInvariant() : result.formatExtension;
+            }
+            return result;
+        }
+    }
+
+    public class S3TO
+    {
+        public string bucketName;
+        public string secretKey;
+        public string accessKey;
+        public string endpoint;
+        public bool httpsFlag;
+
+        public static S3TO ParseJson(dynamic json)
+        {
+            S3TO result = null;
+            dynamic s3TOJson = json["com.cloud.agent.api.to.S3TO"];
+            if (s3TOJson != null)
+            {
+                result = new S3TO()
+                {
+                    bucketName = (string)s3TOJson.bucketName,
+                    secretKey = (string)s3TOJson.secretKey,
+                    accessKey = (string)s3TOJson.accessKey,
+                    endpoint = (string)s3TOJson.endPoint,
+                    httpsFlag = (bool)s3TOJson.httpsFlag
+                };
+            }
+            return result;
+        }
+    }
+
+
         enum VolumeType
         {
             UNKNOWN, ROOT, SWAP, DATADISK, ISO
