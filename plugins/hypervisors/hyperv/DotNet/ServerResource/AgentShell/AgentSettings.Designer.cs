@@ -160,15 +160,12 @@ namespace CloudStack.Plugin.AgentShell {
             }
         }
         
-        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("E:\\Disks\\Disks")]
         public string local_storage_path {
             get {
                 return ((string)(this["local_storage_path"]));
-            }
-            set {
-                this["local_storage_path"] = value;
             }
         }
         
@@ -232,18 +229,6 @@ namespace CloudStack.Plugin.AgentShell {
         public string private_mac_address {
             get {
                 return ((string)(this["private_mac_address"]));
-            }
-        }
-        
-        [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("5fe2bad3-d785-394e-9949-89786b8a63d2\r\n")]
-        public string testLocalStoreUUID {
-            get {
-                return ((string)(this["testLocalStoreUUID"]));
-            }
-            set {
-                this["testLocalStoreUUID"] = value;
             }
         }
         
@@ -316,6 +301,18 @@ namespace CloudStack.Plugin.AgentShell {
             }
             set {
                 this["testS3TemplateName"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("5fe2bad3-d785-394e-9949-89786b8a63d2")]
+        public string testLocalStoreUUID {
+            get {
+                return ((string)(this["testLocalStoreUUID"]));
+            }
+            set {
+                this["testLocalStoreUUID"] = value;
             }
         }
     }

@@ -47,7 +47,7 @@
     <Setting Name="local_secondary_storage_path" Type="System.String" Scope="User">
       <Value Profile="(Default)">c:\Secondary</Value>
     </Setting>
-    <Setting Name="local_storage_path" Type="System.String" Scope="User">
+    <Setting Name="local_storage_path" Type="System.String" Scope="Application">
       <Value Profile="(Default)">E:\Disks\Disks</Value>
     </Setting>
     <Setting Name="workers" Type="System.Int32" Scope="Application">
@@ -71,10 +71,6 @@
     <Setting Name="private_mac_address" Type="System.String" Scope="Application">
       <Value Profile="(Default)">101F742C6B88</Value>
     </Setting>
-    <Setting Name="testLocalStoreUUID" Type="System.String" Scope="User">
-      <Value Profile="(Default)">5fe2bad3-d785-394e-9949-89786b8a63d2
-</Value>
-    </Setting>
     <Setting Name="testLocalStorePath" Type="System.String" Scope="User">
       <Value Profile="(Default)">.\var\test\storagepool</Value>
     </Setting>
@@ -92,6 +88,9 @@
     </Setting>
     <Setting Name="testS3TemplateName" Type="System.String" Scope="User">
       <Value Profile="(Default)">206-2-73592258-559a-3b38-8f66-b667aab143eb</Value>
+    </Setting>
+    <Setting Name="testLocalStoreUUID" Type="System.String" Scope="User">
+      <Value Profile="(Default)">5fe2bad3-d785-394e-9949-89786b8a63d2</Value>
     </Setting>
   </Settings>
 </SettingsFile>
