@@ -85,7 +85,7 @@ import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.serializer.GsonHelper;
 import com.cloud.storage.Storage;
 import com.cloud.storage.StoragePool;
-import com.cloud.storage.StoragePoolVO;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.PropertiesUtil;
 import com.cloud.utils.exception.CloudRuntimeException;

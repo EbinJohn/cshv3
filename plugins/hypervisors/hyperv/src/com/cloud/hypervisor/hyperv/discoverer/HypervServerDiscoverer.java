@@ -113,7 +113,7 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 	}
 
 	@Override
-	public void processConnect(HostVO agent, StartupCommand cmd, boolean forRebalance) throws ConnectionException  {
+	public void processConnect(Host agent, StartupCommand cmd, boolean forRebalance) throws ConnectionException  {
 		// Limit the commands we can process
 		if (!(cmd instanceof StartupRoutingCommand )) {
             return;
