@@ -26,6 +26,7 @@ import org.apache.cloudstack.api.BaseListTaggedResourcesCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
+import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.log4j.Logger;
 
@@ -55,16 +56,23 @@ public class ListTemplatesCmd extends BaseListTaggedResourcesCmd {
     @Parameter(name=ApiConstants.NAME, type=CommandType.STRING, description="the template name")
     private String templateName;
 
-    @Parameter(name=ApiConstants.TEMPLATE_FILTER, type=CommandType.STRING, required=true, description="possible values are \"featured\", \"self\", \"self-executable\", \"executable\", and \"community\"." +
-                                                                                        "* featured-templates that are featured and are public" +
-                                                                                        "* self-templates that have been registered/created by the owner" +
-                                                                                        "* selfexecutable-templates that have been registered/created by the owner that can be used to deploy a new VM" +
-                                                                                        "* executable-all templates that can be used to deploy a new VM* community-templates that are public.")
+    @Parameter(name=ApiConstants.TEMPLATE_FILTER, type=CommandType.STRING, required=true, description="possible values are \"featured\", \"self\", \"selfexecutable\",\"sharedexecutable\",\"executable\", and \"community\". " +
+                                                                                        "* featured : templates that have been marked as featured and public. " +
+                                                                                        "* self : templates that have been registered or created by the calling user. " +
+                                                                                        "* selfexecutable : same as self, but only returns templates that can be used to deploy a new VM. " +
+                                                                                        "* sharedexecutable : templates ready to be deployed that have been granted to the calling user by another user. " +
+                                                                                        "* executable : templates that are owned by the calling user, or public templates, that can be used to deploy a VM. " +
+                                                                                        "* community : templates that have been marked as public but not featured. " +
+                                                                                        "* all : all templates (only usable by admins).")
     private String templateFilter;
 
     @Parameter(name=ApiConstants.ZONE_ID, type=CommandType.UUID, entityType = ZoneResponse.class,
             description="list templates by zoneId")
     private Long zoneId;
+    
+    @Parameter(name=ApiConstants.ZONE_TYPE, type=CommandType.STRING, description="the network type of the zone that the virtual machine belongs to")
+    private String zoneType;
+    
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -89,6 +97,10 @@ public class ListTemplatesCmd extends BaseListTaggedResourcesCmd {
         return zoneId;
     }
 
+    public String getZoneType() {
+        return zoneType;
+    }
+    
     public boolean listInReadyState() {
 
         Account account = UserContext.current().getCaller();
@@ -116,18 +128,7 @@ public class ListTemplatesCmd extends BaseListTaggedResourcesCmd {
 
     @Override
     public void execute(){
-        Set<Pair<Long, Long>> templateZonePairSet = _mgr.listTemplates(this);
-
-        ListResponse<TemplateResponse> response = new ListResponse<TemplateResponse>();
-        List<TemplateResponse> templateResponses = new ArrayList<TemplateResponse>();
-
-        for (Pair<Long, Long> template : templateZonePairSet) {
-            List<TemplateResponse> responses = new ArrayList<TemplateResponse>();
-            responses = _responseGenerator.createTemplateResponses(template.first().longValue(), template.second(), listInReadyState());
-            templateResponses.addAll(responses);
-        }
-
-        response.setResponses(templateResponses);
+        ListResponse<TemplateResponse> response = _queryService.listTemplates(this);
         response.setResponseName(getCommandName());
         this.setResponseObject(response);
     }

@@ -1,11 +1,11 @@
 Veewee::Definition.declare({
   :cpu_count => '1',
   :memory_size=> '256',
-  :disk_size => '2048', :disk_format => 'VMDK', :hostiocache => 'off',
+  :disk_size => '2000', :disk_format => 'VDI', :hostiocache => 'off',
   :os_type_id => 'Debian',
-  :iso_file => "debian-wheezy-DI-b4-i386-netinst.iso",
-  :iso_src => "http://cdimage.debian.org/cdimage/wheezy_di_beta4/i386/iso-cd/debian-wheezy-DI-b4-i386-netinst.iso",
-  :iso_md5 => "34d0ae973715c7a31646281c70839809",
+  :iso_file => "debian-7.0.0-i386-netinst.iso",
+  :iso_src => "http://cdimage.debian.org/debian-cd/7.0.0/i386/iso-cd/debian-7.0.0-i386-netinst.iso",
+  :iso_md5 => "a6b93666a5393334accb7ac4ee28d949",
   :iso_download_timeout => "1000",
   :boot_wait => "10", :boot_cmd_sequence => [
      '<Esc>',

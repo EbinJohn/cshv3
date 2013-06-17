@@ -24,6 +24,7 @@ import java.util.Map;
 
 import com.cloud.bridge.service.EC2SoapServiceImpl;
 import com.cloud.bridge.service.exception.EC2ServiceException;
+import com.cloud.bridge.service.exception.EC2ServiceException.ClientError;
 
 
 public class EC2InstanceFilterSet {
@@ -50,6 +51,7 @@ public class EC2InstanceFilterSet {
         filterTypes.put( "group-id",             "string"  );
         filterTypes.put( "tag-key",              "string"  );
         filterTypes.put( "tag-value",            "string"  );
+        filterTypes.put( "dns-name",             "string"  );
 	}
 	
 	
@@ -58,11 +60,10 @@ public class EC2InstanceFilterSet {
 		String filterName = param.getName();
         String value = (String) filterTypes.get( filterName );
 
-        if (null == value)
-            throw new EC2ServiceException( "Unsupported filter [" + filterName + "]", 501 );
+        if ( value == null || value.equalsIgnoreCase("null") ) {
+                throw new EC2ServiceException( ClientError.InvalidFilter, "Filter '" + filterName + "' is invalid");
+        }
 
-        if (null != value && value.equalsIgnoreCase( "null" ))
-            throw new EC2ServiceException( "Unsupported filter [" + filterName + "]", 501 );
 		// ToDo we could add checks to make sure the type of a filters value is correct (e.g., an integer)
 		filterSet.add( param );
 	}
@@ -184,6 +185,8 @@ public class EC2InstanceFilterSet {
                 }
             }
             return false;
+        }else if (filterName.equalsIgnoreCase( "dns-name" )){
+            return containsString( vm.getName(), valueSet );
         }
 	    else return false;
 	}

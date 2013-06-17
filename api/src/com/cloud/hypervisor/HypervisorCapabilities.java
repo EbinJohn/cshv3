@@ -46,4 +46,12 @@ public interface HypervisorCapabilities extends Identity, InternalIdentity{
      * @return the max. data volumes per VM supported by hypervisor
      */
     Integer getMaxDataVolumesLimit();
+
+    /**
+     * @return the max. hosts per cluster supported by hypervisor
+     */
+    Integer getMaxHostsPerCluster();
+
+    boolean isStorageMotionSupported();
+
 }

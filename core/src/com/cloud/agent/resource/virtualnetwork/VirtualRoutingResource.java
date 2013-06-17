@@ -16,28 +16,6 @@
 // under the License.
 package com.cloud.agent.resource.virtualnetwork;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.InetSocketAddress;
-import java.net.URL;
-import java.net.URLConnection;
-import java.nio.channels.SocketChannel;
-import java.util.List;
-import java.util.Map;
-
-import javax.ejb.Local;
-import javax.naming.ConfigurationException;
-
-import org.apache.commons.codec.binary.Base64;
-import org.apache.log4j.Logger;
-
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.BumpUpPriorityCommand;
 import com.cloud.agent.api.CheckRouterAnswer;
@@ -50,7 +28,11 @@ import com.cloud.agent.api.GetDomRVersionCmd;
 import com.cloud.agent.api.proxy.CheckConsoleProxyLoadCommand;
 import com.cloud.agent.api.proxy.ConsoleProxyLoadAnswer;
 import com.cloud.agent.api.proxy.WatchConsoleProxyLoadCommand;
+import com.cloud.agent.api.routing.CreateIpAliasCommand;
+import com.cloud.agent.api.routing.DeleteIpAliasCommand;
 import com.cloud.agent.api.routing.DhcpEntryCommand;
+import com.cloud.agent.api.routing.DnsMasqConfigCommand;
+import com.cloud.agent.api.routing.IpAliasTO;
 import com.cloud.agent.api.routing.IpAssocAnswer;
 import com.cloud.agent.api.routing.IpAssocCommand;
 import com.cloud.agent.api.routing.LoadBalancerConfigCommand;
@@ -74,6 +56,7 @@ import com.cloud.agent.api.to.IpAddressTO;
 import com.cloud.agent.api.to.PortForwardingRuleTO;
 import com.cloud.agent.api.to.StaticNatRuleTO;
 import com.cloud.exception.InternalErrorException;
+import com.cloud.network.DnsMasqConfigurator;
 import com.cloud.network.HAProxyConfigurator;
 import com.cloud.network.LoadBalancerConfigurator;
 import com.cloud.network.rules.FirewallRule;
@@ -84,6 +67,26 @@ import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.script.OutputInterpreter;
 import com.cloud.utils.script.Script;
 import com.cloud.utils.ssh.SshHelper;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.log4j.Logger;
+
+import javax.ejb.Local;
+import javax.naming.ConfigurationException;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.InetSocketAddress;
+import java.net.URL;
+import java.net.URLConnection;
+import java.nio.channels.SocketChannel;
+import java.util.List;
+import java.util.Map;
 
 /**
  * VirtualNetworkResource controls and configures virtual networking
@@ -106,6 +109,9 @@ public class VirtualRoutingResource implements Manager {
     private String _privateEthIf;
     private String _bumpUpPriorityPath;
     private String _routerProxyPath;
+    private String _createIpAliasPath;
+    private String _deleteIpAliasPath;
+    private String _callDnsMasqPath;
 
     private int _timeout;
     private int _startTimeout;
@@ -137,6 +143,12 @@ public class VirtualRoutingResource implements Manager {
                 return execute((SavePasswordCommand)cmd);
             }  else if (cmd instanceof DhcpEntryCommand) {
                 return execute((DhcpEntryCommand)cmd);
+            } else if (cmd instanceof CreateIpAliasCommand) {
+                return execute((CreateIpAliasCommand) cmd);
+            } else if (cmd instanceof DnsMasqConfigCommand) {
+                return execute((DnsMasqConfigCommand) cmd);
+            } else if (cmd instanceof DeleteIpAliasCommand) {
+                return execute((DeleteIpAliasCommand) cmd);
             } else if (cmd instanceof VmDataCommand) {
                 return execute ((VmDataCommand)cmd);
             } else if (cmd instanceof CheckRouterCommand) {
@@ -600,9 +612,70 @@ public class VirtualRoutingResource implements Manager {
         	command.add("-6", cmd.getVmIp6Address());
         	command.add("-u", cmd.getDuid());
         }
+        
+        if (!cmd.isDefault()) {
+        	command.add("-z");
+        }
 
         final String result = command.execute();
         return new Answer(cmd, result==null, result);
+    }
+
+    protected Answer execute(final CreateIpAliasCommand cmd) {
+        String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        final Script command  = new Script(_createIpAliasPath, _timeout, s_logger);
+        List<IpAliasTO> ipAliasTOs = cmd.getIpAliasList();
+        String args = "";
+        command.add(routerIp);
+        for (IpAliasTO ipaliasto : ipAliasTOs) {
+            args = args + ipaliasto.getAlias_count()+":"+ipaliasto.getRouterip()+":"+ipaliasto.getNetmask()+"-";
+        }
+        command.add(args);
+        final String result = command.execute();
+        return new Answer(cmd, result==null, result);
+    }
+
+    protected Answer execute(final DeleteIpAliasCommand cmd) {
+        final Script command  = new Script(_deleteIpAliasPath, _timeout, s_logger);
+        String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        String args ="";
+        command.add(routerIp);
+        List<IpAliasTO> revokedIpAliasTOs = cmd.getDeleteIpAliasTos();
+        for (IpAliasTO ipAliasTO : revokedIpAliasTOs) {
+            args = args + ipAliasTO.getAlias_count()+":"+ipAliasTO.getRouterip()+":"+ipAliasTO.getNetmask()+"-";
+        }
+        args = args + "- " ;
+        List<IpAliasTO> activeIpAliasTOs = cmd.getCreateIpAliasTos();
+        for (IpAliasTO ipAliasTO : activeIpAliasTOs) {
+            args = args + ipAliasTO.getAlias_count()+":"+ipAliasTO.getRouterip()+":"+ipAliasTO.getNetmask()+"-";
+        }
+        command.add(args);
+        final String result = command.execute();
+        return new Answer(cmd, result==null, result);
+    }
+
+    protected Answer execute(final DnsMasqConfigCommand cmd) {
+        final Script command  = new Script(_callDnsMasqPath, _timeout, s_logger);
+        String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        DnsMasqConfigurator configurator = new DnsMasqConfigurator();
+        String [] config = configurator.generateConfiguration(cmd);
+        String cfgFileName = routerIp.replace(".","-")+"dns.cgf";
+        String tmpCfgFileContents = "";
+        for (int i = 0; i < config.length; i++) {
+            tmpCfgFileContents += config[i];
+            tmpCfgFileContents += "\n";
+        }
+        File permKey = new File("/root/.ssh/id_rsa.cloud");
+        String cfgFilePath = "/tmp/"+cfgFileName;
+        try {
+            SshHelper.scpTo(routerIp, 3922, "root", permKey, null, "/tmp/", tmpCfgFileContents.getBytes(), cfgFileName, null);
+            command.add(routerIp);
+            command.add(cfgFilePath);
+            final String result = command.execute();
+            return new Answer(cmd, result == null, result);
+        } catch (Exception e) {
+            return new Answer(cmd, false, e.getMessage());
+        }
     }
 
     public String getRouterStatus(String routerIP) {
@@ -815,12 +888,17 @@ public class VirtualRoutingResource implements Manager {
     }
 
     public String assignNetworkACL(final String routerIP, final String dev,
-            final String routerGIP, final String netmask, final String rule){
+                                   final String routerGIP, final String netmask, final String rule, String privateGw){
         String args = " -d " + dev;
-        args += " -i " + routerGIP;
-        args += " -m " + netmask;
-        args += " -a " + rule;
-        return routerProxy("vpc_acl.sh", routerIP, args);
+        if (privateGw != null) {
+            args += " -a " + rule;
+            return routerProxy("vpc_privategw_acl.sh", routerIP, args);
+        } else {
+            args += " -i " + routerGIP;
+            args += " -m " + netmask;
+            args += " -a " + rule;
+            return routerProxy("vpc_acl.sh", routerIP, args);
+        }
     }
 
     public String assignSourceNat(final String routerIP, final String pubIP, final String dev) {
@@ -859,35 +937,42 @@ public class VirtualRoutingResource implements Manager {
     }
 
     public void assignVpcIpToRouter(final String routerIP, final boolean add, final String pubIP,
-            final String nicname, final String gateway, final String netmask, final String subnet) throws Exception {
-        try {
-            String args = "";
+                                    final String nicname, final String gateway, final String netmask, final String subnet, boolean sourceNat) throws InternalErrorException {
+        String args = "";
+        String snatArgs = "";
 
-            if (add) {
-                args += " -A ";
-            } else {
-                args += " -D ";
-            }
+        if (add) {
+            args += " -A ";
+            snatArgs += " -A ";
+        } else {
+            args += " -D ";
+            snatArgs += " -D ";
+        }
 
-            args += " -l ";
-            args += pubIP;
-            args += " -c ";
-            args += nicname;
-            args += " -g ";
-            args += gateway;
-            args += " -m ";
-            args += netmask;
-            args += " -n ";
-            args += subnet;
+        args += " -l ";
+        args += pubIP;
+        args += " -c ";
+        args += nicname;
+        args += " -g ";
+        args += gateway;
+        args += " -m ";
+        args += netmask;
+        args += " -n ";
+        args += subnet;
 
-            String result = routerProxy("vpc_ipassoc.sh", routerIP, args);
+        String result = routerProxy("vpc_ipassoc.sh", routerIP, args);
+        if (result != null) {
+            throw new InternalErrorException("KVM plugin \"vpc_ipassoc\" failed:"+result);
+        }
+        if (sourceNat) {
+            snatArgs += " -l " + pubIP;
+            snatArgs += " -c " + nicname;
+
+            result = routerProxy("vpc_privateGateway.sh", routerIP, snatArgs);
             if (result != null) {
-                throw new InternalErrorException("KVM plugin \"vpc_ipassoc\" failed:"+result);
+                throw new InternalErrorException("KVM plugin \"vpc_privateGateway\" failed:"+result);
             }
-        } catch (Exception e) {
-            String msg = "Unable to assign public IP address due to " + e.toString();
-            s_logger.warn(msg, e);
-            throw new Exception(msg);
+
         }
     }
 
@@ -1119,6 +1204,18 @@ public class VirtualRoutingResource implements Manager {
         _routerProxyPath = findScript("router_proxy.sh");
         if (_routerProxyPath == null) {
             throw new ConfigurationException("Unable to find router_proxy.sh");
+        }
+        _createIpAliasPath = findScript("createipAlias.sh");
+        if (_createIpAliasPath == null) {
+            throw new ConfigurationException("unable to find createipAlias.sh");
+        }
+        _deleteIpAliasPath = findScript("deleteipAlias.sh");
+        if (_deleteIpAliasPath == null) {
+            throw  new ConfigurationException("unable to find deleteipAlias.sh");
+        }
+        _callDnsMasqPath = findScript("call_dnsmasq.sh");
+        if (_callDnsMasqPath == null) {
+            throw  new ConfigurationException("unable to find call_dnsmasq.sh");
         }
         
         return true;

@@ -72,6 +72,7 @@ public interface User extends OwnedBy, InternalIdentity {
     String getRegistrationToken();
 
     boolean isRegistered();
+    
+    boolean isDefault();
 
-    public int getRegionId();
 }

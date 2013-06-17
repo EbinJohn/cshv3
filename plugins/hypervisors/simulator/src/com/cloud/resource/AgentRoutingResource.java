@@ -51,7 +51,7 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.simulator.MockVMVO;
 import com.cloud.storage.Storage.StorageResourceType;
-import com.cloud.storage.template.TemplateInfo;
+import com.cloud.storage.template.TemplateProp;
 import com.cloud.utils.Pair;
 import com.cloud.vm.VirtualMachine.State;
 
@@ -168,7 +168,7 @@ public class AgentRoutingResource extends AgentStorageResource {
     }
 
     private StartupStorageCommand initializeLocalSR() {
-        Map<String, TemplateInfo> tInfo = new HashMap<String, TemplateInfo>();
+        Map<String, TemplateProp> tInfo = new HashMap<String, TemplateProp>();
 
         StoragePoolInfo poolInfo = _simMgr.getLocalStorage(hostGuid);
 
@@ -184,7 +184,7 @@ public class AgentRoutingResource extends AgentStorageResource {
 			throws IllegalArgumentException {
 		VirtualMachineTO vmSpec = cmd.getVirtualMachine();
 		String vmName = vmSpec.getName();
-		if (this.totalCpu < (vmSpec.getCpus() * vmSpec.getSpeed() + this.usedCpu) ||
+		if (this.totalCpu < (vmSpec.getCpus() * vmSpec.getMaxSpeed() + this.usedCpu) ||
 			this.totalMem < (vmSpec.getMaxRam() + this.usedMem)) {
 			return new StartAnswer(cmd, "Not enough resource to start the vm");
 		}
@@ -199,9 +199,9 @@ public class AgentRoutingResource extends AgentStorageResource {
 		        return new StartAnswer(cmd, result.getDetails());
 		    }
 
-		    this.usedCpu += vmSpec.getCpus() * vmSpec.getSpeed();
+		    this.usedCpu += vmSpec.getCpus() * vmSpec.getMaxSpeed();
 		    this.usedMem += vmSpec.getMaxRam();
-		    _runningVms.put(vmName, new Pair<Long, Long>(Long.valueOf(vmSpec.getCpus() * vmSpec.getSpeed()), vmSpec.getMaxRam()));
+		    _runningVms.put(vmName, new Pair<Long, Long>(Long.valueOf(vmSpec.getCpus() * vmSpec.getMaxSpeed()), vmSpec.getMaxRam()));
 		    state = State.Running;
 
 		} finally {

@@ -24,7 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.cloudstack.engine.cloud.entity.api.TemplateEntity;
-import org.apache.cloudstack.storage.image.datastore.ImageDataStoreInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
+import org.apache.cloudstack.storage.image.datastore.ImageStoreInfo;
 
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.storage.Storage.ImageFormat;
@@ -37,12 +38,12 @@ public class TemplateEntityImpl implements TemplateEntity {
         this.templateInfo = templateInfo;
     }
 
-    public ImageDataStoreInfo getImageDataStore() {
-        return (ImageDataStoreInfo)templateInfo.getDataStore();
+    public ImageStoreInfo getImageDataStore() {
+        return (ImageStoreInfo) templateInfo.getDataStore();
     }
 
     public long getImageDataStoreId() {
-        return getImageDataStore().getImageDataStoreId();
+        return getImageDataStore().getImageStoreId();
     }
 
     public TemplateInfo getTemplateInfo() {
@@ -56,7 +57,7 @@ public class TemplateEntityImpl implements TemplateEntity {
 
     @Override
     public long getId() {
-       return this.templateInfo.getId();
+        return this.templateInfo.getId();
     }
 
     public String getExternalId() {
@@ -99,7 +100,6 @@ public class TemplateEntityImpl implements TemplateEntity {
         // TODO Auto-generated method stub
         return null;
     }
-
 
     @Override
     public void addDetail(String name, String value) {

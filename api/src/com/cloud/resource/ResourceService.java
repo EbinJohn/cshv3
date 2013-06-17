@@ -71,7 +71,7 @@ public interface ResourceService {
 
     boolean deleteCluster(DeleteClusterCmd cmd);
 
-    Cluster updateCluster(Cluster cluster, String clusterType, String hypervisor, String allocationState, String managedstate);
+    Cluster updateCluster(Cluster cluster, String clusterType, String hypervisor, String allocationState, String managedstate,Float memoryOvercommitRatio, Float cpuOvercommitRatio);
 
     List<? extends Host> discoverHosts(AddHostCmd cmd) throws IllegalArgumentException, DiscoveryException, InvalidParameterValueException;
 
@@ -100,11 +100,13 @@ public interface ResourceService {
     Swift discoverSwift(AddSwiftCmd addSwiftCmd) throws DiscoveryException;
 
     S3 discoverS3(AddS3Cmd cmd) throws DiscoveryException;
-    
+
     List<HypervisorType> getSupportedHypervisorTypes(long zoneId, boolean forVirtualRouter, Long podId);
 
     Pair<List<? extends Swift>, Integer> listSwifts(ListSwiftsCmd cmd);
 
     List<? extends S3> listS3s(ListS3sCmd cmd);
+
+    boolean releaseHostReservation(Long hostId);
 
 }

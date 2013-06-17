@@ -20,6 +20,8 @@ import java.util.List;
 
 import javax.inject.Inject;
 
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.log4j.Logger;
 
 import com.cloud.agent.Listener;
@@ -30,24 +32,23 @@ import com.cloud.agent.api.Command;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.exception.ConnectionException;
-import com.cloud.host.HostVO;
+import com.cloud.host.Host;
 import com.cloud.host.Status;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.storage.OCFS2Manager;
 import com.cloud.storage.Storage.StoragePoolType;
+import com.cloud.storage.ScopeType;
 import com.cloud.storage.StorageManagerImpl;
 import com.cloud.storage.StoragePoolStatus;
-import com.cloud.storage.StoragePoolVO;
-import com.cloud.storage.dao.StoragePoolDao;
 
 
 public class StoragePoolMonitor implements Listener {
     private static final Logger s_logger = Logger.getLogger(StoragePoolMonitor.class);
     private final StorageManagerImpl _storageManager;
-    private final StoragePoolDao _poolDao;
+    private final PrimaryDataStoreDao _poolDao;
     @Inject OCFS2Manager _ocfs2Mgr;
 
-    public StoragePoolMonitor(StorageManagerImpl mgr, StoragePoolDao poolDao) {
+    public StoragePoolMonitor(StorageManagerImpl mgr, PrimaryDataStoreDao poolDao) {
         this._storageManager = mgr;
         this._poolDao = poolDao;
 
@@ -70,17 +71,21 @@ public class StoragePoolMonitor implements Listener {
     }
 
     @Override
-    public void processConnect(HostVO host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
+    public void processConnect(Host host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
         if (cmd instanceof StartupRoutingCommand) {
             StartupRoutingCommand scCmd = (StartupRoutingCommand)cmd;
             if (scCmd.getHypervisorType() == HypervisorType.XenServer || scCmd.getHypervisorType() ==  HypervisorType.KVM ||
                     scCmd.getHypervisorType() == HypervisorType.VMware || scCmd.getHypervisorType() ==  HypervisorType.Simulator || scCmd.getHypervisorType() == HypervisorType.Ovm) {
-                List<StoragePoolVO> pools = _poolDao.listBy(host.getDataCenterId(), host.getPodId(), host.getClusterId());
+                List<StoragePoolVO> pools = _poolDao.listBy(host.getDataCenterId(), host.getPodId(), host.getClusterId(), ScopeType.CLUSTER);
+                List<StoragePoolVO> zoneStoragePoolsByTags = _poolDao.findZoneWideStoragePoolsByTags(host.getDataCenterId(), null);
+                List<StoragePoolVO> zoneStoragePoolsByHypervisor = _poolDao.findZoneWideStoragePoolsByHypervisor(host.getDataCenterId(), scCmd.getHypervisorType());
+                zoneStoragePoolsByTags.retainAll(zoneStoragePoolsByHypervisor);
+                pools.addAll(zoneStoragePoolsByTags);
                 for (StoragePoolVO pool : pools) {
                     if (pool.getStatus() != StoragePoolStatus.Up) {
                         continue;
                     }
-                    if (!pool.getPoolType().isShared()) {
+                    if (!pool.isShared()) {
                         continue;
                     }
 
@@ -91,8 +96,8 @@ public class StoragePoolMonitor implements Listener {
                     Long hostId = host.getId();
                     s_logger.debug("Host " + hostId + " connected, sending down storage pool information ...");
                     try {
-                        _storageManager.connectHostToSharedPool(hostId, pool);
-                        _storageManager.createCapacityEntry(pool);
+                        _storageManager.connectHostToSharedPool(hostId, pool.getId());
+                        _storageManager.createCapacityEntry(pool.getId());
                     } catch (Exception e) {
                         s_logger.warn("Unable to connect host " + hostId + " to pool " + pool + " due to " + e.toString(), e);
                     }

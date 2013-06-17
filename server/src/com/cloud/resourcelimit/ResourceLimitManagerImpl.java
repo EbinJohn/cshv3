@@ -30,6 +30,8 @@ import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
+import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -46,6 +48,8 @@ import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.configuration.dao.ResourceCountDao;
 import com.cloud.configuration.dao.ResourceLimitDao;
 import com.cloud.dao.EntityManager;
+import com.cloud.dc.VlanVO;
+import com.cloud.dc.dao.VlanDao;
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
@@ -53,6 +57,7 @@ import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.network.dao.IPAddressDao;
+import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.projects.Project;
@@ -61,8 +66,12 @@ import com.cloud.projects.dao.ProjectAccountDao;
 import com.cloud.projects.dao.ProjectDao;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
+import com.cloud.storage.VMTemplateHostVO;
+import com.cloud.storage.VMTemplateStorageResourceAssoc.Status;
+import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.VMTemplateDao;
+import com.cloud.storage.dao.VMTemplateHostDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.dao.VolumeDaoImpl.SumCount;
 import com.cloud.user.Account;
@@ -135,6 +144,12 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
     private VpcDao _vpcDao;
     @Inject
     private ServiceOfferingDao _serviceOfferingDao;
+    @Inject
+    private TemplateDataStoreDao _vmTemplateStoreDao;
+    @Inject
+    private VlanDao _vlanDao;
+
+    protected GenericSearchBuilder<TemplateDataStoreVO, SumCount> templateSizeSearch;
 
     protected SearchBuilder<ResourceCountVO> ResourceCountSearch;
     ScheduledExecutorService _rcExecutor;
@@ -164,30 +179,48 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
         ResourceCountSearch.and("domainId", ResourceCountSearch.entity().getDomainId(), SearchCriteria.Op.EQ);
         ResourceCountSearch.done();
 
+        templateSizeSearch = _vmTemplateStoreDao.createSearchBuilder(SumCount.class);
+        templateSizeSearch.select("sum", Func.SUM, templateSizeSearch.entity().getSize());
+        templateSizeSearch.and("downloadState", templateSizeSearch.entity().getDownloadState(), Op.EQ);
+        templateSizeSearch.and("destroyed", templateSizeSearch.entity().getDestroyed(), Op.EQ);
+        SearchBuilder<VMTemplateVO> join1 = _vmTemplateDao.createSearchBuilder();
+        join1.and("accountId", join1.entity().getAccountId(), Op.EQ);
+        templateSizeSearch.join("templates", join1, templateSizeSearch.entity().getTemplateId(), join1.entity().getId(), JoinBuilder.JoinType.INNER);
+        templateSizeSearch.done();
+
         _resourceCountCheckInterval = NumbersUtil.parseInt(_configDao.getValue(Config.ResourceCountCheckInterval.key()), 0);
         if (_resourceCountCheckInterval > 0) {
             _rcExecutor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("ResourceCountChecker"));
         }
 
-        projectResourceLimitMap.put(Resource.ResourceType.public_ip, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectPublicIPs.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.snapshot, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectSnapshots.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.template, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectTemplates.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.user_vm, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectUserVms.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.volume, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectVolumes.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.network, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectNetworks.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.vpc, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectVpcs.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.cpu, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectCpus.key())));
-        projectResourceLimitMap.put(Resource.ResourceType.memory, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectMemory.key())));
+        try {
+            projectResourceLimitMap.put(Resource.ResourceType.public_ip, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectPublicIPs.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.snapshot, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectSnapshots.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.template, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectTemplates.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.user_vm, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectUserVms.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.volume, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectVolumes.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.network, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectNetworks.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.vpc, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectVpcs.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.cpu, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectCpus.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.memory, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectMemory.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.primary_storage, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectPrimaryStorage.key())));
+            projectResourceLimitMap.put(Resource.ResourceType.secondary_storage, Long.parseLong(_configDao.getValue(Config.DefaultMaxProjectSecondaryStorage.key())));
 
-        accountResourceLimitMap.put(Resource.ResourceType.public_ip, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountPublicIPs.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.snapshot, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountSnapshots.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.template, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountTemplates.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.user_vm, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountUserVms.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.volume, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountVolumes.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.network, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountNetworks.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.vpc, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountVpcs.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.cpu, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountCpus.key())));
-        accountResourceLimitMap.put(Resource.ResourceType.memory, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountMemory.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.public_ip, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountPublicIPs.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.snapshot, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountSnapshots.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.template, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountTemplates.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.user_vm, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountUserVms.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.volume, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountVolumes.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.network, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountNetworks.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.vpc, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountVpcs.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.cpu, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountCpus.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.memory, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountMemory.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.primary_storage, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountPrimaryStorage.key())));
+            accountResourceLimitMap.put(Resource.ResourceType.secondary_storage, Long.parseLong(_configDao.getValue(Config.DefaultMaxAccountSecondaryStorage.key())));
+        } catch (NumberFormatException e) {
+            s_logger.error("NumberFormatException during configuration", e);
+            throw new ConfigurationException("Configuration failed due to NumberFormatException, see log for the stacktrace");
+        }
 
         return true;
     }
@@ -199,6 +232,7 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
             s_logger.trace("Not incrementing resource count for system accounts, returning");
             return;
         }
+
         long numToIncrement = (delta.length == 0) ? 1 : delta[0].longValue();
 
         if (!updateResourceCountForAccount(accountId, type, true, numToIncrement)) {
@@ -246,6 +280,10 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
                 value = accountResourceLimitMap.get(type);
             }
             if (value != null) {
+                // convert the value from GiB to bytes in case of primary or secondary storage.
+                if (type == ResourceType.primary_storage || type == ResourceType.secondary_storage) {
+                    value = value * ResourceType.bytesToGiB;
+                }
                 return value;
             }
         }
@@ -276,6 +314,9 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
                 value = accountResourceLimitMap.get(type);
             }
             if (value != null) {
+                if (type == ResourceType.primary_storage || type == ResourceType.secondary_storage) {
+                    value = value * ResourceType.bytesToGiB;
+                }
                 return value;
             }
         }
@@ -548,6 +589,11 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
             }
         }
 
+        //Convert max storage size from GiB to bytes
+        if ((resourceType == ResourceType.primary_storage || resourceType == ResourceType.secondary_storage) && max >= 0) {
+            max = max * ResourceType.bytesToGiB;
+        }
+
         ResourceOwnerType ownerType = null;
         Long ownerId = null;
 
@@ -628,7 +674,7 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
         ResourceType resourceType = null;
 
         if (typeId != null) {
-            for (ResourceType type : resourceTypes) {
+            for (ResourceType type : Resource.ResourceType.values()) {
                 if (type.getOrdinal() == typeId.intValue()) {
                     resourceType = type;
                 }
@@ -776,7 +822,7 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
         } else if (type == Resource.ResourceType.snapshot) {
             newCount = _snapshotDao.countSnapshotsForAccount(accountId);
         } else if (type == Resource.ResourceType.public_ip) {
-            newCount = _ipAddressDao.countAllocatedIPsForAccount(accountId);
+            newCount = calculatePublicIpForAccount(accountId);
         } else if (type == Resource.ResourceType.template) {
             newCount = _vmTemplateDao.countTemplatesForAccount(accountId);
         } else if (type == Resource.ResourceType.project) {
@@ -789,6 +835,10 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
             newCount = countCpusForAccount(accountId);
         } else if (type == Resource.ResourceType.memory) {
             newCount = calculateMemoryForAccount(accountId);
+        } else if (type == Resource.ResourceType.primary_storage) {
+            newCount = _volumeDao.primaryStorageUsedForAccount(accountId);
+        } else if (type == Resource.ResourceType.secondary_storage) {
+            newCount = calculateSecondaryStorageForAccount(accountId);
         } else {
             throw new InvalidParameterValueException("Unsupported resource type " + type);
         }
@@ -845,6 +895,39 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
         } else {
             return 0;
         }
+    }
+
+    public long calculateSecondaryStorageForAccount(long accountId) {
+        long totalVolumesSize = _volumeDao.secondaryStorageUsedForAccount(accountId);
+        long totalSnapshotsSize = _snapshotDao.secondaryStorageUsedForAccount(accountId);
+        long totalTemplatesSize = 0;
+
+        SearchCriteria<SumCount> sc = templateSizeSearch.create();
+        sc.setParameters("downloadState", Status.DOWNLOADED);
+        sc.setParameters("destroyed", false);
+        sc.setJoinParameters("templates", "accountId", accountId);
+        List<SumCount> templates = _vmTemplateStoreDao.customSearch(sc, null);
+        if (templates != null) {
+            totalTemplatesSize = templates.get(0).sum;
+        }
+
+        return totalVolumesSize + totalSnapshotsSize + totalTemplatesSize;
+    }
+
+    private long calculatePublicIpForAccount(long accountId) {
+        Long dedicatedCount = 0L;
+        Long allocatedCount = 0L;
+
+        List<VlanVO> dedicatedVlans = _vlanDao.listDedicatedVlans(accountId);
+        for (VlanVO dedicatedVlan : dedicatedVlans) {
+            List<IPAddressVO> ips = _ipAddressDao.listByVlanId(dedicatedVlan.getId());
+            dedicatedCount += new Long(ips.size());
+        }
+        allocatedCount = _ipAddressDao.countAllocatedIPsForAccount(accountId);
+        if (dedicatedCount > allocatedCount)
+            return dedicatedCount;
+        else
+            return allocatedCount;
     }
 
     @Override

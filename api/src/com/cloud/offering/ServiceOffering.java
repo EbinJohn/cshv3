@@ -30,6 +30,7 @@ public interface ServiceOffering extends InfrastructureEntity, InternalIdentity,
     public static final String ssvmDefaultOffUniqueName = "Cloud.com-SecondaryStorage";
     public static final String routerDefaultOffUniqueName = "Cloud.Com-SoftwareRouter";
     public static final String elbVmDefaultOffUniqueName = "Cloud.Com-ElasticLBVm";
+    public static final String internalLbVmDefaultOffUniqueName = "Cloud.Com-InternalLBVm";
 
     public enum StorageType {
         local,
@@ -78,6 +79,11 @@ public interface ServiceOffering extends InfrastructureEntity, InternalIdentity,
     boolean getLimitCpuUse();
 
     /**
+     * @return Does this service plan support Volatile VM that is, discard VM's root disk and create a new one on reboot?
+     */
+    boolean getVolatileVm();
+
+    /**
      * @return the rate in megabits per sec to which a VM's network interface is throttled to
      */
     Integer getRateMbps();
@@ -102,4 +108,6 @@ public interface ServiceOffering extends InfrastructureEntity, InternalIdentity,
     boolean getDefaultUse();
 
     String getSystemVmType();
+
+    String getDeploymentPlanner();
 }

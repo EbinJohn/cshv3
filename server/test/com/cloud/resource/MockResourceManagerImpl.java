@@ -49,12 +49,15 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.org.Cluster;
 import com.cloud.resource.ResourceState.Event;
 import com.cloud.service.ServiceOfferingVO;
+import com.cloud.storage.ImageStore;
 import com.cloud.storage.S3;
 import com.cloud.storage.Swift;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.utils.Pair;
-import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
+import com.cloud.utils.component.Manager;
+
+
 import com.cloud.utils.fsm.NoTransitionException;
 
 @Local(value = {ResourceManager.class})
@@ -111,7 +114,7 @@ public class MockResourceManagerImpl extends ManagerBase implements ResourceMana
      */
     @Override
     public Cluster updateCluster(Cluster cluster, String clusterType, String hypervisor, String allocationState,
-            String managedstate) {
+                                 String managedstate, Float memoryOvercommitRaito, Float cpuOvercommitRatio) {
         // TODO Auto-generated method stub
         return null;
     }
@@ -597,6 +600,19 @@ public class MockResourceManagerImpl extends ManagerBase implements ResourceMana
     public String getName() {
         // TODO Auto-generated method stub
         return "MockResourceManagerImpl";
+    }
+
+	@Override
+	public List<HostVO> listAllUpAndEnabledHostsInOneZoneByHypervisor(
+			HypervisorType type, long dcId) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+    @Override
+    public boolean releaseHostReservation(Long hostId) {
+        // TODO Auto-generated method stub
+        return false;
     }
 
 }

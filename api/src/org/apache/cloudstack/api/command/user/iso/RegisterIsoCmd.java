@@ -89,6 +89,10 @@ public class RegisterIsoCmd extends BaseCmd {
             description="Register iso for the project")
     private Long projectId;
 
+    @Parameter(name=ApiConstants.IMAGE_STORE_UUID, type=CommandType.STRING,
+            description="Image store uuid")
+    private String imageStoreUuid;
+
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -141,6 +145,10 @@ public class RegisterIsoCmd extends BaseCmd {
         return checksum;
     }
 
+    public String getImageStoreUuid() {
+        return this.imageStoreUuid;
+    }
+
     /////////////////////////////////////////////////////
     /////////////// API Implementation///////////////////
     /////////////////////////////////////////////////////
@@ -165,7 +173,7 @@ public class RegisterIsoCmd extends BaseCmd {
         VirtualMachineTemplate template = _templateService.registerIso(this);
         if (template != null) {
             ListResponse<TemplateResponse> response = new ListResponse<TemplateResponse>();
-            List<TemplateResponse> templateResponses = _responseGenerator.createIsoResponses(template.getId(), zoneId, false);
+            List<TemplateResponse> templateResponses = _responseGenerator.createIsoResponses(template, zoneId, false);
             response.setResponses(templateResponses);
             response.setResponseName(getCommandName());
             this.setResponseObject(response);

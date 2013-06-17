@@ -33,6 +33,7 @@ import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.element.NetworkElement;
 import com.cloud.network.element.UserDataServiceProvider;
 import com.cloud.offering.NetworkOffering;
+import com.cloud.offering.NetworkOffering.Detail;
 import com.cloud.user.Account;
 import com.cloud.vm.Nic;
 import com.cloud.vm.NicProfile;
@@ -181,7 +182,7 @@ public interface NetworkModel {
     /**
      * @return
      */
-    String getDefaultNetworkDomain();
+    String getDefaultNetworkDomain(long zoneId);
 
     /**
      * @param ntwkOffId
@@ -255,4 +256,22 @@ public interface NetworkModel {
 	boolean isIP6AddressAvailableInVlan(long vlanId);
 
 	void checkIp6Parameters(String startIPv6, String endIPv6, String ip6Gateway, String ip6Cidr) throws InvalidParameterValueException;
+
+	void checkRequestedIpAddresses(long networkId, String ip4, String ip6) throws InvalidParameterValueException;
+
+	String getStartIpv6Address(long id);
+
+    boolean isProviderEnabledInZone(long zoneId, String provider);
+
+    Nic getPlaceholderNicForRouter(Network network, Long podId);
+    
+    IpAddress getPublicIpAddress(String ipAddress, long zoneId);
+
+    List<String> getUsedIpsInNetwork(Network network);
+
+    Map<Detail, String> getNtwkOffDetails(long offId);
+
+    Networks.IsolationType[] listNetworkIsolationMethods();
+
+    Nic getNicInNetworkIncludingRemoved(long vmId, long networkId);
 }

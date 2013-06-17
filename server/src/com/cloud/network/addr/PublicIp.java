@@ -37,6 +37,10 @@ public class PublicIp implements PublicIpAddress {
         this.macAddress = NetUtils.long2Mac(macAddress);
     }
 
+    public static PublicIp createFromAddrAndVlan(IPAddressVO addr, VlanVO vlan) {
+    	return new PublicIp(addr, vlan, NetUtils.createSequenceBasedMacAddress(addr.getMacAddress()));
+    }
+    
     @Override
     public Ip getAddress() {
         return _addr.getAddress();
@@ -190,35 +194,42 @@ public class PublicIp implements PublicIpAddress {
     public boolean getSystem() {
         return _addr.getSystem();
     }
-
-    /* (non-Javadoc)
-     * @see com.cloud.network.IpAddress#getVpcId()
-     */
+	
     @Override
     public Long getVpcId() {
        return _addr.getVpcId();
     }
 
-    /* (non-Javadoc)
-     * @see com.cloud.network.IpAddress#setVpcId(java.lang.Long)
-     */
     @Override
-    public void setVpcId(Long vpcId) {
-        _addr.setVpcId(vpcId);
+    public String getIp6Gateway() {
+        return _vlan.getIp6Gateway();
     }
 
-	@Override
-	public String getIp6Gateway() {
-		return _vlan.getIp6Gateway();
-	}
+    @Override
+    public String getIp6Cidr() {
+        return _vlan.getIp6Cidr();
+    }
 
-	@Override
-	public String getIp6Cidr() {
-		return _vlan.getIp6Cidr();
-	}
+    @Override
+    public String getIp6Range() {
+        return _vlan.getIp6Range();
+    }
 
-	@Override
-	public String getIp6Range() {
-		return _vlan.getIp6Range();
-	}
+    @Override
+    public String getVmIp() {
+        return _addr.getVmIp();
+    }
+
+    @Override
+    public boolean isPortable() {
+        return _addr.isPortable();
+    }
+
+    public void setPortable(boolean portable) {
+        _addr.setPortable(portable);
+    }
+
+    public Long getIpMacAddress() {
+        return  _addr.getMacAddress();
+    }
 }

@@ -86,12 +86,13 @@
           });
         };
 
-        var makeSelects = function(name, data, fields, options) {
+        var makeSelects = function(name, data, fields, options, selectedObj) {
           var $selects = $('<div>');
           options = options ? options : {};
 
           $(data).each(function() {
-            var id = this[fields.id];
+            var item = this;
+            var id = item[fields.id];
 
             var $select = $('<div>')
                   .addClass('select')
@@ -107,17 +108,26 @@
                       .val(id)
                       .click(function() {
                         var $select = $(this).closest('.select');
+                        var isSingleSelect = $select.hasClass('single-select');
                         var $radio = $select.find('input[type=radio]');
                         var $newNetwork = $(this).closest('.content').find('.select.new-network');
                         var $otherSelects = $select.siblings().filter(':visible');
                         var isCheckbox = $(this).attr('type') == 'checkbox';
-                        var isSingleSelect = $(this).closest('.select-container').hasClass('single-select');
 
                         if (isCheckbox) {
-                          if ((isSingleSelect || !$otherSelects.size()) &&
-                              $newNetwork.find('input[type=checkbox]').is(':unchecked')) {
-                            $otherSelects.find('input[type=checkbox]').attr('checked', false);
+                          if (isSingleSelect) {
+                            $select.siblings('.single-select:visible').find('input[type=checkbox]')
+                              .attr('checked', false);
 
+                            if (!$('input[name=new-network]:visible').is(':checked')) {
+                              $(this).closest('.select').find('input[type=radio]').click();
+                            } else {
+                              $newNetwork.find('input[type=radio]').click();
+                            }
+                          }
+
+                          if ((!$otherSelects.size()) &&
+                                     $newNetwork.find('input[type=checkbox]').is(':unchecked')) {
                             // Set as default
                             $(this).closest('.select').find('input[type=radio]').click();
                           }
@@ -141,8 +151,16 @@
                       .append($('<div>').addClass('desc').html(_s(this[fields.desc])))
                   )
                   .data('json-obj', this);
-
+            
+            if(selectedObj != null && selectedObj.id == item.id) {                
+              $select.find('input[type=checkbox]').attr('checked', 'checked');           
+            }                        
+            
             $selects.append($select);
+
+            if (item._singleSelect) {
+              $select.addClass('single-select');
+            }
 
             if (options.secondary) {
               var $secondary = $('<div>').addClass('secondary-input').append(
@@ -162,6 +180,11 @@
 
                     if ($(this).closest('.select-container').hasClass('single-select')) {
                       $(this).closest('.select').siblings().find('input[type=checkbox]')
+                        .attr('checked', false);
+                    }
+
+                    if ($select.hasClass('single-select')) {
+                      $select.siblings('.single-select:visible').find('input[type=checkbox]')
                         .attr('checked', false);
                     }
                   })
@@ -463,6 +486,40 @@
             };
           },
 
+          'affinity': function($step, formData) {
+            return {
+              response: {
+                success: function(args) {                  
+                  if (args.data.affinityGroups && args.data.affinityGroups.length) {
+                    $step.prepend(
+                      $('<div>').addClass('main-desc').append(
+                        $('<p>').html(_l('message.select.affinity.groups'))
+                      )
+                    );
+                    $step.find('.select-container').append(
+                      makeSelects(
+                        'affinity-groups', 
+                        args.data.affinityGroups, 
+                        {
+                          name: 'name',
+                          desc: 'description',
+                          id: 'id'
+                        }, 
+                        {
+                          type: 'checkbox',
+                          'wizard-field': 'affinity-groups'
+                        },
+                        args.data.selectedObj
+                      )
+                    ); 
+                  } else {
+                    $step.find('.select-container').append($('<p>').html(_l('message.no.affinity.groups')));
+                  }
+                }
+              }
+            };
+          },
+
           'network': function($step, formData) {
             var showAddNetwork = true;
 
@@ -614,7 +671,7 @@
                   });
 
                   // 'No VPC' option
-                  $('<option>').attr('value', '-1').html('None').prependTo($vpcSelect);
+                  $('<option>').attr('value', '-1').html(_l('ui.listView.filters.all')).prependTo($vpcSelect);
 
                   $vpcSelect.val(-1);
                   

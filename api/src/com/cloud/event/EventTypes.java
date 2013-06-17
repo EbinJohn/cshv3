@@ -16,6 +16,9 @@
 // under the License.
 package com.cloud.event;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import com.cloud.configuration.Configuration;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.Pod;
@@ -23,8 +26,18 @@ import com.cloud.dc.StorageNetworkIpRange;
 import com.cloud.dc.Vlan;
 import com.cloud.domain.Domain;
 import com.cloud.host.Host;
-import com.cloud.network.*;
-import com.cloud.network.as.*;
+import com.cloud.network.GuestVlan;
+import com.cloud.network.Network;
+import com.cloud.network.PhysicalNetwork;
+import com.cloud.network.PhysicalNetworkServiceProvider;
+import com.cloud.network.PhysicalNetworkTrafficType;
+import com.cloud.network.PublicIpAddress;
+import com.cloud.network.RemoteAccessVpn;
+import com.cloud.network.as.AutoScaleCounter;
+import com.cloud.network.as.AutoScalePolicy;
+import com.cloud.network.as.AutoScaleVmGroup;
+import com.cloud.network.as.AutoScaleVmProfile;
+import com.cloud.network.as.Condition;
 import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.rules.LoadBalancer;
 import com.cloud.network.rules.StaticNat;
@@ -43,9 +56,6 @@ import com.cloud.user.Account;
 import com.cloud.user.User;
 import com.cloud.vm.VirtualMachine;
 
-import java.util.HashMap;
-import java.util.Map;
-
 public class EventTypes {
 
     //map of Event and corresponding entity for which Event is applicable
@@ -59,6 +69,7 @@ public class EventTypes {
     public static final String EVENT_VM_REBOOT = "VM.REBOOT";
     public static final String EVENT_VM_UPDATE = "VM.UPDATE";
     public static final String EVENT_VM_UPGRADE = "VM.UPGRADE";
+    public static final String EVENT_VM_SCALE = "VM.SCALE";
     public static final String EVENT_VM_RESETPASSWORD = "VM.RESETPASSWORD";
     public static final String EVENT_VM_RESETSSHKEY = "VM.RESETSSHKEY";
     public static final String EVENT_VM_MIGRATE = "VM.MIGRATE";
@@ -81,6 +92,8 @@ public class EventTypes {
     public static final String EVENT_PROXY_STOP = "PROXY.STOP";
     public static final String EVENT_PROXY_REBOOT = "PROXY.REBOOT";
     public static final String EVENT_PROXY_HA = "PROXY.HA";
+    public static final String EVENT_PROXY_SCALE = "PROXY.SCALE";
+
 
     // VNC Console Events
     public static final String EVENT_VNC_CONNECT = "VNC.CONNECT";
@@ -89,6 +102,8 @@ public class EventTypes {
     // Network Events
     public static final String EVENT_NET_IP_ASSIGN = "NET.IPASSIGN";
     public static final String EVENT_NET_IP_RELEASE = "NET.IPRELEASE";
+    public static final String EVENT_PORTABLE_IP_ASSIGN = "PORTABLE.IPASSIGN";
+    public static final String EVENT_PORTABLE_IP_RELEASE = "PORTABLE.IPRELEASE";
     public static final String EVENT_NET_RULE_ADD = "NET.RULEADD";
     public static final String EVENT_NET_RULE_DELETE = "NET.RULEDELETE";
     public static final String EVENT_NET_RULE_MODIFY = "NET.RULEMODIFY";
@@ -102,6 +117,10 @@ public class EventTypes {
     public static final String EVENT_NIC_CREATE = "NIC.CREATE";
     public static final String EVENT_NIC_DELETE = "NIC.DELETE";
     public static final String EVENT_NIC_UPDATE = "NIC.UPDATE";
+    public static final String EVENT_NIC_DETAIL_ADD = "NIC.DETAIL.ADD";
+    public static final String EVENT_NIC_DETAIL_UPDATE = "NIC.DETAIL.UPDATE";
+    public static final String EVENT_NIC_DETAIL_REMOVE = "NIC.DETAIL.REMOVE";
+
 
     // Load Balancers
     public static final String EVENT_ASSIGN_TO_LOAD_BALANCER_RULE = "LB.ASSIGN.TO.RULE";
@@ -110,12 +129,23 @@ public class EventTypes {
     public static final String EVENT_LOAD_BALANCER_DELETE = "LB.DELETE";
     public static final String EVENT_LB_STICKINESSPOLICY_CREATE = "LB.STICKINESSPOLICY.CREATE";
     public static final String EVENT_LB_STICKINESSPOLICY_DELETE = "LB.STICKINESSPOLICY.DELETE";
+    public static final String EVENT_LB_HEALTHCHECKPOLICY_CREATE = "LB.HEALTHCHECKPOLICY.CREATE";
+    public static final String EVENT_LB_HEALTHCHECKPOLICY_DELETE = "LB.HEALTHCHECKPOLICY.DELETE";
     public static final String EVENT_LOAD_BALANCER_UPDATE = "LB.UPDATE";
 
+    // Global Load Balancer rules
+    public static final String EVENT_ASSIGN_TO_GLOBAL_LOAD_BALANCER_RULE = "GLOBAL.LB.ASSIGN";
+    public static final String EVENT_REMOVE_FROM_GLOBAL_LOAD_BALANCER_RULE = "GLOBAL.LB.REMOVE";
+    public static final String EVENT_GLOBAL_LOAD_BALANCER_CREATE = "GLOBAL.LB.CREATE";
+    public static final String EVENT_GLOBAL_LOAD_BALANCER_DELETE = "GLOBAL.LB.DELETE";
+    public static final String EVENT_GLOBAL_LOAD_BALANCER_UPDATE = "GLOBAL.LB.UPDATE";
+
     // Account events
+    public static final String EVENT_ACCOUNT_ENABLE = "ACCOUNT.ENABLE";
     public static final String EVENT_ACCOUNT_DISABLE = "ACCOUNT.DISABLE";
     public static final String EVENT_ACCOUNT_CREATE = "ACCOUNT.CREATE";
     public static final String EVENT_ACCOUNT_DELETE = "ACCOUNT.DELETE";
+    public static final String EVENT_ACCOUNT_UPDATE = "ACCOUNT.UPDATE";
     public static final String EVENT_ACCOUNT_MARK_DEFAULT_ZONE = "ACCOUNT.MARK.DEFAULT.ZONE";
 
     // UserVO Events
@@ -127,6 +157,12 @@ public class EventTypes {
     public static final String EVENT_USER_UPDATE = "USER.UPDATE";
     public static final String EVENT_USER_ENABLE = "USER.ENABLE";
     public static final String EVENT_USER_LOCK = "USER.LOCK";
+
+    //registering SSH keypair events
+    public static final String EVENT_REGISTER_SSH_KEYPAIR = "REGISTER.SSH.KEYPAIR";
+
+    //register for user API and secret keys
+    public static final String EVENT_REGISTER_FOR_SECRET_API_KEY = "REGISTER.USER.KEY";
 
     // Template Events
     public static final String EVENT_TEMPLATE_CREATE = "TEMPLATE.CREATE";
@@ -149,6 +185,9 @@ public class EventTypes {
     public static final String EVENT_VOLUME_UPLOAD = "VOLUME.UPLOAD";
     public static final String EVENT_VOLUME_MIGRATE = "VOLUME.MIGRATE";
     public static final String EVENT_VOLUME_RESIZE = "VOLUME.RESIZE";
+    public static final String EVENT_VOLUME_DETAIL_UPDATE = "VOLUME.DETAIL.UPDATE";
+    public static final String EVENT_VOLUME_DETAIL_ADD = "VOLUME.DETAIL.ADD";
+    public static final String EVENT_VOLUME_DETAIL_REMOVE = "VOLUME.DETAIL.REMOVE";
 
     // Domains
     public static final String EVENT_DOMAIN_CREATE = "DOMAIN.CREATE";
@@ -178,6 +217,7 @@ public class EventTypes {
     public static final String EVENT_SSVM_STOP = "SSVM.STOP";
     public static final String EVENT_SSVM_REBOOT = "SSVM.REBOOT";
     public static final String EVENT_SSVM_HA = "SSVM.HA";
+    public static final String EVENT_SSVM_SCALE = "SSVM.SCALE";
 
     // Service Offerings
     public static final String EVENT_SERVICE_OFFERING_CREATE = "SERVICE.OFFERING.CREATE";
@@ -209,6 +249,8 @@ public class EventTypes {
     // VLANs/IP ranges
     public static final String EVENT_VLAN_IP_RANGE_CREATE = "VLAN.IP.RANGE.CREATE";
     public static final String EVENT_VLAN_IP_RANGE_DELETE = "VLAN.IP.RANGE.DELETE";
+    public static final String EVENT_VLAN_IP_RANGE_DEDICATE = "VLAN.IP.RANGE.DEDICATE";
+    public static final String EVENT_VLAN_IP_RANGE_RELEASE = "VLAN.IP.RANGE.RELEASE";
 
     public static final String EVENT_STORAGE_IP_RANGE_CREATE = "STORAGE.IP.RANGE.CREATE";
     public static final String EVENT_STORAGE_IP_RANGE_DELETE = "STORAGE.IP.RANGE.DELETE";
@@ -315,6 +357,14 @@ public class EventTypes {
     public static final String EVENT_VPC_DELETE = "VPC.DELETE";
     public static final String EVENT_VPC_RESTART = "VPC.RESTART";
 
+    // Network ACL
+    public static final String EVENT_NETWORK_ACL_CREATE = "NETWORK.ACL.CREATE";
+    public static final String EVENT_NETWORK_ACL_DELETE = "NETWORK.ACL.DELETE";
+    public static final String EVENT_NETWORK_ACL_REPLACE = "NETWORK.ACL.REPLACE";
+    public static final String EVENT_NETWORK_ACL_ITEM_CREATE = "NETWORK.ACL.ITEM.CREATE";
+    public static final String EVENT_NETWORK_ACL_ITEM_UPDATE = "NETWORK.ACL.ITEM.UPDATE";
+    public static final String EVENT_NETWORK_ACL_ITEM_DELETE = "NETWORK.ACL.ITEM.DELETE";
+
     // VPC offerings
     public static final String EVENT_VPC_OFFERING_CREATE = "VPC.OFFERING.CREATE";
     public static final String EVENT_VPC_OFFERING_UPDATE = "VPC.OFFERING.UPDATE";
@@ -331,7 +381,11 @@ public class EventTypes {
     // tag related events
     public static final String EVENT_TAGS_CREATE = "CREATE_TAGS";
     public static final String EVENT_TAGS_DELETE = "DELETE_TAGS";
-    
+
+    // meta data related events
+    public static final String EVENT_RESOURCE_DETAILS_CREATE = "CREATE_RESOURCE_DETAILS";
+    public static final String EVENT_RESOURCE_DETAILS_DELETE = "DELETE_RESOURCE_DETAILS";
+
 	// vm snapshot events
     public static final String EVENT_VM_SNAPSHOT_CREATE = "VMSNAPSHOT.CREATE";
     public static final String EVENT_VM_SNAPSHOT_DELETE = "VMSNAPSHOT.DELETE";
@@ -364,6 +418,29 @@ public class EventTypes {
     public static final String EVENT_BAREMETAL_DHCP_SERVER_DELETE = "PHYSICAL.DHCP.DELETE";
     public static final String EVENT_BAREMETAL_PXE_SERVER_ADD = "PHYSICAL.PXE.ADD";
     public static final String EVENT_BAREMETAL_PXE_SERVER_DELETE = "PHYSICAL.PXE.DELETE";
+
+    public static final String EVENT_AFFINITY_GROUP_CREATE = "AG.CREATE";
+    public static final String EVENT_AFFINITY_GROUP_DELETE = "AG.DELETE";
+    public static final String EVENT_AFFINITY_GROUP_ASSIGN = "AG.ASSIGN";
+    public static final String EVENT_AFFINITY_GROUP_REMOVE = "AG.REMOVE";
+    public static final String EVENT_VM_AFFINITY_GROUP_UPDATE = "VM.AG.UPDATE";
+    
+    public static final String EVENT_INTERNAL_LB_VM_START = "INTERNALLBVM.START";
+    public static final String EVENT_INTERNAL_LB_VM_STOP = "INTERNALLBVM.STOP";
+
+    public static final String EVENT_HOST_RESERVATION_RELEASE = "HOST.RESERVATION.RELEASE";
+    // Dedicated guest vlan range
+    public static final String EVENT_GUEST_VLAN_RANGE_DEDICATE  = "GUESTVLANRANGE.DEDICATE";
+    public static final String EVENT_DEDICATED_GUEST_VLAN_RANGE_RELEASE  = "GUESTVLANRANGE.RELEASE";
+
+
+    public static final String EVENT_PORTABLE_IP_RANGE_CREATE = "PORTABLE.IP.RANGE.CREATE";
+    public static final String EVENT_PORTABLE_IP_RANGE_DELETE = "PORTABLE.IP.RANGE.DELETE";
+    public static final String EVENT_PORTABLE_IP_TRANSFER = "PORTABLE.IP.TRANSFER";
+
+    // Dedicated Resources
+    public static final String EVENT_DEDICATE_RESOURCE = "DEDICATE.RESOURCE";
+    public static final String EVENT_DEDICATE_RESOURCE_RELEASE = "DEDICATE.RESOURCE.RELEASE";
 
     static {
 
@@ -522,6 +599,8 @@ public class EventTypes {
         // VLANs/IP ranges
         entityEventDetails.put(EVENT_VLAN_IP_RANGE_CREATE, Vlan.class.getName());
         entityEventDetails.put(EVENT_VLAN_IP_RANGE_DELETE,Vlan.class.getName());
+        entityEventDetails.put(EVENT_VLAN_IP_RANGE_DEDICATE, Vlan.class.getName());
+        entityEventDetails.put(EVENT_VLAN_IP_RANGE_RELEASE,Vlan.class.getName());
 
         entityEventDetails.put(EVENT_STORAGE_IP_RANGE_CREATE, StorageNetworkIpRange.class.getName());
         entityEventDetails.put(EVENT_STORAGE_IP_RANGE_DELETE, StorageNetworkIpRange.class.getName());
@@ -663,6 +742,8 @@ public class EventTypes {
         entityEventDetails.put(EVENT_AUTOSCALEVMGROUP_UPDATE, AutoScaleVmGroup.class.getName());
         entityEventDetails.put(EVENT_AUTOSCALEVMGROUP_ENABLE, AutoScaleVmGroup.class.getName());
         entityEventDetails.put(EVENT_AUTOSCALEVMGROUP_DISABLE, AutoScaleVmGroup.class.getName());
+        entityEventDetails.put(EVENT_GUEST_VLAN_RANGE_DEDICATE, GuestVlan.class.getName());
+        entityEventDetails.put(EVENT_DEDICATED_GUEST_VLAN_RANGE_RELEASE, GuestVlan.class.getName());
     }
 
     public static String getEntityForEvent (String eventName) {

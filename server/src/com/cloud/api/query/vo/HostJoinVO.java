@@ -39,7 +39,6 @@ import org.apache.cloudstack.api.InternalIdentity;
 
 /**
  * Host DB view.
- * @author minc
  *
  */
 @Entity
@@ -131,6 +130,9 @@ public class HostJoinVO extends BaseViewVO implements InternalIdentity, Identity
     @Column(name="data_center_name")
     private String zoneName;
 
+    @Column(name="data_center_type")
+    private String zoneType;
+    
     @Column(name="pod_id")
     private long podId;
 
@@ -166,7 +168,7 @@ public class HostJoinVO extends BaseViewVO implements InternalIdentity, Identity
     private long cpuReservedCapacity;
 
     @Column(name="job_id")
-    private long jobId;
+    private Long jobId;
 
     @Column(name="job_uuid")
     private String jobUuid;
@@ -232,7 +234,15 @@ public class HostJoinVO extends BaseViewVO implements InternalIdentity, Identity
     public void setZoneName(String zoneName) {
         this.zoneName = zoneName;
     }
+    
+    public String getZoneType() {
+        return zoneType;
+    }
 
+    public void setZoneType(String zoneType) {
+        this.zoneType = zoneType;
+    }   
+    
     public String getName() {
         return name;
     }
@@ -417,11 +427,11 @@ public class HostJoinVO extends BaseViewVO implements InternalIdentity, Identity
         this.osCategoryName = osCategoryName;
     }
 
-    public long getJobId() {
+    public Long getJobId() {
         return jobId;
     }
 
-    public void setJobId(long jobId) {
+    public void setJobId(Long jobId) {
         this.jobId = jobId;
     }
 

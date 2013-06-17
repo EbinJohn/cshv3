@@ -24,15 +24,20 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import com.cloud.vm.*;
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
+import org.apache.cloudstack.api.command.admin.network.DedicateGuestVlanRangeCmd;
+import org.apache.cloudstack.api.command.admin.network.ListDedicatedGuestVlanRangesCmd;
 import org.apache.cloudstack.api.command.admin.usage.ListTrafficTypeImplementorsCmd;
 import org.apache.cloudstack.api.command.user.network.CreateNetworkCmd;
 import org.apache.cloudstack.api.command.user.network.ListNetworksCmd;
 import org.apache.cloudstack.api.command.user.network.RestartNetworkCmd;
+import org.apache.cloudstack.api.command.user.vm.ListNicsCmd;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
 import com.cloud.dc.DataCenter;
+import com.cloud.dc.Pod;
 import com.cloud.dc.Vlan.VlanType;
 import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.deploy.DeployDestination;
@@ -43,6 +48,7 @@ import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InsufficientVirtualNetworkCapcityException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.network.GuestVlan;
 import com.cloud.network.IpAddress;
 import com.cloud.network.Network;
 import com.cloud.network.Network.Provider;
@@ -56,19 +62,16 @@ import com.cloud.network.PhysicalNetwork;
 import com.cloud.network.PhysicalNetworkServiceProvider;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpAddress;
-import com.cloud.network.UserIpv6Address;
 import com.cloud.network.addr.PublicIp;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
-import com.cloud.network.element.LoadBalancingServiceProvider;
-import com.cloud.network.element.NetworkElement;
-import com.cloud.network.element.StaticNatServiceProvider;
-import com.cloud.network.element.UserDataServiceProvider;
+import com.cloud.network.element.*;
 import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.FirewallRule.Purpose;
 import com.cloud.network.rules.FirewallRule.State;
+import com.cloud.network.rules.LoadBalancerContainer.Scheme;
 import com.cloud.network.rules.StaticNat;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offerings.NetworkOfferingVO;
@@ -76,15 +79,20 @@ import com.cloud.offerings.dao.NetworkOfferingServiceMapDao;
 import com.cloud.user.Account;
 import com.cloud.user.User;
 import com.cloud.utils.Pair;
-import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
-import com.cloud.vm.Nic;
-import com.cloud.vm.NicProfile;
-import com.cloud.vm.ReservationContext;
-import com.cloud.vm.VMInstanceVO;
-import com.cloud.vm.VirtualMachine;
+import com.cloud.vm.VirtualMachine.Type;
+
 import com.cloud.vm.VirtualMachineProfile;
-import com.cloud.vm.VirtualMachineProfileImpl;
+
+import org.apache.cloudstack.acl.ControlledEntity.ACLType;
+import org.apache.cloudstack.api.command.admin.network.DedicateGuestVlanRangeCmd;
+import org.apache.cloudstack.api.command.admin.network.ListDedicatedGuestVlanRangesCmd;
+import org.apache.cloudstack.api.command.admin.usage.ListTrafficTypeImplementorsCmd;
+import org.apache.cloudstack.api.command.user.network.*;
+import org.apache.cloudstack.api.command.user.vm.ListNicsCmd;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
+
 
 @Component
 @Local(value = { NetworkManager.class, NetworkService.class })
@@ -183,19 +191,42 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
      * @see com.cloud.network.NetworkService#allocateIP(com.cloud.user.Account, long, java.lang.Long)
      */
     @Override
-    public IpAddress allocateIP(Account ipOwner, boolean isSystem, long networkId) throws ResourceAllocationException,
+    public IpAddress allocateIP(Account ipOwner, long zoneId, Long networkId) throws ResourceAllocationException,
             InsufficientAddressCapacityException, ConcurrentOperationException {
         // TODO Auto-generated method stub
         return null;
     }
 
+    @Override
+    public IpAddress allocatePortableIp(Account ipOwner, Account caller, long dcId, Long networkId, Long vpcID)
+            throws ConcurrentOperationException, ResourceAllocationException, InsufficientAddressCapacityException {
+        return null;// TODO Auto-generated method stub
+    }
 
+    @Override
+    public IpAddress allocatePortableIP(Account ipOwner, int regionId, Long zoneId, Long networkId, Long vpcId) throws ResourceAllocationException,
+            InsufficientAddressCapacityException, ConcurrentOperationException {
+        return null;
+    }
 
+    @Override
+    public boolean releasePortableIpAddress(long ipAddressId) {
+        return false;// TODO Auto-generated method stub
+    }
 
+    @Override
+    public boolean isPortableIpTransferableFromNetwork(long ipAddrId, long networkId) {
+        return false;
+    }
+
+    @Override
+    public void transferPortableIP(long ipAddrId, long currentNetworkId, long newNetworkId)  throws ResourceAllocationException, ResourceUnavailableException,
+            InsufficientAddressCapacityException, ConcurrentOperationException {
+    }
 
     /* (non-Javadoc)
-     * @see com.cloud.network.NetworkService#releaseIpAddress(long)
-     */
+    * @see com.cloud.network.NetworkService#releaseIpAddress(long)
+    */
     @Override
     public boolean releaseIpAddress(long ipAddressId) throws InsufficientAddressCapacityException {
         // TODO Auto-generated method stub
@@ -303,14 +334,10 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
      */
     @Override
     public Network updateGuestNetwork(long networkId, String name, String displayText, Account callerAccount,
-            User callerUser, String domainSuffix, Long networkOfferingId, Boolean changeCidr) {
+                                      User callerUser, String domainSuffix, Long networkOfferingId, Boolean changeCidr, String guestVmCidr, Boolean displayNetwork) {
         // TODO Auto-generated method stub
         return null;
     }
-
-
-
-
 
     /* (non-Javadoc)
      * @see com.cloud.network.NetworkService#createPhysicalNetwork(java.lang.Long, java.lang.String, java.lang.String, java.util.List, java.lang.String, java.lang.Long, java.util.List, java.lang.String)
@@ -345,7 +372,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
      */
     @Override
     public PhysicalNetwork updatePhysicalNetwork(Long id, String networkSpeed, List<String> tags,
-            String newVnetRangeString, String state) {
+                                                 String newVnetRangeString, String state, String removeVlan) {
         // TODO Auto-generated method stub
         return null;
     }
@@ -363,9 +390,24 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         return false;
     }
 
+    @Override
+    public GuestVlan dedicateGuestVlanRange(DedicateGuestVlanRangeCmd cmd) {
+        // TODO Auto-generated method stub
+        return null;
+    }
 
+    @Override
+    public Pair<List<? extends GuestVlan>, Integer> listDedicatedGuestVlanRanges(ListDedicatedGuestVlanRangesCmd cmd) {
+        // TODO Auto-generated method stub
+        return null;
+    }
 
+    @Override
+    public boolean releaseDedicatedGuestVlanRange(Long dedicatedGuestVlanRangeId) {
+        // TODO Auto-generated method stub
+        return true;
 
+    }
 
     /* (non-Javadoc)
      * @see com.cloud.network.NetworkService#listNetworkServices(java.lang.String)
@@ -626,7 +668,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
      */
     @Override
     public Network createPrivateNetwork(String networkName, String displayText, long physicalNetworkId, String vlan,
-            String startIp, String endIP, String gateway, String netmask, long networkOwnerId, Long vpcId)
+                                        String startIp, String endIP, String gateway, String netmask, long networkOwnerId, Long vpcId, Boolean sourceNat)
             throws ResourceAllocationException, ConcurrentOperationException, InsufficientCapacityException {
         // TODO Auto-generated method stub
         return null;
@@ -683,7 +725,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
     @Override
     public List<NetworkVO> setupNetwork(Account owner, NetworkOffering offering, Network predefined,
             DeploymentPlan plan, String name, String displayText, boolean errorIfAlreadySetup, Long domainId,
-            ACLType aclType, Boolean subdomainAccess, Long vpcId) throws ConcurrentOperationException {
+            ACLType aclType, Boolean subdomainAccess, Long vpcId, Boolean isNetworkDisplayEnabled) throws ConcurrentOperationException {
         // TODO Auto-generated method stub
         return null;
     }
@@ -803,18 +845,6 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
 
 
 
-    /* (non-Javadoc)
-     * @see com.cloud.network.NetworkManager#prepareNicForMigration(com.cloud.vm.VirtualMachineProfile, com.cloud.deploy.DeployDestination)
-     */
-    @Override
-    public <T extends VMInstanceVO> void prepareNicForMigration(VirtualMachineProfile<T> vm, DeployDestination dest) {
-        // TODO Auto-generated method stub
-        
-    }
-
-
-
-
 
     /* (non-Javadoc)
      * @see com.cloud.network.NetworkManager#shutdownNetwork(long, com.cloud.vm.ReservationContext, boolean)
@@ -847,8 +877,9 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
      */
     @Override
     public Network createGuestNetwork(long networkOfferingId, String name, String displayText, String gateway,
-            String cidr, String vlanId, String networkDomain, Account owner, Long domainId,
-            PhysicalNetwork physicalNetwork, long zoneId, ACLType aclType, Boolean subdomainAccess, Long vpcId, String gatewayv6, String cidrv6)
+                                      String cidr, String vlanId, String networkDomain, Account owner, Long domainId,
+                                      PhysicalNetwork physicalNetwork, long zoneId, ACLType aclType, Boolean subdomainAccess, Long vpcId, String gatewayv6, String cidrv6,
+                                      Boolean displayNetworkEnabled, String isolatedPvlan)
             throws ConcurrentOperationException, InsufficientCapacityException, ResourceAllocationException {
         // TODO Auto-generated method stub
         return null;
@@ -1091,23 +1122,27 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         return null;
     }
 
+    @Override
+    public IPAddressVO associatePortableIPToGuestNetwork(long ipAddrId, long networkId, boolean releaseOnFailure) throws ResourceAllocationException, ResourceUnavailableException {
+        return null;// TODO Auto-generated method stub
+    }
 
-
+    @Override
+    public IPAddressVO disassociatePortableIPToGuestNetwork(long ipAddrId, long networkId) throws ResourceAllocationException, ResourceUnavailableException, InsufficientAddressCapacityException, ConcurrentOperationException {
+        return null;// TODO Auto-generated method stub
+    }
 
 
     /* (non-Javadoc)
-     * @see com.cloud.network.NetworkManager#setupDns(com.cloud.network.Network, com.cloud.network.Network.Provider)
-     */
+    * @see com.cloud.network.NetworkManager#setupDns(com.cloud.network.Network, com.cloud.network.Network.Provider)
+    */
     @Override
     public boolean setupDns(Network network, Provider provider) {
         // TODO Auto-generated method stub
         return false;
     }
 
-
-
-
-
+    
     /* (non-Javadoc)
      * @see com.cloud.network.NetworkManager#releaseNic(com.cloud.vm.VirtualMachineProfile, com.cloud.vm.Nic)
      */
@@ -1117,10 +1152,6 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         // TODO Auto-generated method stub
         
     }
-
-
-
-
 
     /* (non-Javadoc)
      * @see com.cloud.network.NetworkManager#createNicForVm(com.cloud.network.Network, com.cloud.vm.NicProfile, com.cloud.vm.ReservationContext, com.cloud.vm.VirtualMachineProfileImpl, boolean, boolean)
@@ -1134,24 +1165,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         return null;
     }
 
-
-
-
-
-    /* (non-Javadoc)
-     * @see com.cloud.network.NetworkManager#assignVpnGatewayIpAddress(long, com.cloud.user.Account, long)
-     */
-    @Override
-    public PublicIp assignVpnGatewayIpAddress(long dcId, Account owner, long vpcId)
-            throws InsufficientAddressCapacityException, ConcurrentOperationException {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-
-
-
-
+    
     /* (non-Javadoc)
      * @see com.cloud.network.NetworkManager#markPublicIpAsAllocated(com.cloud.network.IPAddressVO)
      */
@@ -1160,9 +1174,6 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         // TODO Auto-generated method stub
         
     }
-
-
-
 
 
     /* (non-Javadoc)
@@ -1200,22 +1211,6 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         // TODO Auto-generated method stub
         return 0;
     }
-
-
-
-
-
-    /* (non-Javadoc)
-     * @see com.cloud.network.NetworkManager#cleanupIpResources(long, long, com.cloud.user.Account)
-     */
-    @Override
-    public boolean cleanupIpResources(long addrId, long userId, Account caller) {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-
-
 
 
     /* (non-Javadoc)
@@ -1308,7 +1303,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
     }
 
     @Override
-    public LoadBalancingServiceProvider getLoadBalancingProviderForNetwork(Network network) {
+    public LoadBalancingServiceProvider getLoadBalancingProviderForNetwork(Network network, Scheme lbScheme) {
         // TODO Auto-generated method stub
         return null;
     }
@@ -1321,4 +1316,133 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkManage
         // TODO Auto-generated method stub
         return null;
     }
+
+
+
+
+
+    @Override
+    public boolean isSecondaryIpSetForNic(long nicId) {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public NicSecondaryIp allocateSecondaryGuestIP(Account account, long zoneId,
+            Long nicId, Long networkId, String ipaddress) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+
+
+
+
+
+
+    @Override
+    public boolean releaseSecondaryIpFromNic(long ipAddressId) {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+
+
+
+
+    @Override
+    public String allocateGuestIP(Account ipOwner, boolean isSystem,
+            long zoneId, Long networkId, String requestedIp)
+            throws InsufficientAddressCapacityException {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+
+
+
+
+
+
+
+
+    @Override
+    public List<? extends Nic> listVmNics(Long vmId, Long nicId) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+
+
+
+
+    @Override
+    public List<? extends Nic> listNics(ListNicsCmd listNicsCmd) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+
+    @Override
+    public String allocatePublicIpForGuestNic(Long networkId, DataCenter dc,
+            Pod pod, Account caller, String requestedIp)
+            throws InsufficientAddressCapacityException {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+
+    @Override
+    public NicVO savePlaceholderNic(Network network, String ip4Address, String ip6Address, Type vmType) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public DhcpServiceProvider getDhcpServiceProvider(Network network) {
+        return null;  //To change body of implemented methods use File | Settings | File Templates.
+    }
+
+    @Override
+    public PublicIp assignPublicIpAddressFromVlans(long dcId, Long podId, Account owner, VlanType type, List<Long> vlanDbIds, Long networkId, String requestedIp, boolean isSystem) throws InsufficientAddressCapacityException {
+        return null;  //To change body of implemented methods use File | Settings | File Templates.
+    }
+
+
+
+
+
+	@Override
+	public void prepareNicForMigration(
+			VirtualMachineProfile<? extends VMInstanceVO> vm,
+			DeployDestination dest) {
+		// TODO Auto-generated method stub
+		
+	}
+
+
+
+
+
+	@Override
+	public void commitNicForMigration(
+			VirtualMachineProfile<? extends VMInstanceVO> src,
+			VirtualMachineProfile<? extends VMInstanceVO> dst) {
+		// TODO Auto-generated method stub
+		
+	}
+
+
+
+
+
+	@Override
+	public void rollbackNicForMigration(
+			VirtualMachineProfile<? extends VMInstanceVO> src,
+			VirtualMachineProfile<? extends VMInstanceVO> dst) {
+		// TODO Auto-generated method stub
+		
+	}
+
+
 }

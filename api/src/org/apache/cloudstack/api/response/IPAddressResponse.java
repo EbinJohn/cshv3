@@ -82,6 +82,10 @@ public class IPAddressResponse extends BaseResponse implements ControlledEntityR
     @SerializedName(ApiConstants.VIRTUAL_MACHINE_ID) @Param(description="virutal machine id the ip address is assigned to (not null only for static nat Ip)")
     private String virtualMachineId;
 
+    @SerializedName("vmipaddress") @Param(description="virutal machine (dnat) ip address (not null only for static nat Ip)")
+    private String virtualMachineIp;
+
+
     @SerializedName("virtualmachinename") @Param(description="virutal machine name the ip address is assigned to (not null only for static nat Ip)")
     private String virtualMachineName;
 
@@ -110,6 +114,9 @@ public class IPAddressResponse extends BaseResponse implements ControlledEntityR
     private String vpcId;
     @SerializedName(ApiConstants.TAGS)  @Param(description="the list of resource tags associated with ip address", responseObject = ResourceTagResponse.class)
     private List<ResourceTagResponse> tags;
+
+    @SerializedName(ApiConstants.IS_PORTABLE) @Param(description = "is public IP portable across the zones")
+    private Boolean isPortable;
 
 /*
     @SerializedName(ApiConstants.JOB_ID) @Param(description="shows the current pending asynchronous job ID. This tag is not returned if no current pending jobs are acting on the volume")
@@ -185,6 +192,10 @@ public class IPAddressResponse extends BaseResponse implements ControlledEntityR
         this.virtualMachineId = virtualMachineId;
     }
 
+    public void setVirtualMachineIp(String virtualMachineIp) {
+        this.virtualMachineIp = virtualMachineIp;
+    }
+
     public void setVirtualMachineName(String virtualMachineName) {
         this.virtualMachineName = virtualMachineName;
     }
@@ -238,5 +249,9 @@ public class IPAddressResponse extends BaseResponse implements ControlledEntityR
 
     public void setAssociatedNetworkName(String associatedNetworkName) {
         this.associatedNetworkName = associatedNetworkName;
+    }
+
+    public void setPortable(Boolean portable) {
+        this.isPortable = portable;
     }
 }

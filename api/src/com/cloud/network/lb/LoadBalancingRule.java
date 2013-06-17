@@ -25,107 +25,86 @@ import com.cloud.network.as.Condition;
 import com.cloud.network.as.Counter;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.LoadBalancer;
+import com.cloud.network.rules.LoadBalancerContainer.Scheme;
 import com.cloud.utils.Pair;
+import com.cloud.utils.net.Ip;
 
-public class LoadBalancingRule implements FirewallRule, LoadBalancer {
+public class LoadBalancingRule {
     private LoadBalancer lb;
+    private Ip sourceIp;
     private List<LbDestination> destinations;
     private List<LbStickinessPolicy> stickinessPolicies;
     private LbAutoScaleVmGroup autoScaleVmGroup;
+    private List<LbHealthCheckPolicy> healthCheckPolicies;
 
-    public LoadBalancingRule(LoadBalancer lb, List<LbDestination> destinations, List<LbStickinessPolicy> stickinessPolicies) {
+    public LoadBalancingRule(LoadBalancer lb, List<LbDestination> destinations,
+            List<LbStickinessPolicy> stickinessPolicies, List<LbHealthCheckPolicy> healthCheckPolicies, Ip sourceIp) {
         this.lb = lb;
         this.destinations = destinations;
         this.stickinessPolicies = stickinessPolicies;
+        this.healthCheckPolicies = healthCheckPolicies;
+        this.sourceIp = sourceIp;
     }
 
-    @Override
     public long getId() {
         return lb.getId();
     }
 
-    @Override
-    public long getAccountId() {
-        return lb.getAccountId();
-    }
-
-    @Override
-    public long getDomainId() {
-        return lb.getDomainId();
-    }
-
-    @Override
     public String getName() {
         return lb.getName();
     }
 
-    @Override
     public String getDescription() {
         return lb.getDescription();
     }
 
-    @Override
     public int getDefaultPortStart() {
         return lb.getDefaultPortStart();
     }
 
-    @Override
     public int getDefaultPortEnd() {
         return lb.getDefaultPortEnd();
     }
 
-    @Override
     public String getAlgorithm() {
         return lb.getAlgorithm();
     }
 
-    @Override
     public String getUuid() {
         return lb.getUuid();
     }
 
-    @Override
     public String getXid() {
         return lb.getXid();
     }
 
-    @Override
-    public Long getSourceIpAddressId() {
-        return lb.getSourceIpAddressId();
-    }
-
-    @Override
     public Integer getSourcePortStart() {
         return lb.getSourcePortStart();
     }
 
-    @Override
     public Integer getSourcePortEnd() {
         return lb.getSourcePortEnd();
     }
 
-    @Override
     public String getProtocol() {
         return lb.getProtocol();
     }
 
-    @Override
-    public Purpose getPurpose() {
-        return Purpose.LoadBalancing;
+    public FirewallRule.Purpose getPurpose() {
+        return FirewallRule.Purpose.LoadBalancing;
     }
 
-    @Override
-    public State getState() {
+    public FirewallRule.State getState() {
         return lb.getState();
     }
 
-    @Override
     public long getNetworkId() {
         return lb.getNetworkId();
     }
 
-    public LoadBalancer getLb() {
-        return lb;
+
+    public void setDestinations(List<LbDestination> destinations) {
+        this.destinations = destinations;
     }
 
     public List<LbDestination> getDestinations() {
@@ -136,11 +115,21 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         return stickinessPolicies;
     }
 
+    public void setHealthCheckPolicies(List<LbHealthCheckPolicy> healthCheckPolicies) {
+        this.healthCheckPolicies = healthCheckPolicies;
+    }
+
+    public List<LbHealthCheckPolicy> getHealthCheckPolicies() {
+        return healthCheckPolicies;
+    }
 
     public interface Destination {
         String getIpAddress();
+
         int getDestinationPortStart();
+
         int getDestinationPortEnd();
+
         boolean isRevoked();
     }
 
@@ -174,6 +163,64 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         }
     }
 
+    public static class LbHealthCheckPolicy {
+        private String pingpath;
+        private String description;
+        private int responseTime;
+        private int healthcheckInterval;
+        private int healthcheckThresshold;
+        private int unhealthThresshold;
+        private boolean _revoke;
+
+        public LbHealthCheckPolicy(String pingpath, String description, int responseTime, int healthcheckInterval,
+                int healthcheckThresshold, int unhealthThresshold) {
+            this(pingpath, description, responseTime, healthcheckInterval, healthcheckThresshold, unhealthThresshold, false);
+        }
+
+        public LbHealthCheckPolicy(String pingpath, String description, int responseTime, int healthcheckInterval,
+                int healthcheckThresshold, int unhealthThresshold, boolean revoke) {
+            this.pingpath = pingpath;
+            this.description = description;
+            this.responseTime = responseTime;
+            this.healthcheckInterval = healthcheckInterval;
+            this.healthcheckThresshold = healthcheckThresshold;
+            this.unhealthThresshold = unhealthThresshold;
+            this._revoke = revoke;
+        }
+
+        public LbHealthCheckPolicy() {
+        }
+
+        public String getpingpath() {
+            return pingpath;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public int getResponseTime() {
+            return responseTime;
+        }
+
+        public int getHealthcheckInterval() {
+            return healthcheckInterval;
+        }
+
+        public int getHealthcheckThresshold() {
+            return healthcheckThresshold;
+        }
+
+        public int getUnhealthThresshold() {
+            return unhealthThresshold;
+        }
+
+        public boolean isRevoked() {
+            return _revoke;
+        }
+
+    }
+
     public static class LbDestination implements Destination {
         private int portStart;
         private int portEnd;
@@ -191,10 +238,12 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         public String getIpAddress() {
             return ip;
         }
+
         @Override
         public int getDestinationPortStart() {
             return portStart;
         }
+
         @Override
         public int getDestinationPortEnd() {
             return portEnd;
@@ -210,35 +259,6 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         }
     }
 
-    @Override
-    public Integer getIcmpCode() {
-        return null;
-    }
-
-    @Override
-    public Integer getIcmpType() {
-        return null;
-    }
-
-    @Override
-    public List<String> getSourceCidrList() {
-        return null;
-    }
-
-    @Override
-    public Long getRelated() {
-        return null;
-    }
-
-
-    @Override
-    public TrafficType getTrafficType() {
-        return null;
-    }
-    @Override
-    public FirewallRuleType getType() {
-        return FirewallRuleType.User;
-    }
     public LbAutoScaleVmGroup getAutoScaleVmGroup() {
         return autoScaleVmGroup;
     }
@@ -274,8 +294,7 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         private final AutoScalePolicy policy;
         private boolean revoked;
 
-        public LbAutoScalePolicy(AutoScalePolicy policy, List<LbCondition> conditions)
-        {
+        public LbAutoScalePolicy(AutoScalePolicy policy, List<LbCondition> conditions) {
             this.policy = policy;
             this.conditions = conditions;
         }
@@ -309,7 +328,9 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         private final String networkId;
         private final String vmName;
 
-        public LbAutoScaleVmProfile(AutoScaleVmProfile profile, String autoScaleUserApiKey, String autoScaleUserSecretKey, String csUrl, String zoneId, String domainId, String serviceOfferingId, String templateId, String vmName, String networkId) {
+        public LbAutoScaleVmProfile(AutoScaleVmProfile profile, String autoScaleUserApiKey,
+                String autoScaleUserSecretKey, String csUrl, String zoneId, String domainId, String serviceOfferingId,
+                String templateId, String vmName, String networkId) {
             this.profile = profile;
             this.autoScaleUserApiKey = autoScaleUserApiKey;
             this.autoScaleUserSecretKey = autoScaleUserSecretKey;
@@ -369,7 +390,8 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         private final LbAutoScaleVmProfile profile;
         private final String currentState;
 
-        public LbAutoScaleVmGroup(AutoScaleVmGroup vmGroup, List<LbAutoScalePolicy> policies, LbAutoScaleVmProfile profile, String currentState) {
+        public LbAutoScaleVmGroup(AutoScaleVmGroup vmGroup, List<LbAutoScalePolicy> policies,
+                LbAutoScaleVmProfile profile, String currentState) {
             this.vmGroup = vmGroup;
             this.policies = policies;
             this.profile = profile;
@@ -393,4 +415,11 @@ public class LoadBalancingRule implements FirewallRule, LoadBalancer {
         }
     }
 
+    public Ip getSourceIp() {
+        return sourceIp;
+    }
+
+    public Scheme getScheme() {
+        return lb.getScheme();
+    }
 }

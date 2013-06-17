@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.cloud.exception.*;
 import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.command.admin.cluster.ListClustersCmd;
 import org.apache.cloudstack.api.command.admin.config.ListCfgsByCmd;
@@ -29,23 +30,21 @@ import org.apache.cloudstack.api.command.admin.domain.UpdateDomainCmd;
 import org.apache.cloudstack.api.command.admin.host.ListHostsCmd;
 import org.apache.cloudstack.api.command.admin.host.UpdateHostPasswordCmd;
 import org.apache.cloudstack.api.command.admin.pod.ListPodsByCmd;
+import org.apache.cloudstack.api.command.admin.resource.ArchiveAlertsCmd;
+import org.apache.cloudstack.api.command.admin.resource.DeleteAlertsCmd;
 import org.apache.cloudstack.api.command.admin.resource.ListAlertsCmd;
 import org.apache.cloudstack.api.command.admin.resource.ListCapacityCmd;
 import org.apache.cloudstack.api.command.admin.resource.UploadCustomCertificateCmd;
-import org.apache.cloudstack.api.command.admin.systemvm.DestroySystemVmCmd;
-import org.apache.cloudstack.api.command.admin.systemvm.ListSystemVMsCmd;
-import org.apache.cloudstack.api.command.admin.systemvm.RebootSystemVmCmd;
-import org.apache.cloudstack.api.command.admin.systemvm.StopSystemVmCmd;
-import org.apache.cloudstack.api.command.admin.systemvm.UpgradeSystemVMCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.*;
 import org.apache.cloudstack.api.command.admin.vlan.ListVlanIpRangesCmd;
 import org.apache.cloudstack.api.command.user.address.ListPublicIpAddressesCmd;
 import org.apache.cloudstack.api.command.user.config.ListCapabilitiesCmd;
+import org.apache.cloudstack.api.command.user.event.ArchiveEventsCmd;
+import org.apache.cloudstack.api.command.user.event.DeleteEventsCmd;
 import org.apache.cloudstack.api.command.user.guest.ListGuestOsCategoriesCmd;
 import org.apache.cloudstack.api.command.user.guest.ListGuestOsCmd;
 import org.apache.cloudstack.api.command.user.iso.ListIsosCmd;
 import org.apache.cloudstack.api.command.user.iso.UpdateIsoCmd;
-import org.apache.cloudstack.api.command.user.offering.ListDiskOfferingsCmd;
-import org.apache.cloudstack.api.command.user.offering.ListServiceOfferingsCmd;
 import org.apache.cloudstack.api.command.user.ssh.CreateSSHKeyPairCmd;
 import org.apache.cloudstack.api.command.user.ssh.DeleteSSHKeyPairCmd;
 import org.apache.cloudstack.api.command.user.ssh.ListSSHKeyPairsCmd;
@@ -55,31 +54,25 @@ import org.apache.cloudstack.api.command.user.template.UpdateTemplateCmd;
 import org.apache.cloudstack.api.command.user.vm.GetVMPasswordCmd;
 import org.apache.cloudstack.api.command.user.vmgroup.UpdateVMGroupCmd;
 import org.apache.cloudstack.api.command.user.volume.ExtractVolumeCmd;
-import org.apache.cloudstack.api.command.user.zone.ListZonesByCmd;
 
 import com.cloud.alert.Alert;
 import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Configuration;
-import com.cloud.dc.DataCenter;
 import com.cloud.dc.Pod;
 import com.cloud.dc.Vlan;
 import com.cloud.domain.Domain;
-import com.cloud.exception.ConcurrentOperationException;
-import com.cloud.exception.InternalErrorException;
-import com.cloud.exception.PermissionDeniedException;
-import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorCapabilities;
 import com.cloud.network.IpAddress;
-import com.cloud.offering.DiskOffering;
-import com.cloud.offering.ServiceOffering;
 import com.cloud.org.Cluster;
 import com.cloud.storage.GuestOS;
 import com.cloud.storage.GuestOsCategory;
+import com.cloud.storage.StoragePool;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.SSHKeyPair;
 import com.cloud.utils.Pair;
+import com.cloud.utils.Ternary;
 import com.cloud.vm.InstanceGroup;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.Type;
@@ -125,21 +118,12 @@ public interface ManagementService {
     /**
      * Searches for servers by the specified search criteria Can search by: "name", "type", "state", "dataCenterId",
      * "podId"
-     * 
+     *
      * @param cmd
      * @return List of Hosts
      */
     Pair<List<? extends Host>, Integer> searchForServers(ListHostsCmd cmd);
 
-    /**
-     * Creates a new template
-     *
-     * @param cmd
-     * @return updated template
-     */
-    VirtualMachineTemplate updateTemplate(UpdateIsoCmd cmd);
-
-    VirtualMachineTemplate updateTemplate(UpdateTemplateCmd cmd);
 
 
 
@@ -195,34 +179,40 @@ public interface ManagementService {
     Pair<List<? extends Alert>, Integer> searchForAlerts(ListAlertsCmd cmd);
 
     /**
+     * Archive alerts
+     * @param cmd
+     * @return True on success. False otherwise.
+     */
+    boolean archiveAlerts(ArchiveAlertsCmd cmd);
+
+    /**
+     * Delete alerts
+     * @param cmd
+     * @return True on success. False otherwise.
+     */
+    boolean deleteAlerts(DeleteAlertsCmd cmd);
+
+    /**
+     * Archive events
+     * @param cmd
+     * @return True on success. False otherwise.
+     */
+    boolean archiveEvents(ArchiveEventsCmd cmd);
+
+    /**
+     * Delete events
+     * @param cmd
+     * @return True on success. False otherwise.
+     */
+    boolean deleteEvents(DeleteEventsCmd cmd);
+
+    /**
      * list all the capacity rows in capacity operations table
      *
      * @param cmd
      * @return List of capacities
      */
     List<? extends Capacity> listCapacities(ListCapacityCmd cmd);
-
-    /**
-     * List ISOs that match the specified criteria.
-     *
-     * @param cmd
-     *            The command that wraps the (optional) templateId, name, keyword, templateFilter, bootable, account,
-     *            and zoneId
-     *            parameters.
-     * @return list of ISOs
-     */
-    Set<Pair<Long, Long>> listIsos(ListIsosCmd cmd);
-
-    /**
-     * List templates that match the specified criteria.
-     *
-     * @param cmd
-     *            The command that wraps the (optional) templateId, name, keyword, templateFilter, bootable, account,
-     *            and zoneId
-     *            parameters.
-     * @return list of ISOs
-     */
-    Set<Pair<Long, Long>> listTemplates(ListTemplatesCmd cmd);
 
 
     /**
@@ -249,20 +239,6 @@ public interface ManagementService {
 
 
     Map<String, Object> listCapabilities(ListCapabilitiesCmd cmd);
-
-    /**
-     * Extracts the volume to a particular location.
-     *
-     * @param cmd
-     *            the command specifying url (where the volume needs to be extracted to), zoneId (zone where the volume
-     *            exists),
-     *            id (the id of the volume)
-     * @throws URISyntaxException
-     * @throws InternalErrorException
-     * @throws PermissionDeniedException
-     *
-     */
-    Long extractVolume(ExtractVolumeCmd cmd) throws URISyntaxException;
 
     /**
      * return an array of available hypervisors
@@ -362,10 +338,21 @@ public interface ManagementService {
      * @param Long
      *            vmId
      *            Id of The VM to migrate
-     * @return Pair<List<? extends Host>, List<? extends Host>> List of all Hosts in VM's cluster and list of Hosts with
-     *         enough capacity
+     * @return Ternary<List<? extends Host>, List<? extends Host>, Map<Host, Boolean>> List of all Hosts to which a VM
+     *         can be migrated, list of Hosts with enough capacity and hosts requiring storage motion for migration.
      */
-    Pair<Pair<List<? extends Host>, Integer>, List<? extends Host>> listHostsForMigrationOfVM(Long vmId, Long startIndex, Long pageSize);
+    Ternary<Pair<List<? extends Host>, Integer>, List<? extends Host>, Map<Host, Boolean>> listHostsForMigrationOfVM(
+            Long vmId, Long startIndex, Long pageSize);
+
+    /**
+     * List storage pools for live migrating of a volume. The API returns list of all pools in the cluster to which the
+     * volume can be migrated. Current pool is not included in the list.
+     *
+     * @param Long volumeId
+     * @return Pair<List<? extends StoragePool>, List<? extends StoragePool>> List of storage pools in cluster and list
+     *         of pools with enough capacity.
+     */
+    Pair<List<? extends StoragePool>, List<? extends StoragePool>> listStoragePoolsForMigrationOfVolume(Long volumeId);
 
     String[] listEventTypes();
 
@@ -381,4 +368,7 @@ public interface ManagementService {
      */
     List<? extends Capacity> listTopConsumedResources(ListCapacityCmd cmd);
 
+    List<String> listDeploymentPlanners();
+
+    VirtualMachine upgradeSystemVM(ScaleSystemVMCmd cmd) throws ResourceUnavailableException, ManagementServerException, VirtualMachineMigrationException, ConcurrentOperationException;
 }

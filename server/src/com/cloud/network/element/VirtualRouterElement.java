@@ -25,12 +25,13 @@ import java.util.Set;
 import javax.ejb.Local;
 import javax.inject.Inject;
 
-import com.cloud.utils.PropertiesUtil;
 import org.apache.cloudstack.api.command.admin.router.ConfigureVirtualRouterElementCmd;
 import org.apache.cloudstack.api.command.admin.router.CreateVirtualRouterElementCmd;
 import org.apache.cloudstack.api.command.admin.router.ListVirtualRouterElementsCmd;
 import org.apache.log4j.Logger;
 
+import com.cloud.agent.api.PvlanSetupCommand;
+import com.cloud.agent.api.to.LoadBalancerTO;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.dc.DataCenter;
@@ -46,7 +47,10 @@ import com.cloud.network.Network;
 import com.cloud.network.Network.Capability;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
+import com.cloud.network.NetworkMigrationResponder;
 import com.cloud.network.NetworkModel;
+import com.cloud.network.Networks;
+import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetworkServiceProvider;
 import com.cloud.network.PublicIpAddress;
@@ -54,6 +58,7 @@ import com.cloud.network.RemoteAccessVpn;
 import com.cloud.network.VirtualRouterProvider;
 import com.cloud.network.VirtualRouterProvider.VirtualRouterProviderType;
 import com.cloud.network.VpnUser;
+import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.LoadBalancerDao;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.VirtualRouterProviderDao;
@@ -65,6 +70,7 @@ import com.cloud.network.router.VpcVirtualNetworkApplianceManager;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.LbStickinessMethod;
 import com.cloud.network.rules.LbStickinessMethod.StickinessMethodType;
+import com.cloud.network.rules.LoadBalancerContainer;
 import com.cloud.network.rules.PortForwardingRule;
 import com.cloud.network.rules.RulesManager;
 import com.cloud.network.rules.StaticNat;
@@ -81,21 +87,39 @@ import com.cloud.utils.db.SearchCriteriaService;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.NicProfile;
+import com.cloud.vm.NicVO;
 import com.cloud.vm.ReservationContext;
+import com.cloud.vm.UserVmManager;
+import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
+import com.cloud.vm.VirtualMachine.Type;
 import com.cloud.vm.VirtualMachineProfile;
 import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.UserVmDao;
 import com.google.gson.Gson;
+import org.apache.cloudstack.api.command.admin.router.ConfigureVirtualRouterElementCmd;
+import org.apache.cloudstack.api.command.admin.router.CreateVirtualRouterElementCmd;
+import org.apache.cloudstack.api.command.admin.router.ListVirtualRouterElementsCmd;
+import org.apache.log4j.Logger;
+
+import javax.ejb.Local;
+import javax.inject.Inject;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Local(value = {NetworkElement.class, FirewallServiceProvider.class, 
 		        DhcpServiceProvider.class, UserDataServiceProvider.class, 
 		        StaticNatServiceProvider.class, LoadBalancingServiceProvider.class,
-		        PortForwardingServiceProvider.class, IpDeployer.class, RemoteAccessVPNServiceProvider.class} )
+		        PortForwardingServiceProvider.class, IpDeployer.class,
+		        RemoteAccessVPNServiceProvider.class, NetworkMigrationResponder.class} )
 public class VirtualRouterElement extends AdapterBase implements VirtualRouterElementService, DhcpServiceProvider, 
     UserDataServiceProvider, SourceNatServiceProvider, StaticNatServiceProvider, FirewallServiceProvider,
-        LoadBalancingServiceProvider, PortForwardingServiceProvider, RemoteAccessVPNServiceProvider, IpDeployer {
+        LoadBalancingServiceProvider, PortForwardingServiceProvider, RemoteAccessVPNServiceProvider, IpDeployer,
+        NetworkMigrationResponder {
     private static final Logger s_logger = Logger.getLogger(VirtualRouterElement.class);
 
     protected static final Map<Service, Map<Capability, String>> capabilities = setCapabilities();
@@ -114,6 +138,8 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
     ConfigurationManager _configMgr;
     @Inject
     RulesManager _rulesMgr;
+    @Inject
+    UserVmManager _userVmMgr;
    
     @Inject
     UserVmDao _userVmDao;
@@ -129,6 +155,8 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
     ConfigurationDao _configDao;
     @Inject
     VirtualRouterProviderDao _vrProviderDao;
+    @Inject
+    IPAddressDao _ipAddressDao;
 
     protected boolean canHandle(Network network, Service service) {
         Long physicalNetworkId = _networkMgr.getPhysicalNetworkId(network);
@@ -212,7 +240,6 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
             throw new ResourceUnavailableException("Can't find at least one running router!",
                     DataCenter.class, network.getDataCenterId());
         }
-        
         return true;      
     }
 
@@ -241,7 +268,7 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
      * number like 12 2) time or tablesize like 12h, 34m, 45k, 54m , here
      * last character is non-digit but from known characters .
      */
-    private boolean containsOnlyNumbers(String str, String endChar) {
+    private static boolean containsOnlyNumbers(String str, String endChar) {
         if (str == null)
             return false;
 
@@ -270,7 +297,7 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
         return true;
     }
 
-    private boolean validateHAProxyLBRule(LoadBalancingRule rule) {
+    public static boolean validateHAProxyLBRule(LoadBalancingRule rule) {
         String timeEndChar = "dhms";
 
         for (LbStickinessPolicy stickinessPolicy : rule.getStickinessPolicies()) {
@@ -337,7 +364,9 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
 
     @Override
     public boolean validateLBRule(Network network, LoadBalancingRule rule) {
-        if (canHandle(network, Service.Lb)) {
+        List<LoadBalancingRule> rules = new ArrayList<LoadBalancingRule>();
+        rules.add(rule);
+        if (canHandle(network, Service.Lb) && canHandleLbRules(rules)) {
             List<DomainRouterVO> routers = _routerDao.listByNetworkAndRole(network.getId(), Role.VIRTUAL_ROUTER);
             if (routers == null || routers.isEmpty()) {
                 return true;
@@ -350,6 +379,10 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
     @Override
     public boolean applyLBRules(Network network, List<LoadBalancingRule> rules) throws ResourceUnavailableException {
         if (canHandle(network, Service.Lb)) {
+            if (!canHandleLbRules(rules)) {
+                return false;
+            }
+            
             List<DomainRouterVO> routers = _routerDao.listByNetworkAndRole(network.getId(), Role.VIRTUAL_ROUTER);
             if (routers == null || routers.isEmpty()) {
                 s_logger.debug("Virtual router elemnt doesn't need to apply firewall rules on the backend; virtual " +
@@ -357,13 +390,13 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
                 return true;
             }
 
-            if (!_routerMgr.applyFirewallRules(network, rules, routers)) {
-                throw new CloudRuntimeException("Failed to apply firewall rules in network " + network.getId());
+            if (!_routerMgr.applyLoadBalancingRules(network, rules, routers)) {
+                throw new CloudRuntimeException("Failed to apply load balancing rules in network " + network.getId());
             } else {
                 return true;
             }
         } else {
-            return true;
+            return false;
         }
     }
 
@@ -451,7 +484,7 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
         return capabilities;
     }
 
-    private static String getHAProxyStickinessCapability() {
+    public static String getHAProxyStickinessCapability() {
         LbStickinessMethod method;
         List<LbStickinessMethod> methodList = new ArrayList<LbStickinessMethod>(1);
 
@@ -556,8 +589,8 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
         lbCapabilities.put(Capability.SupportedLBAlgorithms, "roundrobin,leastconn,source");
         lbCapabilities.put(Capability.SupportedLBIsolation, "dedicated");
         lbCapabilities.put(Capability.SupportedProtocols, "tcp, udp");
-
         lbCapabilities.put(Capability.SupportedStickinessMethods, getHAProxyStickinessCapability());
+        lbCapabilities.put(Capability.LbSchemes, LoadBalancerContainer.Scheme.Public.toString());
 
         capabilities.put(Service.Lb, lbCapabilities);
 
@@ -714,8 +747,8 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
     @Override
     public VirtualRouterProvider configure(ConfigureVirtualRouterElementCmd cmd) {
         VirtualRouterProviderVO element = _vrProviderDao.findById(cmd.getId());
-        if (element == null) {
-            s_logger.debug("Can't find element with network service provider id " + cmd.getId());
+        if (element == null || !(element.getType() == VirtualRouterProviderType.VirtualRouter || element.getType() == VirtualRouterProviderType.VPCVirtualRouter)) {
+            s_logger.debug("Can't find Virtual Router element with network service provider id " + cmd.getId());
             return null;
         }
 
@@ -727,6 +760,10 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
 
     @Override
     public VirtualRouterProvider addElement(Long nspId, VirtualRouterProviderType providerType) {
+        if (!(providerType == VirtualRouterProviderType.VirtualRouter || providerType == VirtualRouterProviderType.VPCVirtualRouter)) {
+            throw new InvalidParameterValueException("Element " + this.getName() + " supports only providerTypes: " + 
+        VirtualRouterProviderType.VirtualRouter.toString() + " and " + VirtualRouterProviderType.VPCVirtualRouter);
+        }
         VirtualRouterProviderVO element = _vrProviderDao.findByNspIdAndType(nspId, providerType);
         if (element != null) {
             s_logger.debug("There is already a virtual router element with service provider id " + nspId);
@@ -800,7 +837,11 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
 
     @Override
     public VirtualRouterProvider getCreatedElement(long id) {
-        return _vrProviderDao.findById(id);
+        VirtualRouterProvider provider = _vrProviderDao.findById(id);
+        if (!(provider.getType() == VirtualRouterProviderType.VirtualRouter || provider.getType() == VirtualRouterProviderType.VPCVirtualRouter)) {
+            throw new InvalidParameterValueException("Unable to find provider by id");
+        }
+        return provider;
     }
 
     @Override
@@ -808,6 +849,50 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
             ReservationContext context) throws ConcurrentOperationException,
             ResourceUnavailableException {
         return true;
+    }
+
+    @Override
+    public  boolean configDhcpSupportForSubnet(Network network, NicProfile nic, VirtualMachineProfile<? extends VirtualMachine> vm,
+                                               DeployDestination dest, ReservationContext context) throws ConcurrentOperationException, InsufficientCapacityException, ResourceUnavailableException {
+        if (canHandle(network, Service.Dhcp)) {
+            if (vm.getType() != VirtualMachine.Type.User) {
+                return false;
+            }
+            @SuppressWarnings("unchecked")
+            VirtualMachineProfile<UserVm> uservm = (VirtualMachineProfile<UserVm>) vm;
+
+            List<DomainRouterVO> routers = getRouters(network, dest);
+
+            if ((routers == null) || (routers.size() == 0)) {
+                throw new ResourceUnavailableException("Can't find at least one router!", DataCenter.class, network.getDataCenterId());
+            }
+
+            return _routerMgr.configDhcpForSubnet(network, nic, uservm, dest, routers);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean removeDhcpSupportForSubnet(Network network) {
+        if (canHandle(network, Service.Dhcp)) {
+            List<DomainRouterVO> routers = _routerDao.listByNetworkAndRole(network.getId(), Role.VIRTUAL_ROUTER);
+           try {
+               if ((routers == null) || (routers.size() == 0)) {
+                   throw new ResourceUnavailableException("Can't find at least one router!", DataCenter.class, network.getDataCenterId());
+               }
+           }
+           catch (ResourceUnavailableException e) {
+               s_logger.debug("could not find any router on this network");
+           }
+           try {
+                return _routerMgr.removeDhcpSupportForSubnet(network, routers);
+           }
+           catch (ResourceUnavailableException e) {
+                s_logger.debug("Router resource unavailable ");
+           }
+
+        }
+        return false;
     }
 
     @Override
@@ -875,8 +960,8 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
         if (publicNetwork) {
             routers = _routerDao.listByNetworkAndRole(network.getId(), Role.VIRTUAL_ROUTER);
         } else {
-            Long podId = dest.getPod().getId();
             if (isPodBased) {
+                Long podId = dest.getPod().getId();
                 routers = _routerDao.listByNetworkAndPodAndRole(network.getId(), podId, Role.VIRTUAL_ROUTER);
             } else {
                 routers = _routerDao.listByNetworkAndRole(network.getId(), Role.VIRTUAL_ROUTER);
@@ -910,6 +995,10 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
         if (enabled != null) {
             sc.addAnd(sc.getEntity().isEnabled(), Op.EQ, enabled);
         }
+        
+        //return only VR and VPC VR
+        sc.addAnd(sc.getEntity().getType(), Op.IN, VirtualRouterProvider.VirtualRouterProviderType.VPCVirtualRouter, VirtualRouterProvider.VirtualRouterProviderType.VirtualRouter);
+        
         return sc.list();
     }
 
@@ -938,4 +1027,81 @@ public class VirtualRouterElement extends AdapterBase implements VirtualRouterEl
     protected VirtualRouterProviderType getVirtualRouterProvider() {
         return VirtualRouterProviderType.VirtualRouter;
     }
+
+	@Override
+	public List<LoadBalancerTO> updateHealthChecks(Network network,
+			List<LoadBalancingRule> lbrules) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	private boolean canHandleLbRules(List<LoadBalancingRule> rules) {
+	    Map<Capability, String> lbCaps = this.getCapabilities().get(Service.Lb);
+	    if (!lbCaps.isEmpty()) {
+	        String schemeCaps = lbCaps.get(Capability.LbSchemes);
+	        if (schemeCaps != null) {
+	            for (LoadBalancingRule rule : rules) {
+	                if (!schemeCaps.contains(rule.getScheme().toString())) {
+	                    s_logger.debug("Scheme " + rules.get(0).getScheme() + " is not supported by the provider " + this.getName());
+	                    return false;
+	                }
+	            }
+	        }
+	    }
+	    return true;
+        }
+
+	@Override
+	public boolean prepareMigration(NicProfile nic, Network network,
+			VirtualMachineProfile<? extends VirtualMachine> vm,
+			DeployDestination dest, ReservationContext context) {
+		if (nic.getBroadcastType() != Networks.BroadcastDomainType.Pvlan) {
+			return true;
+		}
+		if (vm.getType() == Type.DomainRouter) {
+			assert vm instanceof DomainRouterVO;
+			DomainRouterVO router = (DomainRouterVO)vm.getVirtualMachine();
+			_routerMgr.setupDhcpForPvlan(false, router, router.getHostId(), nic);
+		} else if (vm.getType() == Type.User){
+			assert vm instanceof UserVmVO;
+			UserVmVO userVm = (UserVmVO)vm.getVirtualMachine();
+			_userVmMgr.setupVmForPvlan(false, userVm.getHostId(), nic);
+		}
+		return true;
+	}
+
+	@Override
+	public void rollbackMigration(NicProfile nic, Network network,
+			VirtualMachineProfile<? extends VirtualMachine> vm,
+			ReservationContext src, ReservationContext dst) {
+		if (nic.getBroadcastType() != Networks.BroadcastDomainType.Pvlan) {
+			return;
+		}
+		if (vm.getType() == Type.DomainRouter) {
+			assert vm instanceof DomainRouterVO;
+			DomainRouterVO router = (DomainRouterVO)vm.getVirtualMachine();
+			_routerMgr.setupDhcpForPvlan(true, router, router.getHostId(), nic);
+		} else if (vm.getType() == Type.User){
+			assert vm instanceof UserVmVO;
+			UserVmVO userVm = (UserVmVO)vm.getVirtualMachine();
+			_userVmMgr.setupVmForPvlan(true, userVm.getHostId(), nic);
+		}
+	}
+
+	@Override
+	public void commitMigration(NicProfile nic, Network network,
+			VirtualMachineProfile<? extends VirtualMachine> vm,
+			ReservationContext src, ReservationContext dst) {
+		if (nic.getBroadcastType() != Networks.BroadcastDomainType.Pvlan) {
+			return;
+		}
+		if (vm.getType() == Type.DomainRouter) {
+			assert vm instanceof DomainRouterVO;
+			DomainRouterVO router = (DomainRouterVO)vm.getVirtualMachine();
+			_routerMgr.setupDhcpForPvlan(true, router, router.getHostId(), nic);
+		} else if (vm.getType() == Type.User){
+			assert vm instanceof UserVmVO;
+			UserVmVO userVm = (UserVmVO)vm.getVirtualMachine();
+			_userVmMgr.setupVmForPvlan(true, userVm.getHostId(), nic);
+		}
+	}
 }

@@ -24,6 +24,7 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.cloudstack.storage.resource.SecondaryStorageDiscoverer;
 import org.apache.log4j.Logger;
 
 import com.cloud.agent.AgentManager;
@@ -36,12 +37,13 @@ import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupSecondaryStorageCommand;
 import com.cloud.agent.manager.MockStorageManager;
 import com.cloud.exception.ConnectionException;
+import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
 import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.dao.SnapshotDao;
-import com.cloud.storage.secondary.SecondaryStorageDiscoverer;
 import com.cloud.utils.exception.CloudRuntimeException;
+
 
 @Local(value=Discoverer.class)
 public class SimulatorSecondaryDiscoverer extends SecondaryStorageDiscoverer implements ResourceStateAdapter, Listener {
@@ -112,16 +114,8 @@ public class SimulatorSecondaryDiscoverer extends SecondaryStorageDiscoverer imp
     @Override
     public DeleteHostAnswer deleteHost(HostVO host, boolean isForced,
             boolean isForceDeleteStorage) throws UnableDeleteHostException {
-        long hostId = host.getId();
-        List<SnapshotVO> snapshots = _snapshotDao.listByHostId(hostId);
-        if (snapshots != null && !snapshots.isEmpty()) {
-            throw new CloudRuntimeException("Cannot delete this secondary storage because there are still snapshots on it ");
-        }
-        _vmTemplateHostDao.deleteByHost(hostId);
-        host.setGuid(null);
-        _hostDao.update(hostId, host);
-        _hostDao.remove(hostId);
-        return new DeleteHostAnswer(true);
+        // no need to handle, since secondary storage is no longer a host anymore.
+        return null;
     }
 
     @Override
@@ -156,7 +150,7 @@ public class SimulatorSecondaryDiscoverer extends SecondaryStorageDiscoverer imp
     }
 
     @Override
-    public void processConnect(HostVO host, StartupCommand cmd,
+    public void processConnect(Host host, StartupCommand cmd,
             boolean forRebalance) throws ConnectionException {
 
     }

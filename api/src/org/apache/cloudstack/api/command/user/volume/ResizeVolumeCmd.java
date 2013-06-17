@@ -30,6 +30,7 @@ import com.cloud.async.AsyncJob;
 import com.cloud.event.EventTypes;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
+import com.cloud.exception.ResourceAllocationException;
 import com.cloud.projects.Project;
 import com.cloud.storage.Volume;
 import com.cloud.user.Account;
@@ -131,9 +132,9 @@ public class ResizeVolumeCmd extends BaseAsyncCmd {
     }
 
     @Override
-    public void execute(){
+    public void execute() throws ResourceAllocationException{
         UserContext.current().setEventDetails("Volume Id: " + getEntityId() + " to size " + getSize() + "G");
-    	Volume volume = _storageService.resizeVolume(this);
+    	Volume volume = _volumeService.resizeVolume(this);
     	if (volume != null) {
             VolumeResponse response = _responseGenerator.createVolumeResponse(volume);
             //FIXME - have to be moved to ApiResponseHelper

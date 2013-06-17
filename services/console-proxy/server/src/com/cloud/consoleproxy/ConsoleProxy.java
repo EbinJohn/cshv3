@@ -17,6 +17,8 @@
 package com.cloud.consoleproxy;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -34,6 +36,7 @@ import org.apache.commons.codec.binary.Base64;
 import org.apache.log4j.xml.DOMConfigurator;
 
 import com.cloud.consoleproxy.util.Logger;
+import com.cloud.utils.PropertiesUtil;
 import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpServer;
 
@@ -282,8 +285,17 @@ public class ConsoleProxy {
         InputStream confs = ConsoleProxy.class.getResourceAsStream("/conf/consoleproxy.properties");
         Properties props = new Properties();
         if (confs == null) {
-            s_logger.info("Can't load consoleproxy.properties from classpath, will use default configuration");
-        } else {
+            final File file = PropertiesUtil.findConfigFile("consoleproxy.properties");
+            if (file == null)
+                s_logger.info("Can't load consoleproxy.properties from classpath, will use default configuration");
+            else
+                try {
+                    confs = new FileInputStream(file);
+                } catch (FileNotFoundException e) {
+                    s_logger.info("Ignoring file not found exception and using defaults");
+                }
+        } 
+        if (confs != null) {
             try {
                 props.load(confs);
                 
@@ -425,23 +437,32 @@ public class ConsoleProxy {
         synchronized (connectionMap) {
             ConsoleProxyClient viewer = connectionMap.get(clientKey);
             if (viewer == null) {
+                authenticationExternally(param);
                 viewer = new ConsoleProxyVncClient();
                 viewer.initClient(param);
                 
                 connectionMap.put(clientKey, viewer);
                 s_logger.info("Added viewer object " + viewer);
                 reportLoadChange = true;
-            } else if (!viewer.isFrontEndAlive()) {
-                s_logger.info("The rfb thread died, reinitializing the viewer " + viewer);
-                viewer.initClient(param);
-            } else if (!param.getClientHostPassword().equals(viewer.getClientHostPassword())) {
-                s_logger.warn("Bad sid detected(VNC port may be reused). sid in session: " 
-                    + viewer.getClientHostPassword() + ", sid in request: " + param.getClientHostPassword());
-                viewer.initClient(param);
-            } else {
-                if(ajaxSession == null || ajaxSession.isEmpty())
+            }  else {
+				// protected against malicous attack by modifying URL content
+				if(ajaxSession != null) {
+					long ajaxSessionIdFromUrl = Long.parseLong(ajaxSession);
+					if(ajaxSessionIdFromUrl != viewer.getAjaxSessionId())
+						throw new AuthenticationException ("Cannot use the existing viewer " +
+								viewer + ": modified AJAX session id");
+				}
+				
+				if(param.getClientHostPassword() == null || param.getClientHostPassword().isEmpty() || !param.getClientHostPassword().equals(viewer.getClientHostPassword()))
+					throw new AuthenticationException ("Cannot use the existing viewer " +
+							viewer + ": bad sid");
+				
+				if(!viewer.isFrontEndAlive()) {
                     authenticationExternally(param);
-            }
+					viewer.initClient(param);
+					reportLoadChange = true;
+				}
+			}
             
             if(reportLoadChange) {
                 ConsoleProxyClientStatsCollector statsCollector = getStatsCollector();

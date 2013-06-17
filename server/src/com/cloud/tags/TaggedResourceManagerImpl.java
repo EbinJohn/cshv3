@@ -25,13 +25,12 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import org.apache.cloudstack.api.command.user.tag.ListTagsCmd;
+import com.cloud.vm.dao.NicDao;
+import com.cloud.network.vpc.NetworkACLItemDao;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
-
 import com.cloud.api.query.dao.ResourceTagJoinDao;
-import com.cloud.api.query.vo.ResourceTagJoinVO;
 import com.cloud.domain.Domain;
 import com.cloud.event.ActionEvent;
 import com.cloud.event.EventTypes;
@@ -46,7 +45,6 @@ import com.cloud.network.rules.dao.PortForwardingRulesDao;
 import com.cloud.network.security.dao.SecurityGroupDao;
 import com.cloud.network.vpc.dao.StaticRouteDao;
 import com.cloud.network.vpc.dao.VpcDao;
-import com.cloud.projects.Project.ListProjectResourcesCriteria;
 import com.cloud.projects.dao.ProjectDao;
 import com.cloud.server.ResourceTag;
 import com.cloud.server.ResourceTag.TaggedResourceType;
@@ -60,12 +58,9 @@ import com.cloud.user.AccountManager;
 import com.cloud.user.DomainManager;
 import com.cloud.user.UserContext;
 import com.cloud.utils.Pair;
-import com.cloud.utils.Ternary;
-import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.DbUtil;
-import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.GenericDao;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
@@ -124,6 +119,10 @@ public class TaggedResourceManagerImpl extends ManagerBase implements TaggedReso
     StaticRouteDao _staticRouteDao;
     @Inject
     VMSnapshotDao _vmSnapshotDao;
+    @Inject
+    NicDao _nicDao;
+    NetworkACLItemDao _networkACLItemDao;
+
 
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
@@ -141,8 +140,11 @@ public class TaggedResourceManagerImpl extends ManagerBase implements TaggedReso
         _daoMap.put(TaggedResourceType.Project, _projectDao);
         _daoMap.put(TaggedResourceType.Vpc, _vpcDao);
         _daoMap.put(TaggedResourceType.NetworkACL, _firewallDao);
+        _daoMap.put(TaggedResourceType.Nic, _nicDao);
+        _daoMap.put(TaggedResourceType.NetworkACL, _networkACLItemDao);
         _daoMap.put(TaggedResourceType.StaticRoute, _staticRouteDao);
         _daoMap.put(TaggedResourceType.VMSnapshot, _vmSnapshotDao);
+        _daoMap.put(TaggedResourceType.RemoteAccessVpn, _vpnDao);
 
         return true;
     }
@@ -157,7 +159,8 @@ public class TaggedResourceManagerImpl extends ManagerBase implements TaggedReso
         return true;
     }
 
-    private Long getResourceId(String resourceId, TaggedResourceType resourceType) {   
+    @Override
+    public Long getResourceId(String resourceId, TaggedResourceType resourceType) {
         GenericDao<?, Long> dao = _daoMap.get(resourceType);
         if (dao == null) {
             throw new CloudRuntimeException("Dao is not loaded for the resource type " + resourceType);
@@ -294,34 +297,34 @@ public class TaggedResourceManagerImpl extends ManagerBase implements TaggedReso
         
         return resourceTags;
     }
-    
+
     @Override
     public String getUuid(String resourceId, TaggedResourceType resourceType) {
         GenericDao<?, Long> dao = _daoMap.get(resourceType);
         Class<?> claz = DbUtil.getEntityBeanType(dao);
-        
+
        String identiyUUId = null;
-       
+
        while (claz != null && claz != Object.class) {
            try {
                String tableName = DbUtil.getTableName(claz);
                if (tableName == null) {
                    throw new InvalidParameterValueException("Unable to find resource of type " + resourceType + " in the database");
                }
-               
+
                claz = claz.getSuperclass();
                if (claz == Object.class) {
                    identiyUUId = _identityDao.getIdentityUuid(tableName, resourceId);
-               } 
+               }
            } catch (Exception ex) {
                //do nothing here, it might mean uuid field is missing and we have to search further
            }
        }
-       
+
        if (identiyUUId == null) {
            return resourceId;
        }
-       
+
        return identiyUUId;
     }
 

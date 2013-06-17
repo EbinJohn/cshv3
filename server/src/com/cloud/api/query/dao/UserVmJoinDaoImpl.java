@@ -26,6 +26,7 @@ import java.util.Set;
 import javax.ejb.Local;
 import javax.inject.Inject;
 
+import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.api.ApiConstants.VMDetails;
 import org.apache.cloudstack.api.response.NicResponse;
 import org.apache.cloudstack.api.response.SecurityGroupResponse;
@@ -42,7 +43,9 @@ import com.cloud.uservm.UserVm;
 import com.cloud.utils.db.GenericDaoBase;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
+import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VmStats;
+import com.cloud.vm.VirtualMachine.State;
 
 
 @Component
@@ -54,6 +57,7 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
     private ConfigurationDao  _configDao;
 
     private final SearchBuilder<UserVmJoinVO> VmDetailSearch;
+    private final SearchBuilder<UserVmJoinVO> activeVmByIsoSearch;
 
     protected UserVmJoinDaoImpl() {
 
@@ -63,8 +67,23 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
 
         this._count = "select count(distinct id) from user_vm_view WHERE ";
 
-
+        activeVmByIsoSearch = createSearchBuilder();
+        activeVmByIsoSearch.and("isoId", activeVmByIsoSearch.entity().getIsoId(), SearchCriteria.Op.EQ);
+        activeVmByIsoSearch.and("stateNotIn", activeVmByIsoSearch.entity().getState(), SearchCriteria.Op.NIN);
+        activeVmByIsoSearch.done();
     }
+
+
+    @Override
+    public List<UserVmJoinVO> listActiveByIsoId(Long isoId) {
+        SearchCriteria<UserVmJoinVO> sc = activeVmByIsoSearch.create();
+        sc.setParameters("isoId", isoId);
+        State[] states = new State[2];
+        states[0] = State.Error;
+        states[1] = State.Expunging;
+        return listBy(sc);
+    }
+
 
     @Override
     public UserVmResponse newUserVmResponse(String objectName, UserVmJoinVO userVm, EnumSet<VMDetails> details, Account caller) {
@@ -89,6 +108,7 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
         userVmResponse.setDomainName(userVm.getDomainName());
 
         userVmResponse.setCreated(userVm.getCreated());
+        userVmResponse.setDisplayVm(userVm.isDisplayVm());
 
         if (userVm.getState() != null) {
             userVmResponse.setState(userVm.getState().toString());
@@ -100,6 +120,7 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
         }
         userVmResponse.setZoneId(userVm.getDataCenterUuid());
         userVmResponse.setZoneName(userVm.getDataCenterName());
+        userVmResponse.setZoneType(userVm.getDataCenterType());
         if ((caller == null) || (caller.getType() == Account.ACCOUNT_TYPE_ADMIN)) {
             userVmResponse.setInstanceName(userVm.getInstanceName());
             userVmResponse.setHostId(userVm.getHostUuid());
@@ -132,8 +153,10 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
             }
         }
         userVmResponse.setPassword(userVm.getPassword());
-        userVmResponse.setJobId(userVm.getJobUuid());
-        userVmResponse.setJobStatus(userVm.getJobStatus());
+        if (userVm.getJobId() != null) {
+            userVmResponse.setJobId(userVm.getJobUuid());
+            userVmResponse.setJobStatus(userVm.getJobStatus());
+        }
         //userVmResponse.setForVirtualNetwork(userVm.getForVirtualNetwork());
 
         userVmResponse.setPublicIpId(userVm.getPublicIpUuid());
@@ -155,6 +178,18 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
 
                 Double networkKbWrite = Double.valueOf(vmStats.getNetworkWriteKBs());
                 userVmResponse.setNetworkKbsWrite(networkKbWrite.longValue());
+
+                Double diskKbsRead = Double.valueOf(vmStats.getDiskReadKBs());
+                userVmResponse.setDiskKbsRead(diskKbsRead.longValue());
+
+                Double diskKbsWrite = Double.valueOf(vmStats.getDiskWriteKBs());
+                userVmResponse.setDiskKbsWrite(diskKbsWrite.longValue());
+
+                Double diskIORead = Double.valueOf(vmStats.getDiskReadIOs());
+                userVmResponse.setDiskIORead(diskIORead.longValue());
+
+                Double diskIOWrite = Double.valueOf(vmStats.getDiskWriteIOs());
+                userVmResponse.setDiskIOWrite(diskIOWrite.longValue());
             }
         }
 
@@ -185,7 +220,11 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
                 nicResponse.setGateway(userVm.getGateway());
                 nicResponse.setNetmask(userVm.getNetmask());
                 nicResponse.setNetworkid(userVm.getNetworkUuid());
+                nicResponse.setNetworkName(userVm.getNetworkName());
                 nicResponse.setMacAddress(userVm.getMacAddress());
+                nicResponse.setIp6Address(userVm.getIp6Address());
+                nicResponse.setIp6Gateway(userVm.getIp6Gateway());
+                nicResponse.setIp6Cidr(userVm.getIp6Cidr());
                 if (userVm.getBroadcastUri() != null) {
                     nicResponse.setBroadcastUri(userVm.getBroadcastUri().toString());
                 }
@@ -212,6 +251,20 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
                 userVmResponse.addTag(ApiDBUtils.newResourceTagResponse(vtag, false));
             }
         }
+
+        if (details.contains(VMDetails.all) || details.contains(VMDetails.affgrp)) {
+            Long affinityGroupId = userVm.getAffinityGroupId();
+            if (affinityGroupId != null && affinityGroupId.longValue() != 0) {
+                AffinityGroupResponse resp = new AffinityGroupResponse();
+                resp.setId(userVm.getAffinityGroupUuid());
+                resp.setName(userVm.getAffinityGroupName());
+                resp.setDescription(userVm.getAffinityGroupDescription());
+                resp.setObjectName("affinitygroup");
+                resp.setAccountName(userVm.getAccountName());
+                userVmResponse.addAffinityGroup(resp);
+            }
+        }
+
         userVmResponse.setObjectName(objectName);
 
         return userVmResponse;
@@ -243,7 +296,11 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
             nicResponse.setGateway(uvo.getGateway());
             nicResponse.setNetmask(uvo.getNetmask());
             nicResponse.setNetworkid(uvo.getNetworkUuid());
+            nicResponse.setNetworkName(uvo.getNetworkName());
             nicResponse.setMacAddress(uvo.getMacAddress());
+            nicResponse.setIp6Address(uvo.getIp6Address());
+            nicResponse.setIp6Gateway(uvo.getIp6Gateway());
+            nicResponse.setIp6Cidr(uvo.getIp6Cidr());
             if (uvo.getBroadcastUri() != null) {
                 nicResponse.setBroadcastUri(uvo.getBroadcastUri().toString());
             }
@@ -268,6 +325,18 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
                 userVmData.addTag(ApiDBUtils.newResourceTagResponse(vtag, false));
             }
         }
+
+        Long affinityGroupId = uvo.getAffinityGroupId();
+        if (affinityGroupId != null && affinityGroupId.longValue() != 0) {
+            AffinityGroupResponse resp = new AffinityGroupResponse();
+            resp.setId(uvo.getAffinityGroupUuid());
+            resp.setName(uvo.getAffinityGroupName());
+            resp.setDescription(uvo.getAffinityGroupDescription());
+            resp.setObjectName("affinitygroup");
+            resp.setAccountName(uvo.getAccountName());
+            userVmData.addAffinityGroup(resp);
+        }
+
         return userVmData;
     }
 
@@ -327,7 +396,15 @@ public class UserVmJoinDaoImpl extends GenericDaoBase<UserVmJoinVO, Long> implem
         }
 
         Set<Long> vmIdSet = userVmDataHash.keySet();
-        return searchByIds(vmIdSet.toArray(new Long[vmIdSet.size()]));
+        List<UserVmJoinVO> uvms = searchByIds(vmIdSet.toArray(new Long[vmIdSet.size()]));
+        // populate transit password field from UserVm
+        if ( uvms != null ){
+            for (UserVmJoinVO uvm : uvms){
+                UserVm v = userVmDataHash.get(uvm.getId());
+                uvm.setPassword(v.getPassword());
+            }
+        }
+        return uvms;
     }
 
 }

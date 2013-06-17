@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 ### BEGIN INIT INFO
 # Provides:          cloud-early-config
 # Required-Start:    mountkernfs $local_fs
@@ -27,9 +27,14 @@
 # under the License.
 
 PATH="/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin"
+#set -x
+#exec 3>&0 4>&1 > /var/log/test.log 2>&1
 
 # Fix haproxy directory issue
 mkdir -p /var/lib/haproxy
+
+# Clear boot up flag, it would be created by rc.local after boot up done
+rm /var/cache/cloud/boot_up_done
 
 [ -x /sbin/ifup ] || exit 0
 
@@ -82,13 +87,12 @@ EOF
 
 hypervisor() {
   [ -d /proc/xen ] && mount -t xenfs none /proc/xen
+  [ -d /proc/xen ] && echo "xen-domU" && return 0
 
   local try=$([ -x /usr/sbin/virt-what ] && virt-what | tail -1)
   [ "$try" != "" ] && echo $try && return 0
 
   vmware-checkvm &> /dev/null && echo "vmware" && return 0
-
-  [ -d /proc/xen ] && echo "xen-domU" && return 0
 
   grep -q QEMU /proc/cpuinfo  && echo "kvm" && return 0
   grep -q QEMU /var/log/messages && echo "kvm" && return 0
@@ -108,14 +112,17 @@ get_boot_params() {
           sed -i "s/%/ /g" /var/cache/cloud/cmdline
           ;;
      kvm)
-          # KVM needs to mount another disk, to get cmdline
-          mkdir -p $EXTRA_MOUNT
-          mount /dev/vdb $EXTRA_MOUNT
-          cp -f $EXTRA_MOUNT/cmdline  /var/cache/cloud/cmdline
-          cp -f $EXTRA_MOUNT/authorized_keys /var/cache/cloud/authorized_keys
-          privkey=/var/cache/cloud/authorized_keys
-          umount $EXTRA_MOUNT
-          cp -f $privkey /root/.ssh/ && chmod go-rwx /root/.ssh/authorized_keys
+          while read line; do
+            if [[ $line == cmdline:* ]]; then
+              cmd=${line//cmdline:/}
+              echo $cmd > /var/cache/cloud/cmdline
+            elif [[ $line == pubkey:* ]]; then
+              pubkey=${line//pubkey:/}
+              echo $pubkey > /var/cache/cloud/authorized_keys
+              echo $pubkey > /root/.ssh/authorized_keys
+            fi
+          done < /dev/vport0p1
+          chmod go-rwx /root/.ssh/authorized_keys
           ;;
      vmware)
           vmtoolsd --cmd 'machine.id.get' > /var/cache/cloud/cmdline 
@@ -224,7 +231,29 @@ setup_interface() {
       ifdown $intf
       if [ "$RROUTER" != "1" -o "$1" != "2" ]
       then
-            ifup $intf
+          ifup $intf
+          timer=0
+          log_it "checking that $intf has IP "
+          while true
+          do
+              ip=$(ifconfig $intf | grep "inet addr:" | awk '{print $2}' | awk -F: '{print $2}')
+              if [ -z $ip ]
+              then
+                  sleep 1;
+                  #waiting for the interface to setup with ip
+                  log_it "waiting for $intf interface setup with ip timer=$timer"
+              else
+                  break
+              fi
+
+              if [ $timer -gt 15 ]
+              then
+                  log_it  "interface $intf is not set up with ip... exiting";
+                  break
+              fi
+
+              timer=`expr $timer + 1`
+          done
       fi
   fi
 }
@@ -313,6 +342,22 @@ enable_svc() {
   [ -f $cfg ] && sed  -i "s/ENABLED=.*$/ENABLED=$enabled/" $cfg && return
 }
 
+
+enable_irqbalance() {
+  local enabled=$1
+  local proc=0
+
+  proc=$(cat /proc/cpuinfo | grep "processor" | wc -l)
+  if [ $proc -le 1 ]  && [ $enabled -eq 1 ]
+  then
+    enabled=0
+  fi
+
+  log_it "Processors = $proc  Enable service ${svc} = $enabled"
+  local cfg=/etc/default/irqbalance
+  [ -f $cfg ] && sed  -i "s/ENABLED=.*$/ENABLED=$enabled/" $cfg && return
+}
+
 disable_hvc() {
   [ ! -d /proc/xen ] && sed -i 's/^vc/#vc/' /etc/inittab && telinit q
   [  -d /proc/xen ] && sed -i 's/^#vc/vc/' /etc/inittab && telinit q
@@ -363,6 +408,18 @@ setup_common() {
     echo "nameserver $NS2" >> /etc/dnsmasq-resolv.conf
     echo "nameserver $NS2" >> /etc/resolv.conf
   fi
+
+  if [ -n "$IP6_NS1" ]
+  then
+    echo "nameserver $IP6_NS1" >> /etc/dnsmasq-resolv.conf
+    echo "nameserver $IP6_NS1" >> /etc/resolv.conf
+  fi
+  if [ -n "$IP6_NS2" ]
+  then
+    echo "nameserver $IP6_NS2" >> /etc/dnsmasq-resolv.conf
+    echo "nameserver $IP6_NS2" >> /etc/resolv.conf
+  fi
+
   if [ -n "$MGMTNET"  -a -n "$LOCAL_GW" ]
   then
     ip route add $MGMTNET via $LOCAL_GW dev eth1
@@ -371,12 +428,14 @@ setup_common() {
   ip route delete default
   if [ "$RROUTER" != "1" ]
   then
-      if [ -z "$3" ]
-      then
-          ip route add default via $GW dev eth0
-      else
-          ip route add default via $GW dev $3
-      fi
+    gwdev=$3
+    if [ -z "$gwdev" ]
+    then
+      gwdev="eth0"
+    fi
+
+    ip route add default via $GW dev $gwdev
+
   fi
  
   # a hacking way to activate vSwitch under VMware
@@ -393,6 +452,12 @@ setup_common() {
       ping -n -c 3 $MGMT_GW &
       sleep 3
       pkill ping
+  
+  fi
+
+  local hyp=$(hypervisor)
+  if [ "$hyp" == "vmware" ]; then
+      ntpq -p &> /dev/null || vmware-toolbox-cmd timesync enable
   fi
 }
 
@@ -401,6 +466,9 @@ setup_dnsmasq() {
   [ -z $DHCP_RANGE ] && [ $ETH0_IP ] && DHCP_RANGE=$ETH0_IP
   [ $ETH0_IP6 ] && DHCP_RANGE_IP6=$ETH0_IP6
   [ -z $DOMAIN ] && DOMAIN="cloudnine.internal"
+
+  #get the template
+  cp /etc/dnsmasq.conf.tmpl /etc/dnsmasq.conf
   
   if [ -n "$DOMAIN" ]
   then
@@ -410,7 +478,6 @@ setup_dnsmasq() {
         sed -r -i s/^[#]?domain=.*$/domain=$DOMAIN/ /etc/dnsmasq.conf
         #answer all local domain queries
         sed  -i -e "s/^[#]*local=.*$/local=\/$DOMAIN\//" /etc/dnsmasq.conf
-
   fi
   
   if [ -n  "$DNS_SEARCH_ORDER" ]
@@ -432,6 +499,9 @@ setup_dnsmasq() {
   if [ $DHCP_RANGE_IP6 ]
   then
     sed -i -e "s/^dhcp-range_ip6=.*$/dhcp-range=$DHCP_RANGE_IP6,static/" /etc/dnsmasq.conf
+    # For nondefault6 tagged host, don't send dns-server information
+    sed -i /nondefault6/d /etc/dnsmasq.conf
+    echo "dhcp-option=nondefault6,option6:dns-server" >> /etc/dnsmasq.conf
   else
     sed -i -e "s/^dhcp-range_ip6=.*$//" /etc/dnsmasq.conf
   fi
@@ -453,23 +523,30 @@ setup_dnsmasq() {
   fi
   sed -i -e "/^[#]*dhcp-option=option:router.*$/d" /etc/dnsmasq.conf
   [ $DEFAULT_GW ] && echo "dhcp-option=option:router,$DEFAULT_GW" >> /etc/dnsmasq.conf
-  NS=$NS1
-  [ -n "$NS2" ] && NS=$NS1,$NS2
-    #for now set up ourself as the dns server as well
-  sed -i -e "/^[#]*dhcp-option=6.*$/d" /etc/dnsmasq.conf
-  if [ "$USE_EXTERNAL_DNS" == "true" ]
+
+  [ $ETH0_IP ] && [ $NS1 ] && NS="$NS1,"
+  [ $ETH0_IP ] && [ $NS2 ] && NS="$NS$NS2,"
+  [ $ETH0_IP6 ] && [ $IP6_NS1 ] && NS6="[$IP6_NS1],"
+  [ $ETH0_IP6 ] && [ $IP6_NS2 ] && NS6="$NS6[$IP6_NS2],"
+  #for now set up ourself as the dns server as well
+  sed -i -e "/^[#]*dhcp-option=6,.*$/d" /etc/dnsmasq.conf
+  sed -i -e "/^[#]*dhcp-option=option6:dns-server,.*$/d" /etc/dnsmasq.conf
+  if [ "$USE_EXTERNAL_DNS" != "true" ]
   then
-    [ $ETH0_IP ] && echo "dhcp-option=6,$NS" >> /etc/dnsmasq.conf
-  else
-    [ $ETH0_IP ] && echo "dhcp-option=6,$INTERNAL_DNS,$NS" >> /etc/dnsmasq.conf
+    [ $ETH0_IP ] && NS="$INTERNAL_DNS,$NS"
+    [ $ETH0_IP6 ] && NS6="[::],$NS6"
   fi
-  [ $ETH0_IP6 ] && echo "dhcp-option=option6:dns-server,[::]" >> /etc/dnsmasq.conf
+  NS=${NS%?}
+  NS6=${NS6%?}
+  [ $ETH0_IP ] && echo "dhcp-option=6,$NS" >> /etc/dnsmasq.conf
+  [ $ETH0_IP6 ] && echo "dhcp-option=option6:dns-server,$NS6" >> /etc/dnsmasq.conf
 }
 
 setup_sshd(){
   local ip=$1
   local eth=$2
   [ -f /etc/ssh/sshd_config ] && sed -i -e "s/^[#]*ListenAddress.*$/ListenAddress $ip/" /etc/ssh/sshd_config
+  sed -i "/3922/s/eth./$eth/" /etc/iptables/rules.v4
   sed -i "/3922/s/eth./$eth/" /etc/iptables/rules
 }
 
@@ -570,9 +647,16 @@ setup_redundant_router() {
     fi
 }
 
+setup_aesni() {
+  if [ `grep aes /proc/cpuinfo | wc -l` -gt 0 ]
+  then
+    modprobe aesni_intel
+  fi
+}
+
 setup_router() {
   log_it "Setting up virtual router system vm"
-  
+
   oldmd5=
   [ -f "/etc/udev/rules.d/70-persistent-net.rules" ] && oldmd5=$(md5sum "/etc/udev/rules.d/70-persistent-net.rules" | awk '{print $1}')
   
@@ -620,10 +704,8 @@ setup_router() {
     fi
   fi
   
-  
-  
+  setup_aesni
   setup_dnsmasq
-  
   setup_apache2 $ETH0_IP
 
   sed -i  /gateway/d /etc/hosts
@@ -632,11 +714,14 @@ setup_router() {
 
   enable_svc dnsmasq 1
   enable_svc haproxy 1
+  enable_irqbalance 1
   enable_svc cloud-passwd-srvr 1
   enable_svc cloud 0
   disable_rpfilter_domR
   enable_fwding 1
   chkconfig nfs-common off
+  cp /etc/iptables/iptables-router /etc/iptables/rules.v4
+#for old templates
   cp /etc/iptables/iptables-router /etc/iptables/rules
   setup_sshd $ETH1_IP "eth1"
 }
@@ -655,7 +740,7 @@ setup_vpcrouter() {
   fi
 
     cat > /etc/network/interfaces << EOF
-auto lo $1
+auto lo eth0
 iface lo inet loopback
 EOF
   setup_interface "0" $ETH0_IP $ETH0_MASK $GW
@@ -691,7 +776,10 @@ EOF
   fi
   if [ -n "$MGMTNET"  -a -n "$LOCAL_GW" ]
   then
-    ip route add $MGMTNET via $LOCAL_GW dev eth1
+     if [ "$hyp" == "vmware" ]
+     then
+         ip route add $MGMTNET via $LOCAL_GW dev eth0
+     fi
   fi
 
   ip route delete default
@@ -706,9 +794,11 @@ EOF
 
   enable_svc dnsmasq 1
   enable_svc haproxy 1
+  enable_irqbalance 1
   enable_svc cloud 0
   disable_rpfilter
   enable_fwding 1
+  cp /etc/iptables/iptables-vpcrouter /etc/iptables/rules.v4
   cp /etc/iptables/iptables-vpcrouter /etc/iptables/rules
   setup_sshd $ETH0_IP "eth0"
   cp /etc/vpcdnsmasq.conf /etc/dnsmasq.conf
@@ -731,10 +821,12 @@ setup_dhcpsrvr() {
 
   enable_svc dnsmasq 1
   enable_svc haproxy 0
+  enable_irqbalance 0
   enable_svc cloud-passwd-srvr 1
   enable_svc cloud 0
   enable_fwding 0
   chkconfig nfs-common off
+  cp /etc/iptables/iptables-router /etc/iptables/rules.v4
   cp /etc/iptables/iptables-router /etc/iptables/rules
   if [ "$SSHONGUEST" == "true" ]
   then
@@ -770,6 +862,7 @@ setup_secstorage() {
   [ "$ETH2_IP" == "0.0.0.0" ] && public_ip=$ETH1_IP
   echo "$public_ip $NAME" >> /etc/hosts
 
+  cp /etc/iptables/iptables-secstorage /etc/iptables/rules.v4
   cp /etc/iptables/iptables-secstorage /etc/iptables/rules
   if [ "$hyp" == "vmware" ]; then
     setup_sshd $ETH1_IP "eth1"
@@ -781,6 +874,7 @@ setup_secstorage() {
   disable_rpfilter
   enable_fwding 0
   enable_svc haproxy 0
+  enable_irqbalance 0
   enable_svc dnsmasq 0
   enable_svc cloud-passwd-srvr 0
   enable_svc cloud 1
@@ -794,6 +888,7 @@ setup_console_proxy() {
   [ "$ETH2_IP" == "0.0.0.0" ] && public_ip=$ETH1_IP
   sed -i  /gateway/d /etc/hosts
   echo "$public_ip $NAME" >> /etc/hosts
+  cp /etc/iptables/iptables-consoleproxy /etc/iptables/rules.v4
   cp /etc/iptables/iptables-consoleproxy /etc/iptables/rules
   if [ "$hyp" == "vmware" ]; then
     setup_sshd $ETH1_IP "eth1"
@@ -804,6 +899,7 @@ setup_console_proxy() {
   disable_rpfilter
   enable_fwding 0
   enable_svc haproxy 0
+  enable_irqbalance 0
   enable_svc dnsmasq 0
   enable_svc cloud-passwd-srvr 0
   enable_svc cloud 1
@@ -819,6 +915,7 @@ setup_elbvm() {
   [ "$ETH2_IP" == "0.0.0.0" ] || [ "$ETH2_IP" == "" ] && public_ip=$ETH0_IP
   echo "$public_ip $NAME" >> /etc/hosts
 
+  cp /etc/iptables/iptables-elbvm /etc/iptables/rules.v4
   cp /etc/iptables/iptables-elbvm /etc/iptables/rules
   if [ "$SSHONGUEST" == "true" ]
   then
@@ -829,6 +926,30 @@ setup_elbvm() {
   
   enable_fwding 0
   enable_svc haproxy 0
+  enable_irqbalance 0
+  enable_svc dnsmasq 0
+  enable_svc cloud-passwd-srvr 0
+  enable_svc cloud 0
+  chkconfig nfs-common off
+  chkconfig portmap off
+}
+
+setup_ilbvm() {
+  log_it "Setting up Internal Load Balancer system vm"
+  local hyp=$1
+  setup_common eth0 eth1
+  #eth0 = guest network, eth1=control network
+
+  sed -i  /$NAME/d /etc/hosts
+  echo "$ETH0_IP $NAME" >> /etc/hosts
+
+  cp /etc/iptables/iptables-ilbvm /etc/iptables/rules.v4
+  cp /etc/iptables/iptables-ilbvm /etc/iptables/rules
+  setup_sshd $ETH1_IP "eth1"
+  
+  enable_fwding 0
+  enable_svc haproxy 1
+  enable_irqbalance 1
   enable_svc dnsmasq 0
   enable_svc cloud-passwd-srvr 0
   enable_svc cloud 0
@@ -885,6 +1006,10 @@ start() {
      elbvm)
          [ "$NAME" == "" ] && NAME=elb
          setup_elbvm
+	  ;;
+     ilbvm)
+         [ "$NAME" == "" ] && NAME=ilb
+         setup_ilbvm
 	  ;;
      unknown)
          [ "$NAME" == "" ] && NAME=systemvm
@@ -959,6 +1084,12 @@ for i in $CMDLINE
           ;;
       dns2)
           NS2=$VALUE
+          ;;
+      ip6dns1)
+          IP6_NS1=$VALUE
+          ;;
+      ip6dns2)
+          IP6_NS2=$VALUE
           ;;
       domain)
           DOMAIN=$VALUE

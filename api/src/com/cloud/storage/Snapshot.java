@@ -18,12 +18,12 @@ package com.cloud.storage;
 
 import java.util.Date;
 
-import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.utils.fsm.StateMachine2;
-import com.cloud.utils.fsm.StateObject;
 import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.api.Identity;
 import org.apache.cloudstack.api.InternalIdentity;
+
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.utils.fsm.StateObject;
 
 public interface Snapshot extends ControlledEntity, Identity, InternalIdentity, StateObject<Snapshot.State> {
     public enum Type {
@@ -55,27 +55,15 @@ public interface Snapshot extends ControlledEntity, Identity, InternalIdentity, 
     }
 
     public enum State {
+        Allocated,
         Creating,
         CreatedOnPrimary,
         BackingUp,
         BackedUp,
+        Copying,
+        Destroying,
+        Destroyed,//it's a state, user can't see the snapshot from ui, while the snapshot may still exist on the storage
         Error;
-
-        private final static StateMachine2<State, Event, Snapshot> s_fsm = new StateMachine2<State, Event, Snapshot>();
-
-        public static StateMachine2<State, Event, Snapshot> getStateMachine() {
-            return s_fsm;
-        }
-
-        static {
-            s_fsm.addTransition(null, Event.CreateRequested, Creating);
-            s_fsm.addTransition(Creating, Event.OperationSucceeded, CreatedOnPrimary);
-            s_fsm.addTransition(Creating, Event.OperationNotPerformed, BackedUp);
-            s_fsm.addTransition(Creating, Event.OperationFailed, Error);
-            s_fsm.addTransition(CreatedOnPrimary, Event.BackupToSecondary, BackingUp);
-            s_fsm.addTransition(BackingUp, Event.OperationSucceeded, BackedUp);
-            s_fsm.addTransition(BackingUp, Event.OperationFailed, Error);
-        }
 
         public String toString() {
             return this.name();
@@ -91,6 +79,8 @@ public interface Snapshot extends ControlledEntity, Identity, InternalIdentity, 
         OperationNotPerformed,
         BackupToSecondary,
         BackedupToSecondary,
+        DestroyRequested,
+        CopyingRequested,
         OperationSucceeded,
         OperationFailed
     }
@@ -101,13 +91,11 @@ public interface Snapshot extends ControlledEntity, Identity, InternalIdentity, 
 
     long getVolumeId();
 
-    String getPath();
-
     String getName();
 
     Date getCreated();
 
-    Type getType();
+    Type getRecurringType();
 
     State getState();
 

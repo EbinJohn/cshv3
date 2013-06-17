@@ -16,6 +16,9 @@
 // under the License.
 package org.apache.cloudstack.api.command.admin.offering;
 
+import java.util.Collection;
+import java.util.Map;
+
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
@@ -59,6 +62,9 @@ public class CreateServiceOfferingCmd extends BaseCmd {
     @Parameter(name=ApiConstants.LIMIT_CPU_USE, type=CommandType.BOOLEAN, description="restrict the CPU usage to committed service offering")
     private Boolean limitCpuUse;
 
+    @Parameter(name=ApiConstants.IS_VOLATILE, type=CommandType.BOOLEAN, description="true if the virtual machine needs to be volatile so that on every reboot of VM, original root disk is dettached then destroyed and a fresh root disk is created and attached to VM")
+    private Boolean isVolatile;
+
     @Parameter(name=ApiConstants.STORAGE_TYPE, type=CommandType.STRING, description="the storage type of the service offering. Values are local and shared.")
     private String storageType;
 
@@ -80,6 +86,12 @@ public class CreateServiceOfferingCmd extends BaseCmd {
 
     @Parameter(name=ApiConstants.NETWORKRATE, type=CommandType.INTEGER, description="data transfer rate in megabits per second allowed. Supported only for non-System offering and system offerings having \"domainrouter\" systemvmtype")
     private Integer networkRate;
+
+    @Parameter(name = ApiConstants.DEPLOYMENT_PLANNER, type = CommandType.STRING, description = "The deployment planner heuristics used to deploy a VM of this offering. If null, value of global config vm.deployment.planner is used")
+    private String deploymentPlanner;
+
+    @Parameter(name = ApiConstants.SERVICE_OFFERING_DETAILS, type = CommandType.MAP, description = "details for planner, used to store specific parameters")
+    private Map<String, String> details;
 
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
@@ -106,11 +118,15 @@ public class CreateServiceOfferingCmd extends BaseCmd {
     }
 
     public Boolean getOfferHa() {
-        return offerHa;
+        return offerHa == null ? false : offerHa;
     }
 
     public Boolean GetLimitCpuUse() {
-        return limitCpuUse;
+        return limitCpuUse == null ? false : limitCpuUse;
+    }
+
+    public Boolean getVolatileVm() {
+        return isVolatile == null ? false : isVolatile;
     }
 
     public String getStorageType() {
@@ -139,6 +155,20 @@ public class CreateServiceOfferingCmd extends BaseCmd {
 
     public Integer getNetworkRate() {
         return networkRate;
+    }
+
+    public String getDeploymentPlanner() {
+        return deploymentPlanner;
+    }
+
+    public Map<String, String> getDetails() {
+        if (details == null || details.isEmpty()) {
+            return null;
+        }
+
+        Collection<String> paramsCollection = details.values();
+        Map<String, String> params = (Map<String, String>)(paramsCollection.toArray())[0];
+        return params;
     }
 
     /////////////////////////////////////////////////////

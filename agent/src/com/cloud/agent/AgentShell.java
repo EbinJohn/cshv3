@@ -24,7 +24,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,16 +37,20 @@ import java.util.UUID;
 
 import javax.naming.ConfigurationException;
 
+import org.apache.commons.daemon.Daemon;
+import org.apache.commons.daemon.DaemonContext;
+import org.apache.commons.daemon.DaemonInitException;
 import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.MultiThreadedHttpConnectionManager;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.log4j.Logger;
+import org.apache.log4j.xml.DOMConfigurator;
 
 import com.cloud.agent.Agent.ExitStatus;
 import com.cloud.agent.dao.StorageComponent;
 import com.cloud.agent.dao.impl.PropertiesStorage;
-import com.cloud.host.Host;
 import com.cloud.resource.ServerResource;
+import com.cloud.utils.LogUtils;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.ProcessUtil;
 import com.cloud.utils.PropertiesUtil;
@@ -56,7 +59,7 @@ import com.cloud.utils.backoff.impl.ConstantTimeBackoff;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.script.Script;
 
-public class AgentShell implements IAgentShell {
+public class AgentShell implements IAgentShell, Daemon {
     private static final Logger s_logger = Logger.getLogger(AgentShell.class
             .getName());
     private static final MultiThreadedHttpConnectionManager s_httpClientManager = new MultiThreadedHttpConnectionManager();
@@ -77,8 +80,8 @@ public class AgentShell implements IAgentShell {
     private int _nextAgentId = 1;
     private volatile boolean _exit = false;
     private int _pingRetries;
-    private Thread _consoleProxyMain = null;
     private final List<Agent> _agents = new ArrayList<Agent>();
+
 
     public AgentShell() {
     }
@@ -360,46 +363,43 @@ public class AgentShell implements IAgentShell {
         String value = getProperty(null, "developer");
         boolean developer = Boolean.parseBoolean(value);
 
-        if (guid != null){
             _guid = guid;
-            s_logger.info("agent guid set in args to " + _guid);
-        }
-        else {
-        	_guid = this.getProperty(null, "guid");
-            final String redirect_prefix = "generate_from_";
-            if (_guid.startsWith(redirect_prefix)){
-            	String key = _guid.substring(redirect_prefix.length());
-                if (key == null) {
-                	String errMsg = "guid set to " + _guid + " but referenced setting not available";
-                    s_logger.error(errMsg);
-                    throw new ConfigurationException(errMsg);
-                }
-                s_logger.info("agent guid should set guid from value for " + key);
-                String uuid_seed = getProperty(null, key);
-                if (uuid_seed == null) {
-                	String errMsg = "guid set using " + redirect_prefix + " directive, but there is no key.  Using something like \"" +redirect_prefix+"private.ip.address\"";
-                    s_logger.error(errMsg);
-                    throw new ConfigurationException(errMsg);
-                }
-                _guid = UUID.nameUUIDFromBytes(uuid_seed.getBytes()).toString();
-                s_logger.info("agent guid set to " + _guid + " generated from value " + uuid_seed + " of settting for " + key);
-            }
-        }
         if (_guid == null) {
             if (!developer) {
                 throw new ConfigurationException("Unable to find the guid");
             }
             _guid = UUID.randomUUID().toString();
-            s_logger.info("agent guid set to randomUUID " + _guid);
+            _properties.setProperty("guid", _guid);
         }
 
         return true;
     }
-
+    
+    @Override
+    public void init(DaemonContext dc) throws DaemonInitException {
+        s_logger.debug("Initializing AgentShell from JSVC");
+        try {
+            init(dc.getArguments());
+        } catch (ConfigurationException ex) {
+            throw new DaemonInitException("Initialization failed", ex);
+        }
+    }
+    
     public void init(String[] args) throws ConfigurationException {
 
+    	// PropertiesUtil is used both in management server and agent packages,
+    	// it searches path under class path and common J2EE containers
+    	// For KVM agent, do it specially here
+    	
+    	File file = new File("/etc/cloudstack/agent/log4j-cloud.xml");
+    	if(file == null || !file.exists()) {
+    		file = PropertiesUtil.findConfigFile("log4j-cloud.xml");
+    	}
+    	DOMConfigurator.configureAndWatch(file.getAbsolutePath());
+
+    	s_logger.info("Agent started");
+    	
         final Class<?> c = this.getClass();
-        _version = "4.1.0"; //c.getPackage().getImplementationVersion();
         if (_version == null) {
             throw new CloudRuntimeException(
                     "Unable to find the implementation version of this agent");
@@ -409,11 +409,13 @@ public class AgentShell implements IAgentShell {
         loadProperties();
         parseCommand(args);
 
-        List<String> properties = Collections.list((Enumeration<String>)_properties.propertyNames());
-        for (String property:properties){
-            s_logger.debug("Found property: " + property);
+        if (s_logger.isDebugEnabled()) {
+            List<String> properties = Collections.list((Enumeration<String>)_properties.propertyNames());
+            for (String property:properties){
+                s_logger.debug("Found property: " + property);
+            }
         }
-
+            
         s_logger.info("Defaulting to using properties file for storage");
         _storage = new PropertiesStorage();
         _storage.configure("Storage", new HashMap<String, Object>());
@@ -439,71 +441,6 @@ public class AgentShell implements IAgentShell {
         }
 
         launchAgentFromTypeInfo();
-    }
-
-    private boolean needConsoleProxy() {
-        for (Agent agent : _agents) {
-            if (agent.getResource().getType().equals(Host.Type.ConsoleProxy)
-                    || agent.getResource().getType().equals(Host.Type.Routing))
-                return true;
-        }
-        return false;
-    }
-
-    private int getConsoleProxyPort() {
-        int port = NumbersUtil.parseInt(
-                getProperty(null, "consoleproxy.httpListenPort"), 443);
-        return port;
-    }
-
-    private void openPortWithIptables(int port) {
-        // TODO
-    }
-
-    private void launchConsoleProxy() throws ConfigurationException {
-        if (!needConsoleProxy()) {
-            if (s_logger.isInfoEnabled())
-                s_logger.info("Storage only agent, no need to start console proxy on it");
-            return;
-        }
-
-        int port = getConsoleProxyPort();
-        openPortWithIptables(port);
-
-        _consoleProxyMain = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Class<?> consoleProxyClazz = Class.forName("com.cloud.consoleproxy.ConsoleProxy");
-
-                    try {
-                        Method method = consoleProxyClazz.getMethod("start",
-                                Properties.class);
-                        method.invoke(null, _properties);
-                    } catch (SecurityException e) {
-                        s_logger.error("Unable to launch console proxy due to SecurityException");
-                        System.exit(ExitStatus.Error.value());
-                    } catch (NoSuchMethodException e) {
-                        s_logger.error("Unable to launch console proxy due to NoSuchMethodException");
-                        System.exit(ExitStatus.Error.value());
-                    } catch (IllegalArgumentException e) {
-                        s_logger.error("Unable to launch console proxy due to IllegalArgumentException");
-                        System.exit(ExitStatus.Error.value());
-                    } catch (IllegalAccessException e) {
-                        s_logger.error("Unable to launch console proxy due to IllegalAccessException");
-                        System.exit(ExitStatus.Error.value());
-                    } catch (InvocationTargetException e) {
-                        s_logger.error("Unable to launch console proxy due to InvocationTargetException");
-                        System.exit(ExitStatus.Error.value());
-                    }
-                } catch (final ClassNotFoundException e) {
-                    s_logger.error("Unable to launch console proxy due to ClassNotFoundException");
-                    System.exit(ExitStatus.Error.value());
-                }
-            }
-        }, "Console-Proxy-Main");
-        _consoleProxyMain.setDaemon(true);
-        _consoleProxyMain.start();
     }
 
     private void launchAgentFromClassInfo(String resourceClassNames)
@@ -574,6 +511,9 @@ public class AgentShell implements IAgentShell {
 
     public void start() {
         try {
+            /* By default we only search for log4j.xml */
+            LogUtils.initLog4j("log4j-cloud.xml");
+
             System.setProperty("java.net.preferIPv4Stack", "true");
 
             String instance = getProperty(null, "instance");
@@ -595,14 +535,6 @@ public class AgentShell implements IAgentShell {
 
             launchAgent();
 
-            //
-            // For both KVM & Xen-Server hypervisor, we have switched to
-            // VM-based console proxy solution, disable launching
-            // of console proxy here
-            //
-            // launchConsoleProxy();
-            //
-
             try {
                 while (!_exit)
                     Thread.sleep(1000);
@@ -622,9 +554,6 @@ public class AgentShell implements IAgentShell {
 
     public void stop() {
         _exit = true;
-        if (_consoleProxyMain != null) {
-            _consoleProxyMain.interrupt();
-        }
     }
 
     public void destroy() {
@@ -633,6 +562,7 @@ public class AgentShell implements IAgentShell {
 
     public static void main(String[] args) {
         try {
+            s_logger.debug("Initializing AgentShell from main");
             AgentShell shell = new AgentShell();
             shell.init(args);
             shell.start();
@@ -640,4 +570,5 @@ public class AgentShell implements IAgentShell {
             System.out.println(e.getMessage());
         }
     }
+
 }

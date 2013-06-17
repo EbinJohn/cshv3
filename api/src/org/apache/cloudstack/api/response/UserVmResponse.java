@@ -18,8 +18,10 @@ package org.apache.cloudstack.api.response;
 
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
+import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseResponse;
 import org.apache.cloudstack.api.EntityReference;
@@ -78,6 +80,9 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
     @SerializedName(ApiConstants.ZONE_NAME) @Param(description="the name of the availability zone for the virtual machine")
     private String zoneName;
 
+    @SerializedName(ApiConstants.ZONE_TYPE) @Param(description="the network type of the availability zone for the virtual machine")
+    private String zoneType;
+    
     @SerializedName(ApiConstants.HOST_ID) @Param(description="the ID of the host for the virtual machine")
     private String hostId;
 
@@ -132,6 +137,18 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
     @SerializedName("networkkbswrite") @Param(description="the outgoing network traffic on the host")
     private Long networkKbsWrite;
 
+    @SerializedName("diskkbsread") @Param(description="the read (bytes) of disk on the vm")
+    private Long diskKbsRead;
+    
+    @SerializedName("diskkbswrite") @Param(description="the write (bytes) of disk on the vm")
+    private Long diskKbsWrite;
+    
+    @SerializedName("diskioread") @Param(description="the read (io) of disk on the vm")
+    private Long diskIORead;
+    
+    @SerializedName("diskiowrite") @Param(description="the write (io) of disk on the vm")
+    private Long diskIOWrite;
+    
     @SerializedName("guestosid") @Param(description="Os type ID of the virtual machine")
     private String guestOsId;
 
@@ -168,10 +185,18 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
     @SerializedName(ApiConstants.SSH_KEYPAIR) @Param(description="ssh key-pair")
     private String keyPairName;
 
+    @SerializedName("affinitygroup")
+    @Param(description = "list of affinity groups associated with the virtual machine", responseObject = AffinityGroupResponse.class)
+    private Set<AffinityGroupResponse> affinityGroupList;
+
+    @SerializedName(ApiConstants.DISPLAY_VM) @Param(description="an optional field whether to the display the vm to the end user or not.")
+    private Boolean displayVm;
+
     public UserVmResponse(){
-        securityGroupList = new HashSet<SecurityGroupResponse>();
-        nics = new HashSet<NicResponse>();
-        tags = new HashSet<ResourceTagResponse>();
+        securityGroupList = new LinkedHashSet<SecurityGroupResponse>();
+        nics = new LinkedHashSet<NicResponse>();
+        tags = new LinkedHashSet<ResourceTagResponse>();
+        affinityGroupList = new LinkedHashSet<AffinityGroupResponse>();
     }
 
     public void setHypervisor(String hypervisor) {
@@ -186,7 +211,13 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
         return this.id;
     }
 
+    public Boolean getDisplayVm() {
+        return displayVm;
+    }
 
+    public void setDisplayVm(Boolean displayVm) {
+        this.displayVm = displayVm;
+    }
 
     @Override
     public String getObjectId() {
@@ -242,6 +273,10 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
         this.zoneName = zoneName;
     }
 
+    public void setZoneType(String zoneType) {
+        this.zoneType = zoneType;
+    }
+    
     public void setHostId(String hostId) {
         this.hostId = hostId;
     }
@@ -276,6 +311,22 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
 
     public void setIsoDisplayText(String isoDisplayText) {
         this.isoDisplayText = isoDisplayText;
+    }
+    
+    public void setDiskKbsRead(Long diskKbsRead) {
+        this.diskKbsRead = diskKbsRead;
+    }
+
+    public void setDiskKbsWrite(Long diskKbsWrite) {
+        this.diskKbsWrite = diskKbsWrite;
+    }
+    
+    public void setDiskIORead(Long diskIORead) {
+        this.diskIORead = diskIORead;
+    }
+
+    public void setDiskIOWrite(Long diskIOWrite) {
+        this.diskIOWrite = diskIOWrite;
     }
 
     public void setServiceOfferingId(String serviceOfferingId) {
@@ -378,6 +429,14 @@ public class UserVmResponse extends BaseResponse implements ControlledEntityResp
 
     public void setKeyPairName(String keyPairName) {
         this.keyPairName = keyPairName;
+    }
+
+    public void setAffinityGroupList(Set<AffinityGroupResponse> affinityGroups) {
+        this.affinityGroupList = affinityGroups;
+    }
+
+    public void addAffinityGroup(AffinityGroupResponse affinityGroup) {
+        this.affinityGroupList.add(affinityGroup);
     }
 
 }

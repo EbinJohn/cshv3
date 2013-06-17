@@ -23,10 +23,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.util.UUID;
 
+import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
+
 import com.cloud.hypervisor.kvm.resource.KVMHABase;
 import com.cloud.hypervisor.kvm.resource.KVMHABase.PoolType;
 import com.cloud.hypervisor.kvm.resource.KVMHAMonitor;
-import com.cloud.hypervisor.kvm.storage.KVMPhysicalDisk.PhysicalDiskFormat;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageLayer;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -93,18 +94,26 @@ public class KVMStoragePoolManager {
             protocol = StoragePoolType.NetworkFilesystem;
         }
 
-        return createStoragePool(uuid, sourceHost, 0, sourcePath, "", protocol);
+        // secondary storage registers itself through here
+        return createStoragePool(uuid, sourceHost, 0, sourcePath, "", protocol, false);
     }
 
     public KVMStoragePool createStoragePool( String name, String host, int port,
                                              String path, String userInfo,
                                              StoragePoolType type) {
+        // primary storage registers itself through here
+        return createStoragePool(name, host, port, path, userInfo, type, true);
+    }
+
+    private KVMStoragePool createStoragePool( String name, String host, int port,
+                                             String path, String userInfo,
+                                             StoragePoolType type, boolean primaryStorage) {
         StorageAdaptor adaptor = getStorageAdaptor(type);
         KVMStoragePool pool = adaptor.createStoragePool(name,
                                 host, port, path, userInfo, type);
 
         // LibvirtStorageAdaptor-specific statement
-        if (type == StoragePoolType.NetworkFilesystem) {
+        if (type == StoragePoolType.NetworkFilesystem && primaryStorage) {
             KVMHABase.NfsStoragePool nfspool = new KVMHABase.NfsStoragePool(
                     pool.getUuid(), host, path, pool.getLocalPath(),
                     PoolType.PrimaryStorage);
@@ -134,14 +143,18 @@ public class KVMStoragePoolManager {
         // LibvirtStorageAdaptor-specific statement
         if (destPool.getType() == StoragePoolType.RBD) {
             return adaptor.createDiskFromTemplate(template, name,
-                    KVMPhysicalDisk.PhysicalDiskFormat.RAW, template.getSize(), destPool);
+                    PhysicalDiskFormat.RAW, template.getSize(), destPool);
         } else if (destPool.getType() == StoragePoolType.CLVM) {
             return adaptor.createDiskFromTemplate(template, name,
-                                       KVMPhysicalDisk.PhysicalDiskFormat.RAW, template.getSize(),
+                                       PhysicalDiskFormat.RAW, template.getSize(),
                                        destPool);
+        } else if (template.getFormat() == PhysicalDiskFormat.DIR) {
+            return adaptor.createDiskFromTemplate(template, name,
+                    PhysicalDiskFormat.DIR,
+                    template.getSize(), destPool);
         } else {
             return adaptor.createDiskFromTemplate(template, name,
-                    KVMPhysicalDisk.PhysicalDiskFormat.QCOW2,
+                    PhysicalDiskFormat.QCOW2,
             template.getSize(), destPool);
         }
     }

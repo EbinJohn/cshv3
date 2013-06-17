@@ -23,7 +23,10 @@
   var returnedPublicVlanIpRanges = []; //public VlanIpRanges returned by API
   var configurationUseLocalStorage = false;
 	var skipGuestTrafficStep = false;
-
+  var selectedNetworkOfferingObj = {};
+	var baremetalProviders = ["BaremetalDhcpProvider", "BaremetalPxeProvider", "BaremetaUserdataProvider"];
+	var selectedBaremetalProviders = [];
+	
   // Makes URL string for traffic label
   var trafficLabelParam = function(trafficTypeID, data, physicalNetworkID) {
     var zoneType = data.zone.networkType;
@@ -49,6 +52,9 @@
         break;
       case 'Ovm':
         hypervisorAttr = 'ovmnetworklabel';
+        break;
+      case 'LXC':
+        hypervisorAttr = 'lxcnetworklabel';
         break;
     }
 
@@ -317,38 +323,67 @@
         preFilter: function(args) {
           var $form = args.$form;
 
-          if (args.data['network-model'] == 'Basic') {
+          if (args.data['network-model'] == 'Basic') { //Basic zone
             args.$form.find('[rel=networkOfferingId]').show();
-            args.$form.find('[rel=guestcidraddress]').hide();
+            args.$form.find('[rel=guestcidraddress]').hide();						
+	    
+            args.$form.find('[rel=ip6dns1]').hide();
+	    args.$form.find('[rel=ip6dns2]').hide();
           }
-          else { //args.data['network-model'] == 'Advanced'
+          else { //Advanced zone
             args.$form.find('[rel=networkOfferingId]').hide();
 						
-						if(args.data["zone-advanced-sg-enabled"] !=	"on")
+	    if(args.data["zone-advanced-sg-enabled"] !=	"on") { //Advanced SG-disabled zone
               args.$form.find('[rel=guestcidraddress]').show();
-						else //args.data["zone-advanced-sg-enabled"] ==	"on
-						  args.$form.find('[rel=guestcidraddress]').hide();
-          }													
-										
-          setTimeout(function() {
-            if ($form.find('input[name=ispublic]').is(':checked')) {
-              $form.find('[rel=domain]').hide();
+              					  
+	      args.$form.find('[rel=ip6dns1]').show();
+	      args.$form.find('[rel=ip6dns2]').show();
             }
-          });
+	    else { //Advanced SG-enabled zone
+	      args.$form.find('[rel=guestcidraddress]').hide();
+
+              args.$form.find('[rel=ip6dns1]').hide();
+	      args.$form.find('[rel=ip6dns2]').hide();
+            }
+          
+	  }													
+										
+      /*    setTimeout(function() {
+            if ($form.find('input[name=ispublic]').is(':checked')) {
+              $form.find('[rel=domain]').show();
+              $form.find('[rel=accountId]').show();
+            }
+ 
+            else{
+
+              $form.find('[rel=domain]').hide();
+              $form.find('[rel=accountId]').hide();
+            }
+          });*/
         },
         fields: {
           name: {
             label: 'label.name', validation: { required: true },
             desc: 'message.tooltip.zone.name'
           },
-          dns1: {
-            label: 'label.dns.1', validation: { required: true },
+          ip4dns1: {
+            label: 'IPv4 DNS1', validation: { required: true },
             desc: 'message.tooltip.dns.1'
           },
-          dns2: {
-            label: 'label.dns.2',
+          ip4dns2: {
+            label: 'IPv4 DNS2',
             desc: 'message.tooltip.dns.2'
           },
+                    
+          ip6dns1: {
+            label: 'IPv6 DNS1', 
+            desc: 'message.tooltip.dns.1'
+          },
+          ip6dns2: {
+            label: 'IPv6 DNS2',
+            desc: 'message.tooltip.dns.2'
+          },      
+          
           internaldns1: {
             label: 'label.internal.dns.1', validation: { required: true },
             desc: 'message.tooltip.internal.dns.1'
@@ -373,10 +408,10 @@
 									var nonSupportedHypervisors = {};									
 									if(args.context.zones[0]['network-model']	== "Advanced" && args.context.zones[0]['zone-advanced-sg-enabled'] ==	"on") {
 									  firstOption = "KVM";
-										nonSupportedHypervisors["XenServer"] = 1;  //to developers: comment this line if you need to test Advanced SG-enabled zone with XenServer hypervisor
 										nonSupportedHypervisors["VMware"] = 1;
 										nonSupportedHypervisors["BareMetal"] = 1;
 										nonSupportedHypervisors["Ovm"] = 1;
+										nonSupportedHypervisors["LXC"] = 1;
 									}
 									
 									if(items != null) {
@@ -441,14 +476,16 @@
 										var thisNetworkOffering = this;
 										$(this.service).each(function(){
 											var thisService = this;
-																			
+																								
 											$(thisService.provider).each(function(){										
 												if(this.name == "Netscaler") {
-													thisNetworkOffering.havingNetscaler = true;
-													return false; //break each loop
+													thisNetworkOffering.havingNetscaler = true;													
+												}												
+												else if($.inArray(this.name, baremetalProviders) != -1) {												
+												  selectedBaremetalProviders.push(this.name);
 												}
-											});			
-											
+											});													
+										
 											if(thisService.name == "SecurityGroup") {
 												thisNetworkOffering.havingSG = true;
 											}
@@ -511,10 +548,10 @@
             validation: { required: false }
           },
           ispublic: {
-            isReverse: true,
+            //isReverse: true,
             isBoolean: true,
-            label: 'label.public',
-            isChecked: true //checked by default (public zone)
+            label: 'Dedicate',
+            isChecked: false //checked by default (public zone)
           },
           domain: {
             label: 'label.domain',
@@ -540,6 +577,16 @@
               });
             }
           },
+
+           accountId:{
+                     label:'Account',
+                     isHidden:true,
+                     dependsOn:'ispublic',
+                     //docID:'helpAccountForDedication',
+                     validation:{required:false}
+
+                  },
+
           localstorageenabled: {
             label: 'label.local.storage.enabled',
             isBoolean: true,
@@ -629,7 +676,18 @@
           },
           privateinterface: {
             label: 'label.private.interface'
+          },		
+					gslbprovider: {
+            label: 'GSLB service',
+            isBoolean: true,
+            isChecked: false
           },
+					gslbproviderpublicip: {
+            label: 'GSLB service Public IP'
+          },
+					gslbproviderprivateip: {
+            label: 'GSLB service Private IP'
+          },		
           numretries: {
             label: 'label.numretries',
             defaultValue: '2'
@@ -727,7 +785,7 @@
               });
 
               var vSwitchEnabled = false;
-
+              var dvSwitchEnabled = false;
               // Check whether vSwitch capability is enabled
               $.ajax({
                 url: createURL('listConfigurations'),
@@ -741,6 +799,17 @@
                   }
                 }
               });
+
+                 //Check whether dvSwitch is enabled or not
+              $.ajax({
+                 url: createURL('listConfigurations'),
+                 data: {
+                   name: 'vmware.use.dvswitch'
+                      },
+                 async: false,
+                 success: function(json) {                                                                                                                                                                                if (json.listconfigurationsresponse.configuration[0].value == 'true') {                                                                                                                                   dvSwitchEnabled = true;
+                                                                                                                                                                                                                          }
+                  }                                                                                                                                                                                                                    });
 
               args.$select.bind("change", function(event) {
                 var $form = $(this).closest('form');
@@ -756,6 +825,35 @@
 
                 if($(this).val() == "VMware") {
                   //$('li[input_sub_group="external"]', $dialogAddCluster).show();
+                  if(dvSwitchEnabled ){
+                     /*   $fields.filter('[rel=vSwitchPublicType]').css('display', 'inline-block');
+                        $form.find('.form-item[rel=vSwitchGuestType]').css('display', 'inline-block');
+                       
+                        $form.find('.form-item[rel=vSwitchPublicName]').css('display','inline-block');
+                        $form.find('.form-item[rel=vSwitchGuestName]').css('display','inline-block');
+                      
+                       $form.find('.form-item[rel=overridepublictraffic]').find('input[type=checkbox]').css('display','inline-block');
+                        $form.find('.form-item[rel=overrideguesttraffic]').find('input[type=checkbox]').css('display','inline-block');*/
+
+                        $form.find('.form-item[rel=overridepublictraffic]').css('display','inline-block');
+                          $form.find('.form-item[rel=overridepublictraffic]').find('input[type=checkbox]').removeAttr('checked');
+
+                          $form.find('.form-item[rel=overrideguesttraffic]').css('display','inline-block');
+                          $form.find('.form-item[rel=overrideguesttraffic]').find('input[type=checkbox]').removeAttr('checked');
+
+
+ 
+                 }
+                    else {
+                     /*    $form.find('.form-item[rel=vSwitchPublicType]').css('display', 'none');
+                         $form.find('.form-item[rel=vSwitchGuestType]').css('display', 'none');
+                          $form.find('.form-item[rel=vSwitchPublicName]').css('display','none');
+                          $form.find('.form-item[rel=vSwitchGuestName]').css('display','none');*/
+                          $form.find('.form-item[rel=overridepublictraffic]').css('display','none');
+                          $form.find('.form-item[rel=overrideguesttraffic]').css('display','none');
+
+                      }
+                                                                                                                     
                   $form.find('[rel=vCenterHost]').css('display', 'block');
                   $form.find('[rel=vCenterUsername]').css('display', 'block');
                   $form.find('[rel=vCenterPassword]').css('display', 'block');
@@ -770,6 +868,15 @@
                 }
                 else {
                   //$('li[input_group="vmware"]', $dialogAddCluster).hide();
+                  
+                  $form.find('.form-item[rel=overridepublictraffic]').css('display', 'none');
+                  $form.find('.form-item[rel=overrideguesttraffic]').css('display', 'none');
+                  $form.find('.form-item[rel=vSwitchPublicType]').css('display', 'none');
+                  $form.find('.form-item[rel=vSwitchGuestType]').css('display', 'none');
+                  $form.find('.form-item[rel=vSwitchPublicName]').css('display','none');
+                  $form.find('.form-item[rel=vSwitchGuestName]').css('display','none');
+
+
                   $form.find('[rel=vCenterHost]').css('display', 'none');
                   $form.find('[rel=vCenterUsername]').css('display', 'none');
                   $form.find('[rel=vCenterPassword]').css('display', 'none');
@@ -786,6 +893,7 @@
           },
 
           //hypervisor==VMWare begins here
+ 
           vCenterHost: {
             label: 'label.vcenter.host',
             validation: { required: true }
@@ -803,6 +911,127 @@
             label: 'label.vcenter.datacenter',
             validation: { required: true }
           },
+
+         overridepublictraffic:{
+           label:'Override Public-Traffic',
+           isBoolean:true,
+           isHidden:true
+
+             },
+
+
+          vSwitchPublicType:{
+                label: 'Public Traffic vSwitch Type',
+                select: function(args) {
+                    var items = []
+                     var vSwitchEnabled = false;
+                             $.ajax({
+                        url: createURL('listConfigurations'),
+                        data: {
+                          name: 'vmware.use.nexus.vswitch'
+                        },
+                        async: false,
+                        success: function(json) {
+                          if (json.listconfigurationsresponse.configuration[0].value == 'true') {
+                            vSwitchEnabled = true;
+                          }
+                        }
+                      });
+
+                            if(vSwitchEnabled) {
+
+                              items.push({ id:"nexusdvs" , description: "Cisco Nexus 1000v Distributed Virtual Switch"});
+
+                              items.push({id: "vmwaresvs", description: "VMware vNetwork Standard Virtual Switch"});
+                              items.push({id: "vmwaredvs", description: "VMware vNetwork Distributed Virtual Switch"});
+
+
+
+
+                              }
+
+                  //  items.push({id: " ", description: " "});
+                       else{
+                     items.push({id:"vmwaredvs", description: "VMware vNetwork Distributed Virtual Switch"});
+                    items.push({ id: "vmwaresvs", description: "VMware vNetwork Standard Virtual Switch"});
+                    items.push({ id:"nexusdvs" , description: "Cisco Nexus 1000v Distributed Virtual Switch"});
+
+                   }
+                    args.response.success({data: items});
+                    },
+                    isHidden:true,
+                    dependsOn:'overridepublictraffic'
+                 },
+
+          vSwitchPublicName:{
+                label:'Public Traffic vSwitch Name',
+                dependsOn:'overridepublictraffic',
+                isHidden:true
+
+
+                     },
+
+           overrideguesttraffic:{
+            label:'Override Guest-Traffic',
+            isBoolean:true,
+            isHidden:true
+
+                  },
+
+
+          vSwitchGuestType:{
+               label: 'Guest Traffic vSwitch Type',
+               select: function(args) {
+               var items = []
+              //items.push({ id:" ", description:" "});
+
+                var vSwitchEnabled = false;
+                            var items = []
+                             $.ajax({
+                        url: createURL('listConfigurations'),
+                        data: {
+                          name: 'vmware.use.nexus.vswitch'
+                        },
+                        async: false,
+                        success: function(json) {
+                          if (json.listconfigurationsresponse.configuration[0].value == 'true') {
+                            vSwitchEnabled = true;
+                          }
+                        }
+                      });
+
+                            if(vSwitchEnabled) {
+
+                              items.push({ id:"nexusdvs" , description: "Cisco Nexus 1000v Distributed Virtual Switch"});
+                              items.push({id: "vmwaresvs", description: "VMware vNetwork Standard Virtual Switch"});
+                              items.push({id: "vmwaredvs", description: "VMware vNetwork Distributed Virtual Switch"});
+
+
+
+
+                              }
+               else{
+
+               items.push({id: "vmwaredvs", description: "VMware vNetwork Distributed Virtual Switch"});
+               items.push({id: "vmwaresvs", description: "VMware vNetwork Standard Virtual Switch"});
+               items.push({ id:"nexusdvs" , description: "Cisco Nexus 1000v Distributed Virtual Switch"});
+
+                }
+                                    args.response.success({data: items});
+
+                                      },                                                                                                                                                                                                   isHidden:true,
+           dependsOn:'overrideguesttraffic'
+
+               },
+
+         vSwitchGuestName:{
+               label:'Guest Traffic vSwitch Name',
+               dependsOn:'overrideguesttraffic',
+               isHidden:true
+
+               },
+
+        //Cisco Nexus Vswitch 
           vsmipaddress: {
             label: 'Nexus 1000v IP Address',
             validation: { required: true },
@@ -991,6 +1220,35 @@
             validation: { required: true }  
 					},
 
+           scope: {
+                    label: 'label.scope',
+                    select: function(args) {
+                    
+             var selectedHypervisorObj = {
+                hypervisortype: $.isArray(args.context.zones[0].hypervisor) ?
+                  // We want the cluster's hypervisor type
+                  args.context.zones[0].hypervisor[1] : args.context.zones[0].hypervisor
+              };
+
+              if(selectedHypervisorObj == null) {
+                return;
+              }
+
+              //zone-wide-primary-storage is supported only for KVM and VMWare
+              if(selectedHypervisorObj.hypervisortype == "KVM" || selectedHypervisorObj.hypervisortype == "VMware"){
+                       var scope=[];
+                scope.push({ id: 'zone', description: _l('label.zone.wide') });
+                       scope.push({ id: 'cluster', description: _l('label.cluster') });
+                       args.response.success({data: scope});
+                    }
+              else {
+                       var scope=[];
+                       scope.push({ id: 'cluster', description: _l('label.cluster') });
+                       args.response.success({data: scope});
+                    }
+                }
+              },
+
           protocol: {
             label: 'label.protocol',
             validation: { required: true }, 
@@ -1029,6 +1287,12 @@
                 var items = [];
                 items.push({id: "nfs", description: "nfs"});
                 items.push({id: "ocfs2", description: "ocfs2"});
+                args.response.success({data: items});
+              }
+              else if(selectedClusterObj.hypervisortype == "LXC") {
+                var items = [];
+                items.push({id: "nfs", description: "nfs"});
+                items.push({id: "SharedMountPoint", description: "SharedMountPoint"});
                 args.response.success({data: items});
               }
               else {
@@ -1267,7 +1531,126 @@
         }
       },
       secondaryStorage: {
-        fields: {
+        fields: {  
+          name: { label: 'label.name' },
+          provider: {
+            label: 'Provider',
+            select: function(args){                  
+              $.ajax({
+                url: createURL('listStorageProviders'),
+                data: {
+                  type: 'image'
+                },
+                success: function(json){                  
+                  var objs = json.liststorageprovidersresponse.dataStoreProvider;                  
+                  var items = [];
+                  if(objs != null) {
+                    for(var i = 0; i < objs.length; i++){
+                      if(objs[i].name == 'NFS')
+                        items.unshift({id: objs[i].name, description: objs[i].name}); 
+                      else
+                        items.push({id: objs[i].name, description: objs[i].name}); 
+                    }                    
+                  }                  
+                  args.response.success({
+                    data: items            
+                  });
+                                    
+                  args.$select.change(function() {
+                    var $form = $(this).closest('form');
+                    var $fields = $form.find('.field');
+
+                    if($(this).val() == "NFS") {
+                      //NFS
+                      $fields.filter('[rel=zoneid]').css('display', 'inline-block');
+                      $fields.filter('[rel=nfsServer]').css('display', 'inline-block');
+                      $fields.filter('[rel=path]').css('display', 'inline-block');
+
+                      //S3
+                      $fields.filter('[rel=accesskey]').hide();
+                      $fields.filter('[rel=secretkey]').hide();
+                      $fields.filter('[rel=bucket]').hide();
+                      $fields.filter('[rel=endpoint]').hide();
+                      $fields.filter('[rel=usehttps]').hide();
+                      $fields.filter('[rel=connectiontimeout]').hide();
+                      $fields.filter('[rel=maxerrorretry]').hide();
+                      $fields.filter('[rel=sockettimeout]').hide();
+                      
+                      $fields.filter('[rel=createNfsCache]').hide();
+                      $fields.filter('[rel=createNfsCache]').find('input').removeAttr('checked');
+                      $fields.filter('[rel=nfsCacheNfsServer]').hide();
+                      $fields.filter('[rel=nfsCachePath]').hide();
+                      
+                      //Swift
+                      $fields.filter('[rel=url]').hide();
+                      $fields.filter('[rel=account]').hide();
+                      $fields.filter('[rel=username]').hide();
+                      $fields.filter('[rel=key]').hide();
+                    }
+                    else if ($(this).val() == "S3") {
+                      //NFS
+                      $fields.filter('[rel=zoneid]').hide();
+                      $fields.filter('[rel=nfsServer]').hide();
+                      $fields.filter('[rel=path]').hide();
+
+                      //S3
+                      $fields.filter('[rel=accesskey]').css('display', 'inline-block');
+                      $fields.filter('[rel=secretkey]').css('display', 'inline-block');
+                      $fields.filter('[rel=bucket]').css('display', 'inline-block');
+                      $fields.filter('[rel=endpoint]').css('display', 'inline-block');
+                      $fields.filter('[rel=usehttps]').css('display', 'inline-block');
+                      $fields.filter('[rel=connectiontimeout]').css('display', 'inline-block');
+                      $fields.filter('[rel=maxerrorretry]').css('display', 'inline-block');
+                      $fields.filter('[rel=sockettimeout]').css('display', 'inline-block');
+
+                      $fields.filter('[rel=createNfsCache]').find('input').attr('checked','checked');
+                      $fields.filter('[rel=createNfsCache]').css('display', 'inline-block');  
+                      $fields.filter('[rel=nfsCacheNfsServer]').css('display', 'inline-block');
+                      $fields.filter('[rel=nfsCachePath]').css('display', 'inline-block');
+                      
+                      //Swift
+                      $fields.filter('[rel=url]').hide();
+                      $fields.filter('[rel=account]').hide();
+                      $fields.filter('[rel=username]').hide();
+                      $fields.filter('[rel=key]').hide();
+                    }
+                    else if($(this).val() == "Swift") {
+                      //NFS
+                      $fields.filter('[rel=zoneid]').hide();
+                      $fields.filter('[rel=nfsServer]').hide();
+                      $fields.filter('[rel=path]').hide();
+
+                      //S3
+                      $fields.filter('[rel=accesskey]').hide();
+                      $fields.filter('[rel=secretkey]').hide();
+                      $fields.filter('[rel=bucket]').hide();
+                      $fields.filter('[rel=endpoint]').hide();
+                      $fields.filter('[rel=usehttps]').hide();
+                      $fields.filter('[rel=connectiontimeout]').hide();
+                      $fields.filter('[rel=maxerrorretry]').hide();
+                      $fields.filter('[rel=sockettimeout]').hide();
+
+                      $fields.filter('[rel=createNfsCache]').hide();
+                      $fields.filter('[rel=createNfsCache]').find('input').removeAttr('checked');
+                      $fields.filter('[rel=nfsCacheNfsServer]').hide();
+                      $fields.filter('[rel=nfsCachePath]').hide();
+                      
+                      //Swift
+                      $fields.filter('[rel=url]').css('display', 'inline-block');
+                      $fields.filter('[rel=account]').css('display', 'inline-block');
+                      $fields.filter('[rel=username]').css('display', 'inline-block');
+                      $fields.filter('[rel=key]').css('display', 'inline-block');
+                    }                    
+                  });     
+                  
+                  args.$select.change();
+                }
+              });             
+            }            
+          },
+          
+          
+          //NFS (begin)
           nfsServer: {
             label: 'label.nfs.server',
             validation: { required: true }
@@ -1275,7 +1658,50 @@
           path: {
             label: 'label.path',
             validation: { required: true }
-          }
+          },
+          //NFS (end)
+          
+          
+          //S3 (begin)
+          accesskey: { label: 'label.s3.access_key', validation: { required: true } },
+          secretkey: { label: 'label.s3.secret_key', validation: { required: true} },
+          bucket: { label: 'label.s3.bucket', validation: { required: true} },
+          endpoint: { label: 'label.s3.endpoint' },
+          usehttps: { 
+            label: 'label.s3.use_https', 
+            isEditable: true,
+            isBoolean: true,
+            isChecked: true,
+            converter:cloudStack.converters.toBooleanText 
+          },
+          connectiontimeout: { label: 'label.s3.connection_timeout' },
+          maxerrorretry: { label: 'label.s3.max_error_retry' },
+          sockettimeout: { label: 'label.s3.socket_timeout' },
+          
+          createNfsCache: {
+            label: 'Create NFS Cache Storage',
+            isBoolean: true,                    
+            isChecked: true                    
+          },     
+          nfsCacheNfsServer: {
+            dependsOn: 'createNfsCache',
+            label: 'label.nfs.server',                    
+            validation: { required: true }
+          },
+          nfsCachePath: {
+            dependsOn: 'createNfsCache',
+            label: 'label.path',                    
+            validation: { required: true }
+          },                  
+          //S3 (end)
+          
+          
+          //Swift (begin)
+          url: { label: 'label.url', validation: { required: true } },
+          account: { label: 'label.account' },
+          username: { label: 'label.username' },
+          key: { label: 'label.key' }
+          //Swift (end)                    
         }
       }
     },
@@ -1314,11 +1740,19 @@
           if (args.data.zone.localstorageenabled == 'on') {
             array1.push("&localstorageenabled=true");
           }
-          array1.push("&dns1=" + todb(args.data.zone.dns1));
-
-          var dns2 = args.data.zone.dns2;
-          if (dns2 != null && dns2.length > 0)
-            array1.push("&dns2=" + todb(dns2));
+                    
+          //IPv4
+          if (args.data.zone.ip4dns1 != null && args.data.zone.ip4dns1.length > 0)
+            array1.push("&dns1=" + todb(args.data.zone.ip4dns1));          
+          if (args.data.zone.ip4dns2 != null && args.data.zone.ip4dns2.length > 0)
+            array1.push("&dns2=" + todb(args.data.zone.ip4dns2));
+          
+          //IPv6
+          if (args.data.zone.ip6dns1 != null && args.data.zone.ip6dns1.length > 0)
+            array1.push("&ip6dns1=" + todb(args.data.zone.ip6dns1));          
+          if (args.data.zone.ip6dns2 != null && args.data.zone.ip6dns2.length > 0)
+            array1.push("&ip6dns2=" + todb(args.data.zone.ip6dns2));
+          
 
           array1.push("&internaldns1="+todb(args.data.zone.internaldns1));
 
@@ -1327,12 +1761,16 @@
             array1.push("&internaldns2=" + todb(internaldns2));
 
 					if(args.data.pluginFrom == null) { //from zone wizard, not from quick instsaller(args.data.pluginFrom != null && args.data.pluginFrom.name == 'installWizard') who doesn't have public checkbox
-						if(args.data.zone.ispublic == null) //public checkbox in zone wizard is unchecked 
-							array1.push("&domainid=" + args.data.zone.domain);
+					//	if(args.data.zone.ispublic != null){ //public checkbox in zone wizard is unchecked 
+					//		array1.push("&domainid=" + args.data.zone.domain);
+                                                       
+                                              // }
           }
 					
           if(args.data.zone.networkdomain != null && args.data.zone.networkdomain.length > 0)
             array1.push("&domain=" + todb(args.data.zone.networkdomain));
+
+          var dedicatedZoneId = null;
 
           $.ajax({
             url: createURL("createZone" + array1.join("")),
@@ -1344,6 +1782,35 @@
                   returnedZone: json.createzoneresponse.zone
                 })
               });
+
+               dedicatedZoneId = json.createzoneresponse.zone.id;
+                //EXPLICIT ZONE DEDICATION
+                if(args.data.pluginFrom == null && args.data.zone.ispublic != null){
+                      var array2 = [];
+                      if(args.data.zone.domain != null)
+                        array2.push("&domainid=" + args.data.zone.domain);
+                      if(args.data.zone.accountId != "")
+                        array2.push("&account=" +todb(args.data.zone.accountId));
+
+                      if(dedicatedZoneId != null){
+                      $.ajax({
+                         url:createURL("dedicateZone&ZoneId=" +dedicatedZoneId + array2.join("")),
+                         dataType:"json",
+                         success:function(json){
+                             var dedicatedObj = json.dedicatezoneresponse.jobid;
+                             //args.response.success({ data: $.extend(item, dedicatedObj)});
+
+                         },
+
+                         error:function(json){
+
+                           args.response.error(parseXMLHttpResponse(XMLHttpResponse));
+                         }
+                       });
+
+                     }
+                    }
+
             },
             error: function(XMLHttpResponse) {
               var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -1787,10 +2254,19 @@
 																			
                                       if (result.jobstatus == 1) {
                                         //alert("configureVirtualRouterElement succeeded.");
-
+																		    
+																				if(args.data.pluginFrom != null && args.data.pluginFrom.name == "installWizard") {
+																				  selectedNetworkOfferingObj = args.data.pluginFrom.selectedNetworkOffering;
+																				}
+																																							
+																				var data = {
+																				  id: virtualRouterProviderId,
+																					state: 'Enabled'																					
+																				};																				
+																																								
                                         $.ajax({
-                                          url: createURL("updateNetworkServiceProvider&state=Enabled&id=" + virtualRouterProviderId),
-                                          dataType: "json",
+                                          url: createURL("updateNetworkServiceProvider"),
+                                          data: data,																	
                                           async: false,
                                           success: function(json) {    
 																						var enableVirtualRouterProviderIntervalID = setInterval(function() { 	
@@ -1806,7 +2282,57 @@
 																										clearInterval(enableVirtualRouterProviderIntervalID); 
 																										
                                                     if (result.jobstatus == 1) {
-                                                      //alert("Virtual Router Provider is enabled");
+                                                      //alert("Virtual Router Provider is enabled");																											  
+																											for(var i = 0; i < selectedBaremetalProviders.length; i++) {																											 
+																												$.ajax({
+																													url: createURL("listNetworkServiceProviders"),
+																													data: {
+																													  name: selectedBaremetalProviders[i],
+																														physicalNetworkId: args.data.returnedBasicPhysicalNetwork.id 
+																													},
+																													async: false,
+																													success: function(json) {																													  
+																														var items = json.listnetworkserviceprovidersresponse.networkserviceprovider;
+																														if(items != null && items.length > 0) {																														 
+																															var providerId = items[0].id;																																																											
+																															$.ajax({
+																																url: createURL("updateNetworkServiceProvider"),
+																																data: {
+																																	id: providerId,
+																																	state: 'Enabled'																														
+																																},
+																																async: false,
+																																success: function(json) {																			
+																																	var updateNetworkServiceProviderIntervalID = setInterval(function() { 	
+																																		$.ajax({
+																																			url: createURL("queryAsyncJobResult&jobId=" + json.updatenetworkserviceproviderresponse.jobid),
+																																			dataType: "json",
+																																			success: function(json) {																																			  
+																																				var result = json.queryasyncjobresultresponse;
+																																				if (result.jobstatus == 0) {
+																																					return; //Job has not completed
+																																				}
+																																				else {
+																																				  clearInterval(updateNetworkServiceProviderIntervalID); 			
+																																					if (result.jobstatus == 1) { //baremetal provider has been enabled successfully      
+																																																																							
+																																					}
+																																					else if (result.jobstatus == 2) {																																						
+																																						alert(_s(result.jobresult.errortext));
+																																					}
+																																				}
+																																			},
+																																			error: function(XMLHttpResponse) {																																				
+																																				alert(parseXMLHttpResponse(XMLHttpResponse));
+																																			}
+																																		});																															
+																																	}, g_queryAsyncJobResultInterval); 																																		
+																																}
+																															});																															
+																														}
+																													}
+																												});																												
+																											}																											
 																											
 																											if(args.data.pluginFrom != null && args.data.pluginFrom.name == "installWizard") {
 																											  selectedNetworkOfferingHavingSG = args.data.pluginFrom.selectedNetworkOfferingHavingSG;
@@ -2056,6 +2582,110 @@
                             });
 														// ***** Virtual Router ***** (end) *****
 														
+							// ***** Internal LB ***** (begin) *****
+							var internalLbProviderId;
+							$.ajax({
+								url: createURL("listNetworkServiceProviders&name=Internallbvm&physicalNetworkId=" + thisPhysicalNetwork.id),
+								dataType: "json",
+								async: false,
+								success: function(json) {
+									var items = json.listnetworkserviceprovidersresponse.networkserviceprovider;
+									if(items != null && items.length > 0) {
+										internalLbProviderId = items[0].id;
+									}
+								}
+							});
+							if(internalLbProviderId == null) {
+								alert("error: listNetworkServiceProviders API doesn't return internalLb provider ID");
+								return;
+							}
+
+							var internalLbElementId;
+							$.ajax({
+								url: createURL("listInternalLoadBalancerElements&nspid=" + internalLbProviderId),
+								dataType: "json",
+								async: false,
+								success: function(json) {
+									var items = json.listinternalloadbalancerelementsresponse.internalloadbalancerelement;
+									if(items != null && items.length > 0) {
+										internalLbElementId = items[0].id;
+									}
+								}
+							});
+							if(internalLbElementId == null) {
+								alert("error: listInternalLoadBalancerElements API doesn't return Internal LB Element Id");
+								return;
+							}
+
+							$.ajax({
+								url: createURL("configureInternalLoadBalancerElement&enabled=true&id=" + internalLbElementId),
+								dataType: "json",
+								async: false,
+								success: function(json) {
+									var jobId = json.configureinternalloadbalancerelementresponse.jobid;                                
+									var enableInternalLbElementIntervalID = setInterval(function() { 	
+										$.ajax({
+											url: createURL("queryAsyncJobResult&jobId="+jobId),
+											dataType: "json",
+											success: function(json) {
+												var result = json.queryasyncjobresultresponse;
+												if (result.jobstatus == 0) {
+													return; //Job has not completed
+												}
+												else {                                        
+													clearInterval(enableInternalLbElementIntervalID); 
+													
+													if (result.jobstatus == 1) { //configureVirtualRouterElement succeeded
+														$.ajax({
+															url: createURL("updateNetworkServiceProvider&state=Enabled&id=" + internalLbProviderId),
+															dataType: "json",
+															async: false,
+															success: function(json) {
+																var jobId = json.updatenetworkserviceproviderresponse.jobid;                                             
+																var enableInternalLbProviderIntervalID = setInterval(function() { 	
+																	$.ajax({
+																		url: createURL("queryAsyncJobResult&jobId="+jobId),
+																		dataType: "json",
+																		success: function(json) {
+																			var result = json.queryasyncjobresultresponse;
+																			if (result.jobstatus == 0) {
+																				return; //Job has not completed
+																			}
+																			else {                                                      
+																				clearInterval(enableInternalLbProviderIntervalID); 
+																				
+																				if (result.jobstatus == 1) { //Internal LB has been enabled successfully
+																					//don't need to do anything here
+																				}
+																				else if (result.jobstatus == 2) {
+																					alert("failed to enable Internal LB Provider. Error: " + _s(result.jobresult.errortext));
+																				}
+																			}
+																		},
+																		error: function(XMLHttpResponse) {
+																			var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+																			alert("failed to enable Internal LB Provider. Error: " + errorMsg);
+																		}
+																	});                                              
+																}, g_queryAsyncJobResultInterval); 	
+															}
+														});
+													}
+													else if (result.jobstatus == 2) {
+														alert("configureVirtualRouterElement failed. Error: " + _s(result.jobresult.errortext));
+													}
+												}
+											},
+											error: function(XMLHttpResponse) {
+												var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+												alert("configureVirtualRouterElement failed. Error: " + errorMsg);
+											}
+										});                                
+									}, g_queryAsyncJobResultInterval); 	
+								}
+							});
+							// ***** Internal LB ***** (end) *****
+                            
 														if(args.data.zone.sgEnabled != true) { //Advanced SG-disabled zone
 															// ***** VPC Virtual Router ***** (begin) *****
 															var vpcVirtualRouterProviderId;
@@ -2291,7 +2921,10 @@
           array1.push("&physicalnetworkid=" + args.data.returnedBasicPhysicalNetwork.id);
           array1.push("&username=" + todb(args.data.basicPhysicalNetwork.username));
           array1.push("&password=" + todb(args.data.basicPhysicalNetwork.password));
-          array1.push("&networkdevicetype=" + todb(args.data.basicPhysicalNetwork.networkdevicetype));
+          array1.push("&networkdevicetype=" + todb(args.data.basicPhysicalNetwork.networkdevicetype));					
+					array1.push("&gslbprovider=" + (args.data.basicPhysicalNetwork.gslbprovider == "on"));
+					array1.push("&gslbproviderpublicip=" + todb(args.data.basicPhysicalNetwork.gslbproviderpublicip));
+					array1.push("&gslbproviderprivateip=" + todb(args.data.basicPhysicalNetwork.gslbproviderprivateip));
 
           //construct URL starts here
           var url = [];
@@ -2736,16 +3369,16 @@
               success: function(json) {
                 args.data.returnedGuestNetwork.returnedVlanIpRange = json.createvlaniprangeresponse.vlan;
                 
-								//when hypervisor is BareMetal (begin)   						
-								if(args.data.cluster.hypervisor == "BareMetal") {
-								  alert('Zone creation is completed. Please refresh this page.');
+								if(args.data.zone.hypervisor == "BareMetal") { //if hypervisor is BareMetal, zone creation is completed at this point.										  
+									complete({
+										data: args.data
+									});									
 								}								
 								else {
 									stepFns.addCluster({
 										data: args.data
 									});
-								}
-								//when hypervisor is BareMetal (end)   
+								}								
               },
               error: function(XMLHttpResponse) {
                 var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -2811,6 +3444,8 @@
                             }
                             else if(result.jobstatus == 2){
                               alert("error: " + _s(result.jobresult.errortext));
+                              error('configureGuestTraffic', result.jobresult.errortext, { fn: 'configureGuestTraffic', args: args });
+
                             }
                           }
                         },
@@ -2853,7 +3488,23 @@
             array1.push("&username=" + todb(args.data.cluster.vCenterUsername));
             array1.push("&password=" + todb(args.data.cluster.vCenterPassword));
 
-            if (args.data.cluster.vsmipaddress) { // vSwitch is enabled
+          //dvswitch is enabled
+          if(args.data.cluster.vSwitchPublicType != "")
+           array1.push('&publicvswitchtype=' + args.data.cluster.vSwitchPublicType);
+
+          if(args.data.cluster.vSwitchPublicName != "")
+                  array1.push("&publicvswitchname=" +args.data.cluster.vSwitchPublicName);
+
+
+
+          if(args.data.cluster.vSwitchGuestType != "")
+           array1.push('&guestvswitchtype=' + args.data.cluster.vSwitchGuestType);  
+
+           if(args.data.cluster.vSwitchGuestName !="")
+                  array1.push("&guestvswitchname=" +args.data.cluster.vSwitchGuestName);
+
+
+          if (args.data.cluster.vsmipaddress) { // vSwitch is enabled
               array1.push('&vsmipaddress=' + args.data.cluster.vsmipaddress);
               array1.push('&vsmusername=' + args.data.cluster.vsmusername);
               array1.push('&vsmpassword=' + args.data.cluster.vsmpassword);
@@ -2874,31 +3525,58 @@
           }
           array1.push("&clustername=" + todb(clusterName));
 
+          if(args.data.cluster.hypervisor == "VMware"){
+            var vmwareData = {
+              zoneId: args.data.returnedZone.id,
+              username: args.data.cluster.vCenterUsername,
+              password: args.data.cluster.vCenterPassword,
+              name: args.data.cluster.vCenterDatacenter,
+              vcenter: args.data.cluster.vCenterHost
+            };
+            $.ajax({
+              url: createURL('addVmwareDc'),
+              data: vmwareData,
+              success: function(json) {
+                var item = json.addvmwaredcresponse.vmwaredc;
+                if(item.id != null){
           $.ajax({
             url: createURL("addCluster" + array1.join("")),
             dataType: "json",
             async: true,
             success: function(json) {
-              if(args.data.cluster.hypervisor != "VMware") {
-                stepFns.addHost({
+                    stepFns.addPrimaryStorage({ //skip "add host step" when hypervisor is VMware
                   data: $.extend(args.data, {
                     returnedCluster: json.addclusterresponse.cluster[0]
                   })
                 });
+                  },
+                  error: function(XMLHttpResponse) {
+                    var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                    error('addCluster', errorMsg, { fn: 'addCluster', args: args });
+                  }
+                });
               }
-              else { 
-                stepFns.addPrimaryStorage({
+            }
+          });
+         }
+         else{
+          $.ajax({
+            url: createURL("addCluster" + array1.join("")),
+            dataType: "json",
+            async: true,
+            success: function(json) {
+              stepFns.addHost({
                   data: $.extend(args.data, {
                     returnedCluster: json.addclusterresponse.cluster[0]
                   })
                 });
-              }
             },
             error: function(XMLHttpResponse) {
               var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
               error('addCluster', errorMsg, { fn: 'addCluster', args: args });
             }
           });
+         }
         },
 
         addHost: function(args) {
@@ -2975,7 +3653,13 @@
           array1.push("&podId=" + args.data.returnedPod.id);
           array1.push("&clusterid=" + args.data.returnedCluster.id);
           array1.push("&name=" + todb(args.data.primaryStorage.name));
+          array1.push("&scope=" + todb(args.data.primaryStorage.scope));
 
+          //zone-wide-primary-storage is supported only for KVM and VMWare
+          if(args.data.primaryStorage.scope == "zone") {
+            array1.push("&hypervisor=" + todb(args.data.cluster.hypervisor)); //hypervisor type of the hosts in zone that will be attached to this storage pool. KVM, VMware supported as of now.
+          }
+          
 					var server = args.data.primaryStorage.server;
           var url = null;
           if (args.data.primaryStorage.protocol == "nfs") {
@@ -3061,25 +3745,153 @@
         addSecondaryStorage: function(args) {
           message(dictionary['message.creating.secondary.storage']);
 
-          var nfs_server = args.data.secondaryStorage.nfsServer;
-          var path = args.data.secondaryStorage.path;
-          var url = nfsURL(nfs_server, path);
-
-          $.ajax({
-            url: createURL("addSecondaryStorage&zoneId=" + args.data.returnedZone.id + "&url=" + todb(url)),
-            dataType: "json",
-            success: function(json) {
-              complete({
-                data: $.extend(args.data, {
-                  returnedSecondaryStorage: json.addsecondarystorageresponse.secondarystorage
-                })
-              });
-            },
-            error: function(XMLHttpResponse) {
-              var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
-              error('addSecondaryStorage', errorMsg, { fn: 'addSecondaryStorage', args: args });
+          var data = {};
+          if(args.data.secondaryStorage.name != null && args.data.secondaryStorage.name.length > 0) {
+            $.extend(data, {
+              name: args.data.secondaryStorage.name
+            });
+          }
+          
+          if(args.data.secondaryStorage.provider == 'NFS') {
+            var nfs_server = args.data.secondaryStorage.nfsServer;
+            var path = args.data.secondaryStorage.path;
+            var url = nfsURL(nfs_server, path);
+  
+            $.extend(data, {
+              provider: 'NFS',
+              zoneid: args.data.returnedZone.id,
+              url: url                   
+            });                      
+            
+            $.ajax({
+              url: createURL('addImageStore'),
+              data: data,
+              success: function(json) {
+                complete({
+                  data: $.extend(args.data, {
+                    returnedSecondaryStorage: json.addimagestoreresponse.secondarystorage
+                  })
+                });
+              },
+              error: function(XMLHttpResponse) {
+                var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                error('addSecondaryStorage', errorMsg, { fn: 'addSecondaryStorage', args: args });
+              }
+            });
+          }  
+          else if(args.data.secondaryStorage.provider == 'S3') {                  
+            $.extend(data, {
+              provider: args.data.secondaryStorage.provider,                                           
+              'details[0].key': 'accesskey',
+              'details[0].value': args.data.secondaryStorage.accesskey,                                            
+              'details[1].key': 'secretkey',
+              'details[1].value': args.data.secondaryStorage.secretkey,                                            
+              'details[2].key': 'bucket',
+              'details[2].value': args.data.secondaryStorage.bucket,
+              'details[3].key': 'usehttps',
+              'details[3].value': (args.data.secondaryStorage.usehttps != null && args.data.secondaryStorage.usehttps == 'on' ? 'true' : 'false')
+            });      
+                        
+            var index = 4;
+            if(args.data.secondaryStorage.endpoint != null && args.data.secondaryStorage.endpoint.length > 0){
+              data['details[' + index.toString() + '].key'] = 'endpoint';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.endpoint;                    
+              index++;
             }
-          });
+            if(args.data.secondaryStorage.connectiontimeout != null && args.data.secondaryStorage.connectiontimeout.length > 0){
+              data['details[' + index.toString() + '].key'] = 'connectiontimeout';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.connectiontimeout;                        
+              index++;
+            }
+            if(args.data.secondaryStorage.maxerrorretry != null && args.data.secondaryStorage.maxerrorretry.length > 0){
+              data['details[' + index.toString() + '].key'] = 'maxerrorretry';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.maxerrorretry;   
+              index++;
+            }
+            if(args.data.secondaryStorage.sockettimeout != null && args.data.secondaryStorage.sockettimeout.length > 0){
+              data['details[' + index.toString() + '].key'] = 'sockettimeout';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.sockettimeout;   
+              index++;
+            }      
+            $.ajax({
+              url: createURL('addImageStore'),
+              data: data,
+              success: function(json) {
+                complete({
+                  data: $.extend(args.data, {
+                    returnedSecondaryStorage: json.addimagestoreresponse.secondarystorage
+                  })
+                });
+              },
+              error: function(XMLHttpResponse) {
+                var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                error('addSecondaryStorage', errorMsg, { fn: 'addSecondaryStorage', args: args });
+              }
+            });
+                        
+            if(args.data.secondaryStorage.createNfsCache == 'on') {
+              var zoneid = args.data.secondaryStorage.nfsCacheZoneid;
+              var nfs_server = args.data.secondaryStorage.nfsCacheNfsServer;
+              var path = args.data.secondaryStorage.nfsCachePath;
+              var url = nfsURL(nfs_server, path);
+              
+              var nfsCacheData = {
+                provider: 'NFS',
+                zoneid: args.data.returnedZone.id,
+                url: url                    
+              };        
+              
+              $.ajax({
+                url: createURL('createCacheStore'),
+                data: nfsCacheData,
+                success: function(json) {
+                  //do nothing                        
+                },
+                error: function(XMLHttpResponse) {
+                  var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                  error('addSecondaryStorage', errorMsg, { fn: 'addSecondaryStorage', args: args });
+                }
+              }); 
+            }     
+          }
+          else if(args.data.secondaryStorage.provider == 'Swift') {            
+            $.extend(data, {
+              provider: args.data.secondaryStorage.provider,
+              url: args.data.secondaryStorage.url
+            });    
+                                   
+            var index = 0;
+            if(args.data.secondaryStorage.account != null && args.data.secondaryStorage.account.length > 0){
+              data['details[' + index.toString() + '].key'] = 'account';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.account;                    
+              index++;
+            }
+            if(args.data.secondaryStorage.username != null && args.data.secondaryStorage.username.length > 0){
+              data['details[' + index.toString() + '].key'] = 'username';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.username;                    
+              index++;
+            }
+            if(args.data.secondaryStorage.key != null && args.data.secondaryStorage.key.length > 0){
+              data['details[' + index.toString() + '].key'] = 'key';
+              data['details[' + index.toString() + '].value'] = args.data.secondaryStorage.key;                    
+              index++;
+            }      
+            $.ajax({
+              url: createURL('addImageStore'),
+              data: data,
+              success: function(json) {
+                complete({
+                  data: $.extend(args.data, {
+                    returnedSecondaryStorage: json.addimagestoreresponse.secondarystorage
+                  })
+                });
+              },
+              error: function(XMLHttpResponse) {
+                var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                error('addSecondaryStorage', errorMsg, { fn: 'addSecondaryStorage', args: args });
+              }
+            });
+          }    
         }
       };
 

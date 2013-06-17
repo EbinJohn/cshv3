@@ -162,14 +162,31 @@ public class AccountJoinVO extends BaseViewVO implements InternalIdentity, Ident
     @Column(name="memoryTotal")
     private Long memoryTotal;
 
+
+    @Column(name="primaryStorageLimit")
+    private Long primaryStorageLimit;
+
+    @Column(name="primaryStorageTotal")
+    private Long primaryStorageTotal;
+
+
+    @Column(name="secondaryStorageLimit")
+    private Long secondaryStorageLimit;
+
+    @Column(name="secondaryStorageTotal")
+    private Long secondaryStorageTotal;
+
     @Column(name="job_id")
-    private long jobId;
+    private Long jobId;
 
     @Column(name="job_uuid")
     private String jobUuid;
 
     @Column(name="job_status")
     private int jobStatus;
+    
+    @Column(name = "default")
+    boolean isDefault;
 
     public AccountJoinVO() {
     }
@@ -478,6 +495,7 @@ public class AccountJoinVO extends BaseViewVO implements InternalIdentity, Ident
         this.cpuTotal = cpuTotal;
     }
 
+
     public Long getMemoryTotal() {
         return memoryTotal;
     }
@@ -485,6 +503,25 @@ public class AccountJoinVO extends BaseViewVO implements InternalIdentity, Ident
 
     public void setMemoryTotal(Long memoryTotal) {
         this.memoryTotal = memoryTotal;
+    }
+
+
+    public Long getPrimaryStorageTotal() {
+        return primaryStorageTotal;
+    }
+
+
+    public void setPrimaryStorageTotal(Long primaryStorageTotal) {
+        this.primaryStorageTotal = primaryStorageTotal;
+    }
+
+    public Long getSecondaryStorageTotal() {
+        return secondaryStorageTotal;
+    }
+
+
+    public void setSecondaryStorageTotal(Long secondaryStorageTotal) {
+        this.secondaryStorageTotal = secondaryStorageTotal;
     }
 
 
@@ -588,12 +625,32 @@ public class AccountJoinVO extends BaseViewVO implements InternalIdentity, Ident
     }
 
 
-    public long getJobId() {
+    public Long getPrimaryStorageLimit() {
+        return primaryStorageLimit;
+    }
+
+
+    public void setPrimaryStorageLimit(Long primaryStorageLimit) {
+        this.primaryStorageLimit = primaryStorageLimit;
+    }
+
+
+    public Long getSecondaryStorageLimit() {
+        return secondaryStorageLimit;
+    }
+
+
+    public void setSecondaryStorageLimit(Long secondaryStorageLimit) {
+        this.secondaryStorageLimit = secondaryStorageLimit;
+    }
+
+
+    public Long getJobId() {
         return jobId;
     }
 
 
-    public void setJobId(long jobId) {
+    public void setJobId(Long jobId) {
         this.jobId = jobId;
     }
 
@@ -618,6 +675,13 @@ public class AccountJoinVO extends BaseViewVO implements InternalIdentity, Ident
     }
 
 
+    public boolean isDefault() {
+        return isDefault;
+    }
 
 
+    public void setDefault(boolean isDefault) {
+        this.isDefault = isDefault;
+    }
+ 
 }

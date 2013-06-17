@@ -59,7 +59,7 @@ public class UpdateUserCmd extends BaseCmd {
     @Parameter(name=ApiConstants.LASTNAME, type=CommandType.STRING, description="last name")
     private String lastname;
 
-    @Parameter(name=ApiConstants.PASSWORD, type=CommandType.STRING, description="Hashed password (default is MD5). If you wish to use any other hasing algorithm, you would need to write a custom authentication adapter")
+    @Parameter(name=ApiConstants.PASSWORD, type=CommandType.STRING, description="Clear text password (default hashed to SHA256SALT). If you wish to use any other hasing algorithm, you would need to write a custom authentication adapter")
     private String password;
 
     @Parameter(name=ApiConstants.SECRET_KEY, type=CommandType.STRING, description="The secret key for the user. Must be specified with userApiKey")
@@ -71,11 +71,8 @@ public class UpdateUserCmd extends BaseCmd {
     @Parameter(name=ApiConstants.USERNAME, type=CommandType.STRING, description="Unique username")
     private String username;
 
-    @Parameter(name=ApiConstants.IS_PROPAGATE, type=CommandType.BOOLEAN, description="True if command is sent from another Region")
-    private Boolean isPropagate;
-    
     @Inject RegionService _regionService;
-    
+
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -116,10 +113,6 @@ public class UpdateUserCmd extends BaseCmd {
         return username;
     }
 
-	public Boolean getIsPropagate() {
-		return isPropagate;
-	}
-    
     /////////////////////////////////////////////////////
     /////////////// API Implementation///////////////////
     /////////////////////////////////////////////////////
@@ -143,7 +136,7 @@ public class UpdateUserCmd extends BaseCmd {
     public void execute(){
         UserContext.current().setEventDetails("UserId: "+getId());
         UserAccount user = _regionService.updateUser(this);
-        
+
         if (user != null){
             UserResponse response = _responseGenerator.createUserResponse(user);
             response.setResponseName(getCommandName());

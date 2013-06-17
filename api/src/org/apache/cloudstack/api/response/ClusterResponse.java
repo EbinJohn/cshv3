@@ -16,16 +16,15 @@
 // under the License.
 package org.apache.cloudstack.api.response;
 
-import java.util.ArrayList;
-import java.util.List;
-
+import com.cloud.org.Cluster;
+import com.cloud.serializer.Param;
+import com.google.gson.annotations.SerializedName;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseResponse;
 import org.apache.cloudstack.api.EntityReference;
 
-import com.cloud.org.Cluster;
-import com.cloud.serializer.Param;
-import com.google.gson.annotations.SerializedName;
+import java.util.ArrayList;
+import java.util.List;
 
 @EntityReference(value = Cluster.class)
 public class ClusterResponse extends BaseResponse {
@@ -46,7 +45,10 @@ public class ClusterResponse extends BaseResponse {
 
     @SerializedName(ApiConstants.ZONE_NAME) @Param(description="the Zone name of the cluster")
     private String zoneName;
-
+    
+    @SerializedName(ApiConstants.ZONE_TYPE) @Param(description = "network type of the availability zone")
+    private String zoneType;
+    
     @SerializedName("hypervisortype") @Param(description="the hypervisor type of the cluster")
     private String hypervisorType;
 
@@ -61,6 +63,12 @@ public class ClusterResponse extends BaseResponse {
 
     @SerializedName("capacity")  @Param(description="the capacity of the Cluster", responseObject = CapacityResponse.class)
     private List<CapacityResponse> capacitites;
+
+    @SerializedName("cpuovercommitratio") @Param(description = "The cpu overcommit ratio of the cluster")
+    private String cpuovercommitratio;
+
+    @SerializedName("memoryovercommitratio") @Param (description = "The memory overcommit ratio of the cluster")
+    private String memoryovercommitratio;
 
     public String getId() {
         return id;
@@ -110,6 +118,10 @@ public class ClusterResponse extends BaseResponse {
         this.zoneName = zoneName;
     }
 
+    public void setZoneType(String zoneType) {
+        this.zoneType = zoneType;
+    }
+    
     public String getClusterType() {
         return clusterType;
     }
@@ -148,5 +160,21 @@ public class ClusterResponse extends BaseResponse {
 
     public void setCapacitites(ArrayList<CapacityResponse> arrayList) {
         this.capacitites = arrayList;
+    }
+
+    public void setCpuOvercommitRatio(String cpuovercommitratio){
+        this.cpuovercommitratio= cpuovercommitratio;
+    }
+
+    public String getCpuOvercommitRatio(){
+        return cpuovercommitratio;
+    }
+
+    public void setMemoryOvercommitRatio(String memoryovercommitratio){
+        this.memoryovercommitratio= memoryovercommitratio;
+    }
+
+    public String getMemoryOvercommitRatio(){
+        return memoryovercommitratio;
     }
 }

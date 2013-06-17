@@ -58,7 +58,7 @@ public interface StoragePool extends Identity, InternalIdentity {
     /**
      * @return available storage in bytes
      */
-    long getAvailableBytes();
+    long getUsedBytes();
 
     Long getClusterId();
 
@@ -99,10 +99,7 @@ public interface StoragePool extends Identity, InternalIdentity {
 	/**
 	 * @return
 	 */
-	String getStorageProvider();
-
-	/**
-	 * @return
-	 */
-	String getStorageType();
+	String getStorageProviderName();
+	
+	boolean isInMaintenance();
 }

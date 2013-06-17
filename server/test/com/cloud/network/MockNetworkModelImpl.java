@@ -33,17 +33,16 @@ import com.cloud.network.Network.Capability;
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
+import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.TrafficType;
-import com.cloud.network.addr.PublicIp;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.element.NetworkElement;
 import com.cloud.network.element.UserDataServiceProvider;
-import com.cloud.network.rules.FirewallRule;
 import com.cloud.offering.NetworkOffering;
+import com.cloud.offering.NetworkOffering.Detail;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.user.Account;
-import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.vm.Nic;
 import com.cloud.vm.NicProfile;
@@ -569,7 +568,7 @@ public class MockNetworkModelImpl extends ManagerBase implements NetworkModel {
      * @see com.cloud.network.NetworkModel#getDefaultNetworkDomain()
      */
     @Override
-    public String getDefaultNetworkDomain() {
+    public String getDefaultNetworkDomain(long zoneId) {
         // TODO Auto-generated method stub
         return null;
     }
@@ -829,4 +828,55 @@ public class MockNetworkModelImpl extends ManagerBase implements NetworkModel {
 		// TODO Auto-generated method stub
 		
 	}
+
+	@Override
+	public void checkRequestedIpAddresses(long networkId, String ip4, String ip6)
+			throws InvalidParameterValueException {
+		// TODO Auto-generated method stub
+	}
+
+	@Override
+	public String getStartIpv6Address(long id) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+    @Override
+    public boolean isProviderEnabledInZone(long zoneId, String provider) {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public Nic getPlaceholderNicForRouter(Network network, Long podId) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public IpAddress getPublicIpAddress(String ipAddress, long zoneId) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public List<String> getUsedIpsInNetwork(Network network) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public Map<Detail, String> getNtwkOffDetails(long offId) {
+        return null;
+    }
+    
+    public IsolationType[] listNetworkIsolationMethods() {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public Nic getNicInNetworkIncludingRemoved(long vmId, long networkId) {
+        return null;
+    }
 }

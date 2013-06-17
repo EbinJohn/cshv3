@@ -38,6 +38,7 @@ public class NetworkProfile implements Network {
     private TrafficType trafficType;
     private String gateway;
     private String cidr;
+    private String networkCidr;
     private String ip6Gateway;
     private String ip6Cidr;
     private long networkOfferingId;
@@ -51,6 +52,8 @@ public class NetworkProfile implements Network {
     private boolean restartRequired;
     private boolean specifyIpRanges;
     private Long vpcId;
+    private boolean displayNetwork;
+    private Long networkAclId;
 
     public NetworkProfile(Network network) {
         this.id = network.getId();
@@ -65,6 +68,7 @@ public class NetworkProfile implements Network {
         this.trafficType = network.getTrafficType();
         this.gateway = network.getGateway();
         this.cidr = network.getCidr();
+        this.networkCidr = network.getNetworkCidr();
         this.ip6Gateway = network.getIp6Gateway();
         this.ip6Cidr = network.getIp6Cidr();
         this.networkOfferingId = network.getNetworkOfferingId();
@@ -79,6 +83,8 @@ public class NetworkProfile implements Network {
         this.restartRequired = network.isRestartRequired();
         this.specifyIpRanges = network.getSpecifyIpRanges();
         this.vpcId = network.getVpcId();
+        this.displayNetwork = network.getDisplayNetwork();
+        this.networkAclId = network.getNetworkACLId();
     }
 
     public String getDns1() {
@@ -163,6 +169,11 @@ public class NetworkProfile implements Network {
     }
 
     @Override
+    public String getNetworkCidr() {
+        return networkCidr;
+    }
+
+    @Override
     public long getNetworkOfferingId() {
         return networkOfferingId;
     }
@@ -225,8 +236,23 @@ public class NetworkProfile implements Network {
     }
 
     @Override
+    public boolean getDisplayNetwork() {
+        return displayNetwork;
+    }
+
+    @Override
     public Long getVpcId() {
         return vpcId;
+    }
+
+    @Override
+    public Long getNetworkACLId() {
+        return networkAclId;
+    }
+
+    @Override
+    public void setNetworkACLId(Long networkACLId) {
+        this.networkAclId = networkACLId;
     }
 
     @Override

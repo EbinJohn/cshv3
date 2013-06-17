@@ -31,23 +31,23 @@
                       http://www.springframework.org/schema/context/spring-context-3.0.xsd">                     
 
   <context:annotation-config />
-  <context:component-scan base-package="com.cloud.usage" />
+  <context:component-scan base-package="com.cloud.usage, com.cloud.event.dao, com.cloud.user.dao, com.cloud.configuration.dao, com.cloud.alert.dao, com.cloud.domain.dao">
+  	<context:exclude-filter type="assignable" expression="com.cloud.usage.UsageServiceImpl"/>
+  </context:component-scan>
   
   <!--
     @DB support
   -->
-  <aop:config proxy-target-class="true">
-    <aop:aspect id="dbContextBuilder" ref="transactionContextBuilder">
-        <aop:pointcut id="captureAnyMethod"
-            expression="execution(* *(..))" 
-        />
-        <aop:around pointcut-ref="captureAnyMethod" method="AroundAnyMethod"/> 
-    </aop:aspect>
-
-  </aop:config>
-  
   <bean id="transactionContextBuilder" class="com.cloud.utils.db.TransactionContextBuilder" />
+
+  <bean id="instantiatePostProcessor" class="com.cloud.utils.component.ComponentInstantiationPostProcessor">
+    <property name="Interceptors">
+        <list>
+            <ref bean="transactionContextBuilder" />
+        </list>
+    </property>
+  </bean>
+  
   <bean id="ComponentContext" class="com.cloud.utils.component.ComponentContext" />
-  <bean id="UsageServerConfig" class="com.cloud.usage.UsageServerComponentConfig" />
  
 </beans>

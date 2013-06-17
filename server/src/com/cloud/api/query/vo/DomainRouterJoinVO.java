@@ -28,6 +28,7 @@ import javax.persistence.Table;
 
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Networks.TrafficType;
+import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.router.VirtualRouter.RedundantState;
 import com.cloud.utils.db.GenericDao;
 import com.cloud.vm.VirtualMachine.State;
@@ -101,12 +102,20 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
     @Column(name="data_center_name")
     private String dataCenterName = null;
 
+    @Column(name="data_center_type")
+    private String dataCenterType;
+    
     @Column(name="dns1")
     private String dns1 = null;
 
     @Column(name="dns2")
     private String dns2 = null;
 
+    @Column(name="ip6_dns1")
+    private String ip6Dns1 = null;
+
+    @Column(name="ip6_dns2")
+    private String ip6Dns2 = null;
 
     @Column(name="host_id", updatable=true, nullable=true)
     private long hostId;
@@ -157,6 +166,15 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
     @Column(name = "netmask")
     private String netmask;
 
+    @Column(name = "ip6_address")
+    private String ip6Address;
+
+    @Column(name = "ip6_gateway")
+    private String ip6Gateway;
+
+    @Column(name = "ip6_cidr")
+    private String ip6Cidr;
+
     @Column(name = "mac_address")
     private String macAddress;
 
@@ -193,7 +211,7 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
     private String projectName;
 
     @Column(name="job_id")
-    private long jobId;
+    private Long jobId;
 
     @Column(name="job_uuid")
     private String jobUuid;
@@ -221,12 +239,14 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
     @Column(name="guest_type")
     @Enumerated(value=EnumType.STRING)
     private GuestType guestType;
+    
+    @Column(name="role")
+    @Enumerated(value=EnumType.STRING)
+    private VirtualRouter.Role role;
 
 
     public DomainRouterJoinVO() {
     }
-
-
 
 
     @Override
@@ -433,6 +453,15 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
         this.dataCenterName = zoneName;
     }
 
+    
+    public String getDataCenterType() {
+        return dataCenterType;
+    }
+
+    public void setDataCenterType(String dataCenterType) {
+        this.dataCenterType = dataCenterType;
+    }
+        
 
     public Long getHostId() {
         return hostId;
@@ -755,14 +784,14 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
     }
 
 
-    public long getJobId() {
+    public Long getJobId() {
         return jobId;
     }
 
 
 
 
-    public void setJobId(long jobId) {
+    public void setJobId(Long jobId) {
         this.jobId = jobId;
     }
 
@@ -920,4 +949,71 @@ public class DomainRouterJoinVO extends BaseViewVO implements ControlledViewEnti
     }
 
 
+
+
+	public String getIp6Address() {
+		return ip6Address;
+	}
+
+
+
+
+	public void setIp6Address(String ip6Address) {
+		this.ip6Address = ip6Address;
+	}
+
+
+
+
+	public String getIp6Gateway() {
+		return ip6Gateway;
+	}
+
+
+
+
+	public void setIp6Gateway(String ip6Gateway) {
+		this.ip6Gateway = ip6Gateway;
+	}
+
+
+
+
+	public String getIp6Cidr() {
+		return ip6Cidr;
+	}
+
+
+
+
+	public void setIp6Cidr(String ip6Cidr) {
+		this.ip6Cidr = ip6Cidr;
+	}
+
+
+	public String getIp6Dns1() {
+		return ip6Dns1;
+	}
+
+	public void setIp6Dns1(String ip6Dns1) {
+		this.ip6Dns1 = ip6Dns1;
+	}
+
+	public String getIp6Dns2() {
+		return ip6Dns2;
+	}
+
+	public void setIp6Dns2(String ip6Dns2) {
+		this.ip6Dns2 = ip6Dns2;
+	}
+
+
+    public VirtualRouter.Role getRole() {
+        return role;
+    }
+
+
+    public void setRole(VirtualRouter.Role role) {
+        this.role = role;
+    }
 }

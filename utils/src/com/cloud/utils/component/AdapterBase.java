@@ -19,11 +19,13 @@ package com.cloud.utils.component;
 import java.util.List;
 
 // Typical Adapter implementation.
-public class AdapterBase extends ComponentLifecycleBase implements Adapter {
+public class AdapterBase extends ComponentLifecycleBase implements Adapter, ComponentMethodInterceptable {
 
 	public AdapterBase() {
+        // set default run level for adapter components
+        setRunLevel(ComponentLifecycle.RUN_LEVEL_COMPONENT);
 	}
-	
+
 	public static <T extends Adapter> T getAdapterByName(List<T> adapters, String name) {
     	for(T adapter : adapters) {
     		if(adapter.getName() != null && adapter.getName().equalsIgnoreCase(name))

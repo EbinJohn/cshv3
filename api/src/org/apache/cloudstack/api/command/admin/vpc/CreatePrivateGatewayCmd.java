@@ -23,6 +23,7 @@ import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseAsyncCreateCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
+import org.apache.cloudstack.api.response.NetworkACLResponse;
 import org.apache.cloudstack.api.response.PhysicalNetworkResponse;
 import org.apache.cloudstack.api.response.PrivateGatewayResponse;
 import org.apache.cloudstack.api.response.VpcResponse;
@@ -69,6 +70,16 @@ public class CreatePrivateGatewayCmd extends BaseAsyncCreateCmd {
             required=true, description="the VPC network belongs to")
     private Long vpcId;
 
+    @Parameter(name=ApiConstants.SOURCE_NAT_SUPPORTED, type=CommandType.BOOLEAN, required=false,
+            description="source NAT supported value. Default value false. If 'true' source NAT is enabled on the private gateway" +
+                    " 'false': sourcenat is not supported")
+    private Boolean isSourceNat;
+
+    @Parameter(name=ApiConstants.ACL_ID, type=CommandType.UUID, entityType = NetworkACLResponse.class,
+            required=false, description="the ID of the network ACL")
+    private Long aclId;
+
+
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -97,6 +108,18 @@ public class CreatePrivateGatewayCmd extends BaseAsyncCreateCmd {
         return vpcId;
     }
 
+    public Boolean getIsSourceNat () {
+        if (isSourceNat == null) {
+            return false;
+        }
+        return isSourceNat;
+    }
+
+    public Long getAclId() {
+        return aclId;
+    }
+
+
     /////////////////////////////////////////////////////
     /////////////// API Implementation///////////////////
     /////////////////////////////////////////////////////
@@ -111,7 +134,7 @@ public class CreatePrivateGatewayCmd extends BaseAsyncCreateCmd {
         PrivateGateway result = null;
         try {
             result = _vpcService.createVpcPrivateGateway(getVpcId(), getPhysicalNetworkId(),
-                    getVlan(), getStartIp(), getGateway(), getNetmask(), getEntityOwnerId());
+                    getVlan(), getStartIp(), getGateway(), getNetmask(), getEntityOwnerId(), getIsSourceNat(), getAclId());
         } catch (InsufficientCapacityException ex){
             s_logger.info(ex);
             s_logger.trace(ex);

@@ -22,7 +22,9 @@ import org.apache.cloudstack.api.ApiErrorCode;
 import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
+import org.apache.cloudstack.api.BaseCmd.CommandType;
 import org.apache.cloudstack.api.response.DomainResponse;
+import org.apache.cloudstack.api.response.ProjectResponse;
 import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.log4j.Logger;
@@ -67,6 +69,14 @@ public class UploadVolumeCmd extends BaseAsyncCmd {
 
     @Parameter(name=ApiConstants.CHECKSUM, type=CommandType.STRING, description="the MD5 checksum value of this volume")
     private String checksum;
+    
+    @Parameter(name=ApiConstants.IMAGE_STORE_UUID, type=CommandType.STRING,
+            description="Image store uuid")
+    private String imageStoreUuid;
+
+    @Parameter(name=ApiConstants.PROJECT_ID, type=CommandType.UUID, entityType = ProjectResponse.class,
+            description="Upload volume for the project")
+    private Long projectId;    
 
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
@@ -99,6 +109,10 @@ public class UploadVolumeCmd extends BaseAsyncCmd {
     public String getChecksum() {
         return checksum;
     }
+    
+    public String getImageStoreUuid() {
+        return this.imageStoreUuid;
+    }
 
     /////////////////////////////////////////////////////
     /////////////// API Implementation///////////////////
@@ -110,7 +124,7 @@ public class UploadVolumeCmd extends BaseAsyncCmd {
             ConcurrentOperationException, ResourceAllocationException,
             NetworkRuleConflictException {
 
-            Volume volume = _storageService.uploadVolume(this);
+            Volume volume = _volumeService.uploadVolume(this);
             if (volume != null){
                 VolumeResponse response = _responseGenerator.createVolumeResponse(volume);
                 response.setResponseName(getCommandName());
@@ -127,7 +141,7 @@ public class UploadVolumeCmd extends BaseAsyncCmd {
 
     @Override
     public long getEntityOwnerId() {
-        Long accountId = finalyzeAccountId(accountName, domainId, null, true);
+        Long accountId = finalyzeAccountId(accountName, domainId, projectId, true);
         if (accountId == null) {
             return UserContext.current().getCaller().getId();
         }

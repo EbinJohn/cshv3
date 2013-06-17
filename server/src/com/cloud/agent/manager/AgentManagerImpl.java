@@ -39,9 +39,8 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.log4j.Logger;
-import org.springframework.stereotype.Component;
-
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.Listener;
 import com.cloud.agent.StartupCommandProcessor;
@@ -97,10 +96,8 @@ import com.cloud.resource.Discoverer;
 import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceState;
 import com.cloud.resource.ServerResource;
-import com.cloud.server.ManagementService;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StorageService;
-import com.cloud.storage.dao.StoragePoolDao;
 import com.cloud.storage.dao.StoragePoolHostDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.resource.DummySecondaryStorageResource;
@@ -109,7 +106,6 @@ import com.cloud.user.AccountManager;
 import com.cloud.utils.ActionDelegate;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
-import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.db.DB;
@@ -172,7 +168,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
     @Inject
     protected ConfigurationDao _configDao = null;
     @Inject
-    protected StoragePoolDao _storagePoolDao = null;
+    protected PrimaryDataStoreDao _storagePoolDao = null;
     @Inject
     protected StoragePoolHostDao _storagePoolHostDao = null;
     @Inject
@@ -218,7 +214,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
 
     protected int _pingInterval;
     protected long _pingTimeout;
-    @Inject protected AgentMonitor _monitor;
+    @Inject protected AgentMonitorService _monitor;
 
     protected ExecutorService _executor;
     protected ThreadPoolExecutor _connectExecutor;
@@ -230,7 +226,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
 
     @Override
     public boolean configure(final String name, final Map<String, Object> params) throws ConfigurationException {
- 
+
         final Map<String, String> configs = _configDao.getConfiguration("AgentManager", params);
         _port = NumbersUtil.parseInt(configs.get("port"), 8250);
         final int workers = NumbersUtil.parseInt(configs.get("workers"), 5);
@@ -380,31 +376,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
         return attache;
     }
 
-    @Override
-    public Answer sendToSecStorage(HostVO ssHost, Command cmd) {
-        if( ssHost.getType() == Host.Type.LocalSecondaryStorage ) {
-            return  easySend(ssHost.getId(), cmd);
-        } else if ( ssHost.getType() == Host.Type.SecondaryStorage) {
-            return  sendToSSVM(ssHost.getDataCenterId(), cmd);
-        } else {
-            String msg = "do not support Secondary Storage type " + ssHost.getType();
-            s_logger.warn(msg);
-            return new Answer(cmd, false, msg);
-        }
-    }
 
-    @Override
-    public void sendToSecStorage(HostVO ssHost, Command cmd, Listener listener) throws AgentUnavailableException {
-        if( ssHost.getType() == Host.Type.LocalSecondaryStorage ) {
-            send(ssHost.getId(), new Commands(cmd), listener);
-        } else if ( ssHost.getType() == Host.Type.SecondaryStorage) {
-            sendToSSVM(ssHost.getDataCenterId(), cmd, listener);
-        } else {
-            String err = "do not support Secondary Storage type " + ssHost.getType();
-            s_logger.warn(err);
-            throw new CloudRuntimeException(err);
-        }
-    }
 
     private void sendToSSVM(final long dcId, final Command cmd, final Listener listener) throws AgentUnavailableException {
         List<HostVO> ssAHosts = _ssvmMgr.listUpAndConnectingSecondaryStorageVmHost(dcId);
@@ -668,7 +640,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
     public boolean start() {
         startDirectlyConnectedHosts();
         if (_monitor != null) {
-            _monitor.start();
+            _monitor.startMonitoring(_pingTimeout);
         }
         if (_connection != null) {
             _connection.start();
@@ -778,7 +750,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
                 if (host != null) {
                     agentStatusTransitTo(host, Event.AgentDisconnected, _nodeId);
                 }
-            }	
+            }
         }
 
         if (forRebalance) {
@@ -895,7 +867,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
             } catch (NoTransitionException ne) {
                 /* Agent may be currently in status of Down, Alert, Removed, namely there is no next status for some events.
                  * Why this can happen? Ask God not me. I hate there was no piece of comment for code handling race condition.
-                 * God knew what race condition the code dealt with! 
+                 * God knew what race condition the code dealt with!
                  */
             }
 
@@ -1044,6 +1016,11 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
         if (host == null || host.getRemoved() != null) {
             s_logger.warn("Unable to find host " + hostId);
             return false;
+        }
+
+        if (host.getStatus() == Status.Disconnected) {
+            s_logger.info("Host is already disconnected, no work to be done");
+            return true;
         }
 
         if (host.getStatus() != Status.Up && host.getStatus() != Status.Alert && host.getStatus() != Status.Rebalancing) {
@@ -1197,12 +1174,12 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
             }
         }
         Response response = null;
-        response = new Response(request, answers[0], _nodeId, -1); 
+        response = new Response(request, answers[0], _nodeId, -1);
         try {
             link.send(response.toBytes());
         } catch (ClosedChannelException e) {
             s_logger.debug("Failed to send startupanswer: " + e.toString());
-        }        
+        }
         _connectExecutor.execute(new HandleAgentConnectTask(link, cmds, request));
     }
 
@@ -1405,7 +1382,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
             } else {
                 throw new CloudRuntimeException("Unkonwn TapAgentsAction " + action);
             }
-        }  
+        }
         return true;
     }
 
@@ -1450,7 +1427,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
         _executor.submit(new DisconnectTask(attache, event, false));
     }
 
-    protected void disconnectWithInvestigation(AgentAttache attache, final Status.Event event) {
+    public void disconnectWithInvestigation(AgentAttache attache, final Status.Event event) {
         _executor.submit(new DisconnectTask(attache, event, true));
     }
 
@@ -1477,6 +1454,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
         }
     }
 
+    @Override
     public void disconnectWithInvestigation(final long hostId, final Status.Event event) {
         disconnectInternal(hostId, event, true);
     }
@@ -1508,7 +1486,7 @@ public class AgentManagerImpl extends ManagerBase implements AgentManager, Handl
             attache.setMaintenanceMode(true);
             // Now cancel all of the commands except for the active one.
             attache.cancelAllCommands(Status.Disconnected, false);
-        }        
+        }
     }
 
     @Override

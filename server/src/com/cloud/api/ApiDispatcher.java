@@ -24,9 +24,9 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 
@@ -35,6 +35,7 @@ import javax.inject.Inject;
 
 import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.InfrastructureEntity;
+import org.apache.cloudstack.acl.SecurityChecker.AccessType;
 import org.apache.cloudstack.api.ACL;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
@@ -48,25 +49,20 @@ import org.apache.cloudstack.api.InternalIdentity;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.Validate;
+import org.apache.cloudstack.api.command.user.event.ArchiveEventsCmd;
+import org.apache.cloudstack.api.command.user.event.DeleteEventsCmd;
 import org.apache.cloudstack.api.command.user.event.ListEventsCmd;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
-import com.cloud.async.AsyncCommandQueued;
 import com.cloud.async.AsyncJobManager;
 import com.cloud.dao.EntityManager;
-import com.cloud.exception.AccountLimitException;
-import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
-import com.cloud.exception.PermissionDeniedException;
-import com.cloud.exception.ResourceAllocationException;
-import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.UserContext;
 import com.cloud.utils.DateUtil;
 import com.cloud.utils.ReflectUtil;
-import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.exception.CSExceptionErrorCode;
 import com.cloud.utils.exception.CloudRuntimeException;
 
@@ -87,7 +83,7 @@ public class ApiDispatcher {
 
     public ApiDispatcher() {
     }
-    
+
     @PostConstruct
     void init() {
     	s_instance = this;
@@ -106,7 +102,7 @@ public class ApiDispatcher {
 
     }
 
-    private void doAccessChecks(BaseCmd cmd, List<Object> entitiesToAccess) {
+    private void doAccessChecks(BaseCmd cmd, Map<Object, AccessType> entitiesToAccess) {
         Account caller = UserContext.current().getCaller();
         Account owner = _accountMgr.getActiveAccountById(cmd.getEntityOwnerId());
 
@@ -118,9 +114,9 @@ public class ApiDispatcher {
         if(!entitiesToAccess.isEmpty()){
             //check that caller can access the owner account.
             _accountMgr.checkAccess(caller, null, true, owner);
-            for(Object entity : entitiesToAccess) {
+            for (Object entity : entitiesToAccess.keySet()) {
                 if (entity instanceof ControlledEntity) {
-                    _accountMgr.checkAccess(caller, null, true, (ControlledEntity) entity);
+                    _accountMgr.checkAccess(caller, entitiesToAccess.get(entity), true, (ControlledEntity) entity);
                 }
                 else if (entity instanceof InfrastructureEntity) {
                     //FIXME: Move this code in adapter, remove code from Account manager
@@ -133,6 +129,7 @@ public class ApiDispatcher {
             processParameters(cmd, params);
             UserContext ctx = UserContext.current();
             ctx.setAccountId(cmd.getEntityOwnerId());
+            
             if (cmd instanceof BaseAsyncCmd) {
 
                 BaseAsyncCmd asyncCmd = (BaseAsyncCmd) cmd;
@@ -155,18 +152,15 @@ public class ApiDispatcher {
                     }
                 }
             }
-
             cmd.execute();
 
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
     public static void processParameters(BaseCmd cmd, Map<String, String> params) {
-        List<Object> entitiesToAccess = new ArrayList<Object>();
+        Map<Object, AccessType> entitiesToAccess = new HashMap<Object, AccessType>();
         Map<String, Object> unpackedParams = cmd.unpackParams(params);
-      
-        cmd = ComponentContext.getTargetObject(cmd);
-        
+
         if (cmd instanceof BaseListCmd) {
             Object pageSizeObj = unpackedParams.get(ApiConstants.PAGE_SIZE);
             Long pageSize = null;
@@ -174,7 +168,7 @@ public class ApiDispatcher {
                 pageSize = Long.valueOf((String) pageSizeObj);
             }
 
-            if ((unpackedParams.get(ApiConstants.PAGE) == null) && (pageSize != null && pageSize != BaseListCmd.PAGESIZE_UNLIMITED)) {
+            if ((unpackedParams.get(ApiConstants.PAGE) == null) && (pageSize != null && !pageSize.equals(BaseListCmd.PAGESIZE_UNLIMITED))) {
                 ServerApiException ex = new ServerApiException(ApiErrorCode.PARAM_ERROR, "\"page\" parameter is required when \"pagesize\" is specified");
                 ex.setCSErrorCode(CSExceptionErrorCode.getCSErrCode(ex.getClass().getName()));
                 throw ex;
@@ -258,7 +252,7 @@ public class ApiDispatcher {
                                     List<Long> listParam = (List<Long>) field.get(cmd);
                                     for (Long entityId : listParam) {
                                         Object entityObj = s_instance._entityMgr.findById(entity, entityId);
-                                        entitiesToAccess.add(entityObj);
+                                        entitiesToAccess.put(entityObj, checkAccess.accessType());
                                     }
                                     break;
                                     /*
@@ -279,7 +273,7 @@ public class ApiDispatcher {
                             case LONG:
                             case UUID:
                                 Object entityObj = s_instance._entityMgr.findById(entity, (Long) field.get(cmd));
-                                entitiesToAccess.add(entityObj);
+                                entitiesToAccess.put(entityObj, checkAccess.accessType());
                                 break;
                             default:
                                 break;
@@ -368,8 +362,8 @@ public class ApiDispatcher {
         if (internalId == null) {
             if (s_logger.isDebugEnabled())
                 s_logger.debug("Object entity uuid = " + uuid + " does not exist in the database.");
-            throw new InvalidParameterValueException("Invalid parameter value=" + uuid
-                + " due to incorrect long value format, or entity was not found as it may have been deleted, or due to incorrect parameter annotation for the field in api cmd.");
+            throw new InvalidParameterValueException("Invalid parameter " + annotation.name() + " value=" + uuid
+                + " due to incorrect long value format, or entity does not exist or due to incorrect parameter annotation for the field in api cmd class.");
         }
         return internalId;
     }
@@ -387,7 +381,7 @@ public class ApiDispatcher {
                 // This piece of code is for maintaining backward compatibility
                 // and support both the date formats(Bug 9724)
                 // Do the date messaging for ListEventsCmd only
-                if (cmdObj instanceof ListEventsCmd) {
+                if (cmdObj instanceof ListEventsCmd || cmdObj instanceof DeleteEventsCmd || cmdObj instanceof ArchiveEventsCmd) {
                     boolean isObjInNewDateFormat = isObjInNewDateFormat(paramObj.toString());
                     if (isObjInNewDateFormat) {
                         DateFormat newFormat = BaseCmd.NEW_INPUT_FORMAT;
@@ -402,6 +396,8 @@ public class ApiDispatcher {
                                 date = messageDate(date, 0, 0, 0);
                             } else if (field.getName().equals("endDate")) {
                                 date = messageDate(date, 23, 59, 59);
+                            } else if (field.getName().equals("olderThan")) {
+                                date = messageDate(date, 0, 0, 0);
                             }
                             field.set(cmdObj, date);
                         }

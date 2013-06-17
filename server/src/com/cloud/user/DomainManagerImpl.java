@@ -18,12 +18,11 @@ package com.cloud.user;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import javax.ejb.Local;
 import javax.inject.Inject;
-import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.api.command.admin.domain.ListDomainChildrenCmd;
 import org.apache.cloudstack.api.command.admin.domain.ListDomainsCmd;
@@ -32,8 +31,12 @@ import org.apache.cloudstack.region.RegionManager;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
+import com.cloud.configuration.Resource.ResourceOwnerType;
 import com.cloud.configuration.ResourceLimit;
 import com.cloud.configuration.dao.ResourceCountDao;
+import com.cloud.configuration.dao.ResourceLimitDao;
+import com.cloud.dc.DedicatedResourceVO;
+import com.cloud.dc.dao.DedicatedResourceDao;
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
@@ -52,7 +55,6 @@ import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.utils.Pair;
-import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.Filter;
@@ -85,6 +87,10 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
     private ProjectManager _projectMgr;
     @Inject
     private RegionManager _regionMgr;
+    @Inject
+    private ResourceLimitDao _resourceLimitDao;
+    @Inject
+    private DedicatedResourceDao _dedicatedDao;
 
     @Override
     public Domain getDomain(long domainId) {
@@ -118,7 +124,7 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_DOMAIN_CREATE, eventDescription = "creating Domain")
-    public Domain createDomain(String name, Long parentId, String networkDomain, String domainUUID, Integer regionId) {
+    public Domain createDomain(String name, Long parentId, String networkDomain, String domainUUID) {
         Account caller = UserContext.current().getCaller();
 
         if (parentId == null) {
@@ -136,13 +142,13 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
 
         _accountMgr.checkAccess(caller, parentDomain);
 
-        return createDomain(name, parentId, caller.getId(), networkDomain, domainUUID, regionId);
+        return createDomain(name, parentId, caller.getId(), networkDomain, domainUUID);
 
     }
 
     @Override
     @DB
-    public Domain createDomain(String name, Long parentId, Long ownerId, String networkDomain, String domainUUID, Integer regionId) {
+    public Domain createDomain(String name, Long parentId, Long ownerId, String networkDomain, String domainUUID) {
         // Verify network domain
         if (networkDomain != null) {
             if (!NetUtils.verifyDomainName(networkDomain)) {
@@ -161,28 +167,16 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
             throw new InvalidParameterValueException("Domain with name " + name + " already exists for the parent id=" + parentId);
         }
 
-        if(regionId == null){
+        if(domainUUID == null){
+            domainUUID = UUID.randomUUID().toString();
+        }
+
         Transaction txn = Transaction.currentTxn();
         txn.start();
-
-        	DomainVO domain = _domainDao.create(new DomainVO(name, ownerId, parentId, networkDomain, _regionMgr.getId()));
+        DomainVO domain = _domainDao.create(new DomainVO(name, ownerId, parentId, networkDomain, domainUUID));
         _resourceCountDao.createResourceCounts(domain.getId(), ResourceLimit.ResourceOwnerType.Domain);
         txn.commit();
-        	//Propagate domain creation to peer Regions
-        	_regionMgr.propagateAddDomain(name, parentId, networkDomain, domain.getUuid());        	
-        	return domain;
-        } else {
-        	Transaction txn = Transaction.currentTxn();
-        	txn.start();
-
-        	DomainVO domain = _domainDao.create(new DomainVO(name, ownerId, parentId, networkDomain, domainUUID, regionId));
-        	_resourceCountDao.createResourceCounts(domain.getId(), ResourceLimit.ResourceOwnerType.Domain);
-
-        	txn.commit();
         return domain;
-        	
-        }
-        
     }
 
     @Override
@@ -236,7 +230,7 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
             if ((cleanup != null) && cleanup.booleanValue()) {
                 if (!cleanupDomain(domain.getId(), ownerId)) {
                     CloudRuntimeException e = new CloudRuntimeException("Failed to clean up domain resources and sub domains, delete failed on domain " + domain.getName() + " (id: " + domain.getId() + ").");
-                    e.addProxyObject(domain, domain.getId(), "domainId");
+                    e.addProxyObject(domain.getUuid(), "domainId");
                     throw e;
                 }
             } else {
@@ -245,13 +239,24 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
                     if (!_domainDao.remove(domain.getId())) {
                         rollBackState = true;
                         CloudRuntimeException e = new CloudRuntimeException("Delete failed on domain " + domain.getName() + " (id: " + domain.getId() + "); Please make sure all users and sub domains have been removed from the domain before deleting");
-                        e.addProxyObject(domain, domain.getId(), "domainId");
+                        e.addProxyObject(domain.getUuid(), "domainId");
                         throw e;
+                    } else {
+                        //release dedication if any, before deleting the domain
+                        List<DedicatedResourceVO> dedicatedResources = _dedicatedDao.listByDomainId(domain.getId());
+                        if (dedicatedResources != null && !dedicatedResources.isEmpty()) {
+                            s_logger.debug("Releasing dedicated resources for domain" + domain.getId());
+                            for (DedicatedResourceVO dr : dedicatedResources){
+                                if (!_dedicatedDao.remove(dr.getId())) {
+                                    s_logger.warn("Fail to release dedicated resources for domain " + domain.getId());
+                                }
+                            }
+                        }
                     }
                 } else {
                     rollBackState = true;
                     CloudRuntimeException e = new CloudRuntimeException("Can't delete the domain yet because it has " + accountsForCleanup.size() + "accounts that need a cleanup");
-                    e.addProxyObject(domain, domain.getId(), "domainId");
+                    e.addProxyObject(domain.getUuid(), "domainId");
                     throw e;
                 }
             }
@@ -343,7 +348,22 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
         boolean deleteDomainSuccess = true;
         List<AccountVO> accountsForCleanup = _accountDao.findCleanupsForRemovedAccounts(domainId);
         if (accountsForCleanup.isEmpty()) {
+            //release dedication if any, before deleting the domain
+            List<DedicatedResourceVO> dedicatedResources = _dedicatedDao.listByDomainId(domainId);
+            if (dedicatedResources != null && !dedicatedResources.isEmpty()) {
+                s_logger.debug("Releasing dedicated resources for domain" + domainId);
+                for (DedicatedResourceVO dr : dedicatedResources){
+                    if (!_dedicatedDao.remove(dr.getId())) {
+                        s_logger.warn("Fail to release dedicated resources for domain " + domainId);
+                    }
+                }
+            }
+            //delete domain
             deleteDomainSuccess = _domainDao.remove(domainId);
+
+            // Delete resource count and resource limits entries set for this domain (if there are any).
+            _resourceCountDao.removeEntriesByOwner(domainId, ResourceOwnerType.Domain);
+            _resourceLimitDao.removeEntriesByOwner(domainId, ResourceOwnerType.Domain);
         } else {
             s_logger.debug("Can't delete the domain yet because it has " + accountsForCleanup.size() + "accounts that need a cleanup");
         }
@@ -380,7 +400,7 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
 
         SearchBuilder<DomainVO> sb = _domainDao.createSearchBuilder();
         sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.LIKE);
+        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
         sb.and("level", sb.entity().getLevel(), SearchCriteria.Op.EQ);
         sb.and("path", sb.entity().getPath(), SearchCriteria.Op.LIKE);
         sb.and("state", sb.entity().getState(), SearchCriteria.Op.EQ);
@@ -394,7 +414,7 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
         }
 
         if (domainName != null) {
-            sc.setParameters("name", "%" + domainName + "%");
+            sc.setParameters("name", domainName);
         }
 
         if (level != null) {
@@ -485,8 +505,8 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
         // check if domain exists in the system
         DomainVO domain = _domainDao.findById(domainId);
         if (domain == null) {
-        	InvalidParameterValueException ex = new InvalidParameterValueException("Unable to find domain with specified domain id");
-        	ex.addProxyObject(domain, domainId, "domainId");            
+            InvalidParameterValueException ex = new InvalidParameterValueException("Unable to find domain with specified domain id");
+            ex.addProxyObject(domainId.toString(), "domainId");
             throw ex;
         } else if (domain.getParent() == null && domainName != null) {
             // check if domain is ROOT domain - and deny to edit it with the new name
@@ -507,8 +527,8 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
 
             if (!domains.isEmpty() && !sameDomain) {
                 InvalidParameterValueException ex = new InvalidParameterValueException("Failed to update specified domain id with name '" + domainName + "' since it already exists in the system");
-                ex.addProxyObject(domain, domainId, "domainId");                
-            	throw ex;
+                ex.addProxyObject(domain.getUuid(), "domainId");
+                throw ex;
             }
         }
 
@@ -566,5 +586,5 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
             _domainDao.update(dom.getId(), dom);
         }
     }
-    
+
 }

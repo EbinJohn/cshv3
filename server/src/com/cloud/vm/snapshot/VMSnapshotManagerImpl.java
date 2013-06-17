@@ -28,6 +28,9 @@ import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.api.command.user.vmsnapshot.ListVMSnapshotCmd;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -56,16 +59,16 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.hypervisor.HypervisorGuruManager;
 import com.cloud.projects.Project.ListProjectResourcesCriteria;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.SnapshotVO;
-import com.cloud.storage.StoragePoolVO;
+import com.cloud.storage.StoragePool;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.GuestOSDao;
 import com.cloud.storage.dao.SnapshotDao;
-import com.cloud.storage.dao.StoragePoolDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
@@ -112,11 +115,14 @@ public class VMSnapshotManagerImpl extends ManagerBase implements VMSnapshotMana
     @Inject HypervisorGuruManager _hvGuruMgr;
     @Inject AccountManager _accountMgr;
     @Inject GuestOSDao _guestOSDao;
-    @Inject StoragePoolDao _storagePoolDao;
+    @Inject PrimaryDataStoreDao _storagePoolDao;
     @Inject SnapshotDao _snapshotDao;
     @Inject VirtualMachineManager _itMgr;
+    @Inject DataStoreManager dataStoreMgr;
     @Inject ConfigurationDao _configDao;
+    @Inject HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
     int _vmSnapshotMax;
+    int _wait;
     StateMachine2<VMSnapshot.State, VMSnapshot.Event, VMSnapshot> _vmSnapshottateMachine ;
 
     @Override
@@ -128,6 +134,9 @@ public class VMSnapshotManagerImpl extends ManagerBase implements VMSnapshotMana
         }
 
         _vmSnapshotMax = NumbersUtil.parseInt(_configDao.getValue("vmsnapshot.max"), VMSNAPSHOTMAX);
+        
+        String value = _configDao.getValue("vmsnapshot.create.wait");
+        _wait = NumbersUtil.parseInt(value, 1800);
 
         _vmSnapshottateMachine   = VMSnapshot.State.getStateMachine();
         return true;
@@ -237,7 +246,11 @@ public class VMSnapshotManagerImpl extends ManagerBase implements VMSnapshotMana
         if (userVmVo == null) {
             throw new InvalidParameterValueException("Creating VM snapshot failed due to VM:" + vmId + " is a system VM or does not exist");
         }
-        
+
+        // check hypervisor capabilities
+        if(!_hypervisorCapabilitiesDao.isVmSnapshotEnabled(userVmVo.getHypervisorType(), "default"))
+        	throw new InvalidParameterValueException("VM snapshot is not enabled for hypervisor type: " + userVmVo.getHypervisorType());
+
         // parameter length check
         if(vsDisplayName != null && vsDisplayName.length()>255)
             throw new InvalidParameterValueException("Creating VM snapshot failed due to length of VM snapshot vsDisplayName should not exceed 255");
@@ -358,15 +371,20 @@ public class VMSnapshotManagerImpl extends ManagerBase implements VMSnapshotMana
                 vmSnapshot.setParent(current.getId());
 
             CreateVMSnapshotCommand ccmd = new CreateVMSnapshotCommand(userVm.getInstanceName(),target ,volumeTOs, guestOS.getDisplayName(),userVm.getState());
+            ccmd.setWait(_wait);
             
             answer = (CreateVMSnapshotAnswer) sendToPool(hostId, ccmd);
             if (answer != null && answer.getResult()) {
                 processAnswer(vmSnapshot, userVm, answer, hostId);
                 s_logger.debug("Create vm snapshot " + vmSnapshot.getName() + " succeeded for vm: " + userVm.getInstanceName());
             }else{
-                String errMsg = answer.getDetails();
-                s_logger.error("Agent reports creating vm snapshot " + vmSnapshot.getName() + " failed for vm: " + userVm.getInstanceName() + " due to " + errMsg);
+                
+                String errMsg = "Creating VM snapshot: " + vmSnapshot.getName() + " failed";
+                if(answer != null && answer.getDetails() != null)
+                    errMsg = errMsg + " due to " + answer.getDetails();
+                s_logger.error(errMsg);
                 vmSnapshotStateTransitTo(vmSnapshot, VMSnapshot.Event.OperationFailed);
+                throw new CloudRuntimeException(errMsg);
             }
             return vmSnapshot;
         } catch (Exception e) {
@@ -393,7 +411,7 @@ public class VMSnapshotManagerImpl extends ManagerBase implements VMSnapshotMana
         List<VolumeVO> volumeVos = _volumeDao.findByInstance(vmId);
         
         for (VolumeVO volume : volumeVos) {
-            StoragePoolVO pool = _storagePoolDao.findById(volume.getPoolId());
+            StoragePool pool = (StoragePool)this.dataStoreMgr.getPrimaryDataStore(volume.getPoolId());
             VolumeTO volumeTO = new VolumeTO(volume, pool);
             volumeTOs.add(volumeTO);
         }

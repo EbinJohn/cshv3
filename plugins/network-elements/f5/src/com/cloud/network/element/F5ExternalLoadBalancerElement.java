@@ -17,6 +17,7 @@
 package com.cloud.network.element;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import org.apache.cloudstack.api.response.ExternalLoadBalancerResponse;
 import org.apache.cloudstack.network.ExternalNetworkDeviceManager.NetworkDevice;
 import org.apache.log4j.Logger;
 
+import com.cloud.agent.api.to.LoadBalancerTO;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.api.commands.AddExternalLoadBalancerCmd;
 import com.cloud.api.commands.AddF5LoadBalancerCmd;
@@ -68,6 +70,7 @@ import com.cloud.network.PhysicalNetworkServiceProvider;
 import com.cloud.network.PublicIpAddress;
 import com.cloud.network.dao.ExternalLoadBalancerDeviceDao;
 import com.cloud.network.dao.ExternalLoadBalancerDeviceVO;
+import com.cloud.network.dao.ExternalLoadBalancerDeviceVO.LBDeviceState;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkExternalLoadBalancerDao;
 import com.cloud.network.dao.NetworkExternalLoadBalancerVO;
@@ -75,11 +78,11 @@ import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
-import com.cloud.network.dao.ExternalLoadBalancerDeviceVO.LBDeviceState;
 import com.cloud.network.lb.LoadBalancingRule;
 import com.cloud.network.resource.F5BigIpResource;
 import com.cloud.network.rules.LbStickinessMethod;
 import com.cloud.network.rules.LbStickinessMethod.StickinessMethodType;
+import com.cloud.network.rules.LoadBalancerContainer;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -117,10 +120,24 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
     @Inject
     ConfigurationDao _configDao;
 
-    private boolean canHandle(Network config) {
-        if (config.getGuestType() != Network.GuestType.Isolated || config.getTrafficType() != TrafficType.Guest) {
+    private boolean canHandle(Network config, List<LoadBalancingRule> rules) {
+        if ((config.getGuestType() != Network.GuestType.Isolated && config.getGuestType() != Network.GuestType.Shared) || config.getTrafficType() != TrafficType.Guest) {
+
             s_logger.trace("Not handling network with Type  " + config.getGuestType() + " and traffic type " + config.getTrafficType());
             return false;
+        }
+        
+        Map<Capability, String> lbCaps = this.getCapabilities().get(Service.Lb);
+        if (!lbCaps.isEmpty()) {
+            String schemeCaps = lbCaps.get(Capability.LbSchemes);
+            if (schemeCaps != null && rules != null && !rules.isEmpty()) {
+                for (LoadBalancingRule rule : rules) {
+                    if (!schemeCaps.contains(rule.getScheme().toString())) {
+                        s_logger.debug("Scheme " + rules.get(0).getScheme() + " is not supported by the provider " + this.getName());
+                        return false;
+                    }
+                }
+            }
         }
 
         return (_networkManager.isProviderForNetwork(getProvider(), config.getId()) && _ntwkSrvcDao.canProviderSupportServiceInNetwork(config.getId(), Service.Lb, Network.Provider.F5BigIp));
@@ -130,7 +147,7 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
     public boolean implement(Network guestConfig, NetworkOffering offering, DeployDestination dest, ReservationContext context) throws ResourceUnavailableException, ConcurrentOperationException,
     InsufficientNetworkCapacityException {
 
-        if (!canHandle(guestConfig)) {
+        if (!canHandle(guestConfig, null)) {
             return false;
         }
 
@@ -154,7 +171,7 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
 
     @Override
     public boolean shutdown(Network guestConfig, ReservationContext context, boolean cleanup) throws ResourceUnavailableException, ConcurrentOperationException {
-        if (!canHandle(guestConfig)) {
+        if (!canHandle(guestConfig, null)) {
             return false;
         }
 
@@ -173,13 +190,16 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
 
     @Override
     public boolean validateLBRule(Network network, LoadBalancingRule rule) {
-        String algo = rule.getAlgorithm();
-        return (algo.equals("roundrobin") || algo.equals("leastconn"));
+        if (canHandle(network, new ArrayList<LoadBalancingRule>(Arrays.asList(rule)))) {
+            String algo = rule.getAlgorithm();
+            return (algo.equals("roundrobin") || algo.equals("leastconn"));
+        }
+        return true;
     }
 
     @Override
     public boolean applyLBRules(Network config, List<LoadBalancingRule> rules) throws ResourceUnavailableException {
-        if (!canHandle(config)) {
+        if (!canHandle(config, rules)) {
             return false;
         }
 
@@ -210,6 +230,9 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
 
         // Support inline mode with firewall
         lbCapabilities.put(Capability.InlineMode, "true");
+        
+        //support only for public lb
+        lbCapabilities.put(Capability.LbSchemes, LoadBalancerContainer.Scheme.Public.toString());
 
         LbStickinessMethod method;
         List<LbStickinessMethod> methodList = new ArrayList<LbStickinessMethod>();
@@ -294,7 +317,8 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
         pNetwork = physicalNetworks.get(0);
 
         String deviceType = NetworkDevice.F5BigIpLoadBalancer.getName();
-        lbDeviceVO = addExternalLoadBalancer(pNetwork.getId(), cmd.getUrl(), cmd.getUsername(), cmd.getPassword(), deviceType, new F5BigIpResource());
+        lbDeviceVO = addExternalLoadBalancer(pNetwork.getId(), cmd.getUrl(), cmd.getUsername(), cmd.getPassword(),
+                deviceType, new F5BigIpResource(), false, null, null);
 
         if (lbDeviceVO != null) {
             lbHost = _hostDao.findById(lbDeviceVO.getHostId());
@@ -347,7 +371,8 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
             throw new InvalidParameterValueException("Invalid F5 load balancer device type");
         }
 
-        return addExternalLoadBalancer(cmd.getPhysicalNetworkId(), cmd.getUrl(), cmd.getUsername(), cmd.getPassword(), deviceName, new F5BigIpResource());
+        return addExternalLoadBalancer(cmd.getPhysicalNetworkId(), cmd.getUrl(), cmd.getUsername(), cmd.getPassword(),
+                deviceName, new F5BigIpResource(), false, null, null);
 
     }
 
@@ -496,4 +521,11 @@ public class F5ExternalLoadBalancerElement extends ExternalLoadBalancerDeviceMan
         }
         return this;
     }
+
+	@Override
+	public List<LoadBalancerTO> updateHealthChecks(Network network,
+			List<LoadBalancingRule> lbrules) {
+		// TODO Auto-generated method stub
+		return null;
+	}
 }

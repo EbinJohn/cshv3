@@ -19,28 +19,16 @@ package com.cloud.network;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.api.Identity;
 import org.apache.cloudstack.api.InternalIdentity;
 
-import com.cloud.network.Networks.BroadcastDomainType;
-import com.cloud.network.Networks.Mode;
-import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.Mode;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.utils.fsm.StateMachine2;
 import com.cloud.utils.fsm.StateObject;
-
-import org.apache.cloudstack.acl.ControlledEntity;
-import org.apache.cloudstack.api.Identity;
-import org.apache.cloudstack.api.InternalIdentity;
-
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * owned by an account.
@@ -63,7 +51,7 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
                 Capability.MultipleIps, Capability.TrafficStatistics, Capability.SupportedTrafficDirection, Capability.SupportedEgressProtocols);
         public static final Service Lb = new Service("Lb", Capability.SupportedLBAlgorithms, Capability.SupportedLBIsolation,
                 Capability.SupportedProtocols, Capability.TrafficStatistics, Capability.LoadBalancingSupportedIps,
-                Capability.SupportedStickinessMethods, Capability.ElasticLb);
+                Capability.SupportedStickinessMethods, Capability.ElasticLb, Capability.LbSchemes);
         public static final Service UserData = new Service("UserData");
         public static final Service SourceNat = new Service("SourceNat", Capability.SupportedSourceNatTypes, Capability.RedundantRouter);
         public static final Service StaticNat = new Service("StaticNat", Capability.ElasticIp);
@@ -136,8 +124,9 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
         public static final Provider VPCVirtualRouter = new Provider("VpcVirtualRouter", false);
         public static final Provider None = new Provider("None", false);
         // NiciraNvp is not an "External" provider, otherwise we get in trouble with NetworkServiceImpl.providersConfiguredForExternalNetworking 
-        public static final Provider NiciraNvp = new Provider("NiciraNvp", false);  
-        public static final Provider MidokuraMidonet = new Provider("MidokuraMidonet", true);
+        public static final Provider NiciraNvp = new Provider("NiciraNvp", false);
+        public static final Provider InternalLbVm = new Provider("InternalLbVm", false);
+        public static final Provider CiscoVnmc = new Provider("CiscoVnmc", true);
 
         private String name;
         private boolean isExternal;
@@ -183,11 +172,14 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
         public static final Capability AllowDnsSuffixModification = new Capability("AllowDnsSuffixModification");
         public static final Capability RedundantRouter = new Capability("RedundantRouter");
         public static final Capability ElasticIp = new Capability("ElasticIp");
+        public static final Capability AssociatePublicIP = new Capability("AssociatePublicIP");
         public static final Capability ElasticLb = new Capability("ElasticLb");
         public static final Capability AutoScaleCounters = new Capability("AutoScaleCounters");
         public static final Capability InlineMode = new Capability("InlineMode");
         public static final Capability SupportedTrafficDirection = new Capability("SupportedTrafficDirection");
         public static final Capability SupportedEgressProtocols = new Capability("SupportedEgressProtocols");
+        public static final Capability HealthCheckPolicy = new Capability("HealthCheckPolicy");
+        public static final Capability LbSchemes = new Capability("LbSchemes");
 
         private String name;
 
@@ -235,6 +227,8 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
             s_fsm.addTransition(State.Implemented, Event.DestroyNetwork, State.Shutdown);
             s_fsm.addTransition(State.Shutdown, Event.OperationSucceeded, State.Allocated);
             s_fsm.addTransition(State.Shutdown, Event.OperationFailed, State.Implemented);
+            s_fsm.addTransition(State.Setup, Event.DestroyNetwork, State.Destroy);
+            s_fsm.addTransition(State.Allocated, Event.DestroyNetwork, State.Destroy);
         }
 
         public static StateMachine2<State, Network.Event, Network> getStateMachine() {
@@ -283,12 +277,21 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
 
     String getGateway();
 
+    // "cidr" is the Cloudstack managed address space, all CloudStack managed vms get IP address from "cidr",
+    // In general "cidr" also serves as the network CIDR
+    // But in case IP reservation is configured for a Guest network, "networkcidr" is the Effective network CIDR for that network,
+    // "cidr" will still continue to be the effective address space for CloudStack managed vms in that Guest network
     String getCidr();
 
+    // "networkcidr" is the network CIDR of the guest network which uses IP reservation.
+    // It is the summation of "cidr" and the reservedIPrange(the address space used for non CloudStack purposes).
+    // For networks not configured with IP reservation, "networkcidr" is always null
+    String getNetworkCidr();
+
     String getIp6Gateway();
-    
+
     String getIp6Cidr();
-    
+
     long getDataCenterId();
 
     long getNetworkOfferingId();
@@ -319,9 +322,14 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
 
     boolean getSpecifyIpRanges();
 
+    boolean getDisplayNetwork();
+
     /**
      * @return
      */
     Long getVpcId();
 
+    Long getNetworkACLId();
+
+    void setNetworkACLId(Long networkACLId);
 }

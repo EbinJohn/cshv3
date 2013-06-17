@@ -22,25 +22,19 @@ import com.cloud.server.ManagementServer;
 import com.cloud.user.Account;
 import com.cloud.user.AccountVO;
 import com.cloud.user.User;
-import com.cloud.user.UserContext;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDao;
-import com.cloud.utils.component.AnnotationInterceptor;
-import net.sf.cglib.proxy.Callback;
-import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
+import com.cloud.utils.component.ComponentContext;
 import org.apache.cloudstack.framework.events.EventBus;
 import org.apache.cloudstack.framework.events.EventBusException;
 import org.apache.log4j.Logger;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.stereotype.Component;
-
-import java.lang.reflect.AnnotatedElement;
-import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.Map;
 
 import javax.annotation.PostConstruct;
 import javax.inject.Inject;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 public class ActionEventUtils {
@@ -49,14 +43,12 @@ public class ActionEventUtils {
     private static EventDao _eventDao;
     private static AccountDao _accountDao;
     protected static UserDao _userDao;
-
-    // get the event bus provider if configured
-    protected static EventBus _eventBus;
+    protected static EventBus _eventBus = null;
 
     @Inject EventDao eventDao;
     @Inject AccountDao accountDao;
     @Inject UserDao userDao;
-    
+
     public ActionEventUtils() {
     }
     
@@ -65,8 +57,6 @@ public class ActionEventUtils {
     	_eventDao = eventDao;
     	_accountDao = accountDao;
     	_userDao = userDao;
-    	
-    	// TODO we will do injection of event bus later
     }
 
     public static Long onActionEvent(Long userId, Long accountId, Long domainId, String type, String description) {
@@ -156,7 +146,9 @@ public class ActionEventUtils {
 
     private static void publishOnEventBus(long userId, long accountId, String eventCategory,
                                           String eventType, Event.State state) {
-        if (_eventBus == null) {
+        try {
+            _eventBus = ComponentContext.getComponent(EventBus.class);
+        } catch(NoSuchBeanDefinitionException nbe) {
             return; // no provider is configured to provide events bus, so just return
         }
 
@@ -185,112 +177,5 @@ public class ActionEventUtils {
     private static long getDomainId(long accountId){
         AccountVO account = _accountDao.findByIdIncludingRemoved(accountId);
         return account.getDomainId();
-    }
-
-    public static class ActionEventCallback implements MethodInterceptor, AnnotationInterceptor<EventVO> {
-
-        @Override
-        public Object intercept(Object object, Method method, Object[] args, MethodProxy methodProxy) throws Throwable {
-            EventVO event = interceptStart(method);
-            boolean success = true;
-            try {
-                return methodProxy.invokeSuper(object, args);
-            } catch (Exception e){
-                success = false;
-                interceptException(method, event);
-                throw e;
-            } finally {
-                if(success){
-                    interceptComplete(method, event);
-                }
-            }
-        }
-
-        @Override
-        public boolean needToIntercept(AnnotatedElement element) {
-            if (!(element instanceof Method)) {
-                return false;
-
-            }
-            Method method = (Method)element;
-            ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
-            if (actionEvent != null) {
-                return true;
-            }
-
-            return false;
-        }
-
-        @Override
-        public EventVO interceptStart(AnnotatedElement element) {
-            EventVO event = null;
-            Method method = (Method)element;
-            ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
-            if (actionEvent != null) {
-                boolean async = actionEvent.async();
-                if(async){
-                    UserContext ctx = UserContext.current();
-                    long userId = ctx.getCallerUserId();
-                    long accountId = ctx.getAccountId();
-                    long startEventId = ctx.getStartEventId();
-                    String eventDescription = actionEvent.eventDescription();
-                    if(ctx.getEventDetails() != null){
-                        eventDescription += ". "+ctx.getEventDetails();
-                    }
-                    ActionEventUtils.onStartedActionEvent(userId, accountId, actionEvent.eventType(), eventDescription, startEventId);
-                }
-            }
-            return event;
-        }
-
-        @Override
-        public void interceptComplete(AnnotatedElement element, EventVO event) {
-            Method method = (Method)element;
-            ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
-            if (actionEvent != null) {
-                UserContext ctx = UserContext.current();
-                long userId = ctx.getCallerUserId();
-                long accountId = ctx.getAccountId();
-                long startEventId = ctx.getStartEventId();
-                String eventDescription = actionEvent.eventDescription();
-                if(ctx.getEventDetails() != null){
-                    eventDescription += ". "+ctx.getEventDetails();
-                }
-                if(actionEvent.create()){
-                    //This start event has to be used for subsequent events of this action
-                    startEventId = ActionEventUtils.onCreatedActionEvent(userId, accountId, EventVO.LEVEL_INFO, actionEvent.eventType(), "Successfully created entity for " + eventDescription);
-                    ctx.setStartEventId(startEventId);
-                } else {
-                    ActionEventUtils.onCompletedActionEvent(userId, accountId, EventVO.LEVEL_INFO, actionEvent.eventType(), "Successfully completed " + eventDescription, startEventId);
-                }
-            }
-        }
-
-        @Override
-        public void interceptException(AnnotatedElement element, EventVO event) {
-            Method method = (Method)element;
-            ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
-            if (actionEvent != null) {
-                UserContext ctx = UserContext.current();
-                long userId = ctx.getCallerUserId();
-                long accountId = ctx.getAccountId();
-                long startEventId = ctx.getStartEventId();
-                String eventDescription = actionEvent.eventDescription();
-                if(ctx.getEventDetails() != null){
-                    eventDescription += ". "+ctx.getEventDetails();
-                }
-                if(actionEvent.create()){
-                    long eventId = ActionEventUtils.onCreatedActionEvent(userId, accountId, EventVO.LEVEL_ERROR, actionEvent.eventType(), "Error while creating entity for " + eventDescription);
-                    ctx.setStartEventId(eventId);
-                } else {
-                    ActionEventUtils.onCompletedActionEvent(userId, accountId, EventVO.LEVEL_ERROR, actionEvent.eventType(), "Error while " + eventDescription, startEventId);
-                }
-            }
-        }
-
-        @Override
-        public Callback getCallback() {
-            return this;
-        }
     }
 }

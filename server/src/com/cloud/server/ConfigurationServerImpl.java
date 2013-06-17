@@ -42,7 +42,12 @@ import javax.crypto.SecretKey;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailVO;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailsDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.FileUtils;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -54,11 +59,17 @@ import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.configuration.ResourceCountVO;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.configuration.dao.ResourceCountDao;
+import com.cloud.dc.ClusterDetailsDao;
+import com.cloud.dc.ClusterDetailsVO;
+import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
+import com.cloud.dc.DcDetailVO;
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.VlanVO;
+import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
+import com.cloud.dc.dao.DcDetailsDao;
 import com.cloud.dc.dao.HostPodDao;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.domain.DomainVO;
@@ -92,6 +103,8 @@ import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.test.IPRangeConfig;
 import com.cloud.user.Account;
+import com.cloud.user.AccountDetailVO;
+import com.cloud.user.AccountDetailsDao;
 import com.cloud.user.AccountVO;
 import com.cloud.user.User;
 import com.cloud.user.dao.AccountDao;
@@ -105,11 +118,7 @@ import com.cloud.utils.db.Transaction;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.script.Script;
-import com.cloud.uuididentity.dao.IdentityDao;
-import org.apache.cloudstack.region.RegionVO;
-import org.apache.cloudstack.region.dao.RegionDao;
-import org.apache.commons.codec.binary.Base64;
-import org.apache.log4j.Logger;
+
 
 @Component
 public class ConfigurationServerImpl extends ManagerBase implements ConfigurationServer {
@@ -117,6 +126,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
 
     @Inject private ConfigurationDao _configDao;
     @Inject private DataCenterDao _zoneDao;
+    @Inject private ClusterDao _clusterDao;
+    @Inject private PrimaryDataStoreDao _storagePoolDao;
     @Inject private HostPodDao _podDao;
     @Inject private DiskOfferingDao _diskOfferingDao;
     @Inject private ServiceOfferingDao _serviceOfferingDao;
@@ -124,13 +135,15 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
     @Inject private DataCenterDao _dataCenterDao;
     @Inject private NetworkDao _networkDao;
     @Inject private VlanDao _vlanDao;
-    private String _domainSuffix;
     @Inject private DomainDao _domainDao;
     @Inject private AccountDao _accountDao;
     @Inject private ResourceCountDao _resourceCountDao;
     @Inject private NetworkOfferingServiceMapDao _ntwkOfferingServiceMapDao;
-    @Inject private IdentityDao _identityDao;
-    @Inject private RegionDao _regionDao;
+    @Inject private DcDetailsDao _dcDetailsDao;
+    @Inject private ClusterDetailsDao _clusterDetailsDao;
+    @Inject private StoragePoolDetailsDao _storagePoolDetailsDao;
+    @Inject private AccountDetailsDao _accountDetailsDao;
+
 
     public ConfigurationServerImpl() {
     	setRunLevel(ComponentLifecycle.RUN_LEVEL_FRAMEWORK_BOOTSTRAP);
@@ -157,9 +170,6 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
 
         // Get init
         String init = _configDao.getValue("init");
-
-        // Get domain suffix - needed for network creation
-        _domainSuffix = _configDao.getValue("guest.domain.suffix");
 
         if (init == null || init.equals("false")) {
             s_logger.debug("ConfigurationServer is saving default values to the database.");
@@ -220,9 +230,20 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
             }
 
             String hostIpAdr = NetUtils.getDefaultHostIp();
+            boolean needUpdateHostIp = true;
             if (hostIpAdr != null) {
-                _configDao.update(Config.ManagementHostIPAdr.key(), Config.ManagementHostIPAdr.getCategory(), hostIpAdr);
-                s_logger.debug("ConfigurationServer saved \"" + hostIpAdr + "\" as host.");
+            	Boolean devel = Boolean.valueOf(_configDao.getValue("developer"));
+            	if (devel) {
+            		String value = _configDao.getValue(Config.ManagementHostIPAdr.key());
+            		if (value != null) {
+            			needUpdateHostIp = false;
+            		}
+            	}
+               
+            	if (needUpdateHostIp) {
+            		 _configDao.update(Config.ManagementHostIPAdr.key(), Config.ManagementHostIPAdr.getCategory(), hostIpAdr);
+                     s_logger.debug("ConfigurationServer saved \"" + hostIpAdr + "\" as host.");
+            	}
             }
 
             // generate a single sign-on key
@@ -233,8 +254,6 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
 
             // Create default networks
             createDefaultNetworks();
-
-            createDefaultRegion();
 
             // Create userIpAddress ranges
 
@@ -338,9 +357,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
 
     @DB
     protected void saveUser() {
-    	//ToDo: Add regionId to default users and accounts
         // insert system account
-        String insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, domain_id, region_id) VALUES (1, UUID(), 'system', '1', '1', '1')";
+        String insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, domain_id, account.default) VALUES (1, UUID(), 'system', '1', '1', 1)";
         Transaction txn = Transaction.currentTxn();
         try {
             PreparedStatement stmt = txn.prepareAutoCloseStatement(insertSql);
@@ -348,8 +366,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         } catch (SQLException ex) {
         }
         // insert system user
-        insertSql = "INSERT INTO `cloud`.`user` (id, uuid, username, password, account_id, firstname, lastname, created, region_id)" +
-                " VALUES (1, UUID(), 'system', RAND(), 1, 'system', 'cloud', now(), '1')";
+        insertSql = "INSERT INTO `cloud`.`user` (id, uuid, username, password, account_id, firstname, lastname, created, user.default)" +
+                " VALUES (1, UUID(), 'system', RAND(), 1, 'system', 'cloud', now(), 1)";
         txn = Transaction.currentTxn();
         try {
             PreparedStatement stmt = txn.prepareAutoCloseStatement(insertSql);
@@ -365,7 +383,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         String lastname = "cloud";
 
         // create an account for the admin user first
-        insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, domain_id, region_id) VALUES (" + id + ", UUID(), '" + username + "', '1', '1', '1')";
+        insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, domain_id, account.default) VALUES (" + id + ", UUID(), '" + username + "', '1', '1', 1)";
         txn = Transaction.currentTxn();
         try {
             PreparedStatement stmt = txn.prepareAutoCloseStatement(insertSql);
@@ -374,8 +392,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         }
 
         // now insert the user
-        insertSql = "INSERT INTO `cloud`.`user` (id, uuid, username, password, account_id, firstname, lastname, created, state, region_id) " +
-                "VALUES (" + id + ", UUID(), '" + username + "', RAND(), 2, '" + firstname + "','" + lastname + "',now(), 'disabled', '1')";
+        insertSql = "INSERT INTO `cloud`.`user` (id, uuid, username, password, account_id, firstname, lastname, created, state, user.default) " +
+                "VALUES (" + id + ", UUID(), '" + username + "', RAND(), 2, '" + firstname + "','" + lastname + "',now(), 'disabled', 1)";
 
         txn = Transaction.currentTxn();
         try {
@@ -431,23 +449,13 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         }
     }
 
-    private String getBase64Keystore(String keystorePath) throws IOException {
-        byte[] storeBytes = new byte[4094];
-        int len = 0;
-        try {
-            len = new FileInputStream(keystorePath).read(storeBytes);
-        } catch (EOFException e) {
-        } catch (Exception e) {
-            throw new IOException("Cannot read the generated keystore file");
-        }
-        if (len > 3000) { // Base64 codec would enlarge data by 1/3, and we have 4094 bytes in database entry at most
-            throw new IOException("KeyStore is too big for database! Length " + len);
+    static String getBase64Keystore(String keystorePath) throws IOException {
+        byte[] storeBytes = FileUtils.readFileToByteArray(new File(keystorePath));
+        if (storeBytes.length > 3000) { // Base64 codec would enlarge data by 1/3, and we have 4094 bytes in database entry at most
+            throw new IOException("KeyStore is too big for database! Length " + storeBytes.length);
         }
 
-        byte[] encodeBytes = new byte[len];
-        System.arraycopy(storeBytes, 0, encodeBytes, 0, len);
-
-        return new String(Base64.encodeBase64(encodeBytes));
+        return new String(Base64.encodeBase64(storeBytes));
     }
 
     private void generateDefaultKeystore(String keystorePath) throws IOException {
@@ -600,8 +608,16 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
             throw new CloudRuntimeException("No home directory was detected for the user '" + username + "'. Please check the profile of this user.");
         }
 
-        File privkeyfile = new File(homeDir + "/.ssh/id_rsa");
-        File pubkeyfile = new File(homeDir + "/.ssh/id_rsa.pub");
+        // Using non-default file names (id_rsa.cloud and id_rsa.cloud.pub) in developer mode. This is to prevent SSH keys overwritten for user running management server
+        File privkeyfile = null;
+        File pubkeyfile = null;
+        if (devel) {
+            privkeyfile = new File(homeDir + "/.ssh/id_rsa.cloud");
+            pubkeyfile = new File(homeDir + "/.ssh/id_rsa.cloud.pub");
+        } else {
+            privkeyfile = new File(homeDir + "/.ssh/id_rsa");
+            pubkeyfile = new File(homeDir + "/.ssh/id_rsa.pub");
+        }
 
         if (already == null || already.isEmpty()) {
             if (s_logger.isInfoEnabled()) {
@@ -658,13 +674,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
             }
 
         } else {
-            s_logger.info("Keypairs already in database");
-            if (username.equalsIgnoreCase("cloud")) {
-                s_logger.info("Keypairs already in database, updating local copy");
-                updateKeyPairsOnDisk(homeDir);
-            } else {
-                s_logger.info("Keypairs already in database, skip updating local copy (not running as cloud user)");
-            }
+            s_logger.info("Keypairs already in database, updating local copy");
+            updateKeyPairsOnDisk(homeDir);
         }
         s_logger.info("Going to update systemvm iso with generated keypairs if needed");
         try {
@@ -674,6 +685,76 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 throw new CloudRuntimeException(e.getMessage());
             }
         }
+    }
+
+    @Override
+    public String getConfigValue(String name, String scope, Long resourceId) {
+        // If either of scope or resourceId is null then return global config value otherwise return value at the scope
+        Config c = Config.getConfig(name);
+        if (c == null) {
+            throw new CloudRuntimeException("Missing configuration variable " + name + " in configuration table");
+        }
+        String configScope = c.getScope();
+        if (scope != null && !scope.isEmpty()) {
+            if (!configScope.contains(scope)) {
+                throw new CloudRuntimeException("Invalid scope " + scope + " for the parameter " + name );
+            }
+            if (resourceId != null) {
+                switch (Config.ConfigurationParameterScope.valueOf(scope)) {
+                    case zone:      DataCenterVO zone = _zoneDao.findById(resourceId);
+                                    if (zone == null) {
+                                        throw new InvalidParameterValueException("unable to find zone by id " + resourceId);
+                                    }
+                                    DcDetailVO dcDetailVO = _dcDetailsDao.findDetail(resourceId, name);
+                                    if (dcDetailVO != null && dcDetailVO.getValue() != null) {
+                                        return dcDetailVO.getValue();
+                                    } break;
+
+                    case cluster:   ClusterVO cluster = _clusterDao.findById(resourceId);
+                                    if (cluster == null) {
+                                        throw new InvalidParameterValueException("unable to find cluster by id " + resourceId);
+                                    }
+                                    ClusterDetailsVO clusterDetailsVO = _clusterDetailsDao.findDetail(resourceId, name);
+                                    if (clusterDetailsVO != null && clusterDetailsVO.getValue() != null) {
+                                        return clusterDetailsVO.getValue();
+                                    } break;
+
+                    case storagepool:      StoragePoolVO pool = _storagePoolDao.findById(resourceId);
+                                    if (pool == null) {
+                                        throw new InvalidParameterValueException("unable to find storage pool by id " + resourceId);
+                                    }
+                                    StoragePoolDetailVO storagePoolDetailVO = _storagePoolDetailsDao.findDetail(resourceId, name);
+                                    if (storagePoolDetailVO != null && storagePoolDetailVO.getValue() != null) {
+                                        return storagePoolDetailVO.getValue();
+                                    } break;
+
+                    case account:   AccountVO account = _accountDao.findById(resourceId);
+                                    if (account == null) {
+                                        throw new InvalidParameterValueException("unable to find account by id " + resourceId);
+                                    }
+                                    AccountDetailVO accountDetailVO = _accountDetailsDao.findDetail(resourceId, name);
+                                    if (accountDetailVO != null && accountDetailVO.getValue() != null) {
+                                        return accountDetailVO.getValue();
+                                    } break;
+                    default:
+                }
+            }
+        }
+        return _configDao.getValue(name);
+    }
+
+    @Override
+    public List<ConfigurationVO> getConfigListByScope(String scope, Long resourceId) {
+
+        // Getting the list of parameters defined at the scope
+        List<Config> configList = Config.getConfigListByScope(scope);
+        List<ConfigurationVO> configVOList = new ArrayList<ConfigurationVO>();
+        for (Config param:configList){
+            ConfigurationVO configVo = _configDao.findByName(param.toString());
+            configVo.setValue(getConfigValue(param.toString(), scope, resourceId));
+            configVOList.add(configVo);
+        }
+        return configVOList;
     }
 
     private void writeKeyToDisk(String key, String keyPath) {
@@ -705,14 +786,22 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
 
     private void updateKeyPairsOnDisk(String homeDir) {
         File keyDir = new File(homeDir + "/.ssh");
+        Boolean devel = Boolean.valueOf(_configDao.getValue("developer"));
         if (!keyDir.isDirectory()) {
             s_logger.warn("Failed to create " + homeDir + "/.ssh for storing the SSH keypars");
             keyDir.mkdir();
         }
         String pubKey = _configDao.getValue("ssh.publickey");
         String prvKey = _configDao.getValue("ssh.privatekey");
-        writeKeyToDisk(prvKey, homeDir + "/.ssh/id_rsa");
-        writeKeyToDisk(pubKey, homeDir + "/.ssh/id_rsa.pub");
+
+        // Using non-default file names (id_rsa.cloud and id_rsa.cloud.pub) in developer mode. This is to prevent SSH keys overwritten for user running management server
+        if( devel ) {
+            writeKeyToDisk(prvKey, homeDir + "/.ssh/id_rsa.cloud");
+            writeKeyToDisk(pubKey, homeDir + "/.ssh/id_rsa.cloud.pub");
+        } else {
+            writeKeyToDisk(prvKey, homeDir + "/.ssh/id_rsa");
+            writeKeyToDisk(pubKey, homeDir + "/.ssh/id_rsa.pub");
+        }
     }
 
     protected void injectSshKeysIntoSystemVmIsoPatch(String publicKeyPath, String privKeyPath) {
@@ -725,7 +814,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         if (systemVmIsoPath == null) {
             throw new CloudRuntimeException("Unable to find systemvm iso vms/systemvm.iso");
         }
-        final Script command = new Script(scriptPath, s_logger);
+        final Script command = new Script("/bin/bash", s_logger);
+        command.add(scriptPath);
         command.add(publicKeyPath);
         command.add(privKeyPath);
         command.add(systemVmIsoPath);
@@ -934,7 +1024,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Shared Security group enabled networks",
                 TrafficType.Guest,
                 false, true, null, null, true, Availability.Optional,
-                null, Network.GuestType.Shared, true, true, false);
+                null, Network.GuestType.Shared, true, true, false, false, false);
 
         defaultSharedSGNetworkOffering.setState(NetworkOffering.State.Enabled);
         defaultSharedSGNetworkOffering = _networkOfferingDao.persistDefaultNetworkOffering(defaultSharedSGNetworkOffering);
@@ -951,7 +1041,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Shared networks",
                 TrafficType.Guest,
                 false, true, null, null, true, Availability.Optional,
-                null, Network.GuestType.Shared, true, true, false);
+                null, Network.GuestType.Shared, true, true, false, false, false);
 
         defaultSharedNetworkOffering.setState(NetworkOffering.State.Enabled);
         defaultSharedNetworkOffering = _networkOfferingDao.persistDefaultNetworkOffering(defaultSharedNetworkOffering);
@@ -968,7 +1058,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Isolated networks with Source Nat service enabled",
                 TrafficType.Guest,
                 false, false, null, null, true, Availability.Required,
-                null, Network.GuestType.Isolated, true, false, false);
+                null, Network.GuestType.Isolated, true, false, false, false, true);
 
         defaultIsolatedSourceNatEnabledNetworkOffering.setState(NetworkOffering.State.Enabled);
         defaultIsolatedSourceNatEnabledNetworkOffering = _networkOfferingDao.persistDefaultNetworkOffering(defaultIsolatedSourceNatEnabledNetworkOffering);
@@ -986,7 +1076,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Isolated networks with no Source Nat service",
                 TrafficType.Guest,
                 false, true, null, null, true, Availability.Optional,
-                null, Network.GuestType.Isolated, true, true, false);
+                null, Network.GuestType.Isolated, true, true, false, false, false);
 
         defaultIsolatedEnabledNetworkOffering.setState(NetworkOffering.State.Enabled);
         defaultIsolatedEnabledNetworkOffering = _networkOfferingDao.persistDefaultNetworkOffering(defaultIsolatedEnabledNetworkOffering);
@@ -1003,7 +1093,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Shared networks with Elastic IP and Elastic LB capabilities",
                 TrafficType.Guest,
                 false, true, null, null, true, Availability.Optional,
-                null, Network.GuestType.Shared, true, false, false, false, true, true, true, false, false);
+                null, Network.GuestType.Shared, true, false, false, false, true, true, true, false, false, true, true, false);
 
         defaultNetscalerNetworkOffering.setState(NetworkOffering.State.Enabled);
         defaultNetscalerNetworkOffering = _networkOfferingDao.persistDefaultNetworkOffering(defaultNetscalerNetworkOffering);
@@ -1020,7 +1110,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Isolated Vpc networks with Source Nat service enabled",
                 TrafficType.Guest,
                 false, false, null, null, true, Availability.Optional,
-                null, Network.GuestType.Isolated, false, false, false);
+                null, Network.GuestType.Isolated, false, false, false, false, true);
 
         defaultNetworkOfferingForVpcNetworks.setState(NetworkOffering.State.Enabled);
         defaultNetworkOfferingForVpcNetworks = _networkOfferingDao.persistDefaultNetworkOffering(defaultNetworkOfferingForVpcNetworks);
@@ -1050,7 +1140,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 "Offering for Isolated Vpc networks with Source Nat service enabled and LB service Disabled",
                 TrafficType.Guest,
                 false, false, null, null, true, Availability.Optional,
-                null, Network.GuestType.Isolated, false, false, false);
+                null, Network.GuestType.Isolated, false, false, false, false, false);
 
         defaultNetworkOfferingForVpcNetworksNoLB.setState(NetworkOffering.State.Enabled);
         defaultNetworkOfferingForVpcNetworksNoLB = _networkOfferingDao.persistDefaultNetworkOffering(defaultNetworkOfferingForVpcNetworksNoLB);
@@ -1270,11 +1360,6 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         }
 
         return svcProviders;
-    }
-
-    private void createDefaultRegion(){
-    	//Get Region name and URL from db.properties
-    	_regionDao.persist(new RegionVO(_regionDao.getRegionId(), "Local", "http://localhost:8080/client/api", "", ""));
     }
 
 }

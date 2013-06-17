@@ -76,8 +76,10 @@ public class CreateVolumeCmd extends BaseAsyncCreateCmd {
             description="the ID of the availability zone")
     private Long zoneId;
 
+    @Parameter(name=ApiConstants.DISPLAY_VOLUME, type=CommandType.BOOLEAN, description="an optional field, whether to display the volume to the end user or not.")
+    private Boolean displayVolume;
 
-    /////////////////////////////////////////////////////
+/////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
 
@@ -112,6 +114,10 @@ public class CreateVolumeCmd extends BaseAsyncCreateCmd {
 
     private Long getProjectId() {
         return projectId;
+    }
+
+    public Boolean getDisplayVolume() {
+        return displayVolume != null ? displayVolume : Boolean.TRUE;
     }
 
     /////////////////////////////////////////////////////
@@ -153,7 +159,7 @@ public class CreateVolumeCmd extends BaseAsyncCreateCmd {
     @Override
     public void create() throws ResourceAllocationException{
 
-        Volume volume = _storageService.allocVolume(this);
+        Volume volume = this._volumeService.allocVolume(this);
         if (volume != null) {
             this.setEntityId(volume.getId());
             this.setEntityUuid(volume.getUuid());
@@ -165,7 +171,7 @@ public class CreateVolumeCmd extends BaseAsyncCreateCmd {
     @Override
     public void execute(){
         UserContext.current().setEventDetails("Volume Id: "+getEntityId()+((getSnapshotId() == null) ? "" : " from snapshot: " + getSnapshotId()));
-        Volume volume = _storageService.createVolume(this);
+        Volume volume = _volumeService.createVolume(this);
         if (volume != null) {
             VolumeResponse response = _responseGenerator.createVolumeResponse(volume);
             //FIXME - have to be moved to ApiResponseHelper

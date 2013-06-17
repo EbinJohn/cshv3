@@ -38,6 +38,8 @@ import javax.mail.URLName;
 import javax.mail.internet.InternetAddress;
 import javax.naming.ConfigurationException;
 
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -68,9 +70,8 @@ import com.cloud.host.dao.HostDao;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.org.Grouping.AllocationState;
 import com.cloud.resource.ResourceManager;
+import com.cloud.server.ConfigurationServer;
 import com.cloud.storage.StorageManager;
-import com.cloud.storage.StoragePoolVO;
-import com.cloud.storage.dao.StoragePoolDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.component.ManagerBase;
@@ -84,6 +85,7 @@ import com.sun.mail.smtp.SMTPTransport;
 @Local(value={AlertManager.class})
 public class AlertManagerImpl extends ManagerBase implements AlertManager {
     private static final Logger s_logger = Logger.getLogger(AlertManagerImpl.class.getName());
+    private static final Logger s_alertsLogger = Logger.getLogger("org.apache.cloudstack.alerts");
 
     private static final long INITIAL_CAPACITY_CHECK_DELAY = 30L * 1000L; // thirty seconds expressed in milliseconds
 
@@ -102,10 +104,11 @@ public class AlertManagerImpl extends ManagerBase implements AlertManager {
     @Inject private VolumeDao _volumeDao;
     @Inject private IPAddressDao _publicIPAddressDao;
     @Inject private DataCenterIpAddressDao _privateIPAddressDao;
-    @Inject private StoragePoolDao _storagePoolDao;
+    @Inject private PrimaryDataStoreDao _storagePoolDao;
     @Inject private ConfigurationDao _configDao;
     @Inject private ResourceManager _resourceMgr;
-    @Inject private ConfigurationManager _configMgr;   
+    @Inject private ConfigurationManager _configMgr;
+    @Inject ConfigurationServer _configServer;
     private Timer _timer = null;
     private float _cpuOverProvisioningFactor = 1;
     private long _capacityCheckPeriod = 60L * 60L * 1000L; // one hour by default
@@ -256,6 +259,9 @@ public class AlertManagerImpl extends ManagerBase implements AlertManager {
         try {
             if (_emailAlert != null) {
                 _emailAlert.sendAlert(alertType, dataCenterId, podId, null, subject, body);
+            } else {
+                s_alertsLogger.warn(" alertType:: " + alertType + " // dataCenterId:: " + dataCenterId + " // podId:: "
+                    + podId + " // clusterId:: " + null + " // message:: " + subject );
             }
         } catch (Exception ex) {
             s_logger.error("Problem sending email alert", ex);
@@ -558,19 +564,33 @@ public class AlertManagerImpl extends ManagerBase implements AlertManager {
                 float overProvFactor = 1f;
                 capacity = _capacityDao.findCapacityBy(capacityType.intValue(), cluster.getDataCenterId(), null, cluster.getId());
 
-                if (capacityType == Capacity.CAPACITY_TYPE_STORAGE){
-                    capacity.add(getUsedStats(capacityType, cluster.getDataCenterId(), cluster.getPodId(), cluster.getId()));
+                // cpu and memory allocated capacity notification threshold can be defined at cluster level, so getting the value if they are defined at cluster level
+                double capacityValue = 0;
+                switch (capacityType) {
+                    case Capacity.CAPACITY_TYPE_STORAGE:
+                        capacity.add(getUsedStats(capacityType, cluster.getDataCenterId(), cluster.getPodId(), cluster.getId()));
+                        capacityValue = Double.parseDouble(_configServer.getConfigValue(Config.StorageCapacityThreshold.key(), Config.ConfigurationParameterScope.cluster.toString(), cluster.getId()));
+                        break;
+                    case Capacity.CAPACITY_TYPE_STORAGE_ALLOCATED:
+                        capacityValue = Double.parseDouble(_configServer.getConfigValue(Config.StorageAllocatedCapacityThreshold.key(), Config.ConfigurationParameterScope.cluster.toString(), cluster.getId()));
+                        break;
+                    case Capacity.CAPACITY_TYPE_CPU:
+                        overProvFactor = ApiDBUtils.getCpuOverprovisioningFactor();
+                        capacityValue = Double.parseDouble(_configServer.getConfigValue(Config.CPUCapacityThreshold.key(), Config.ConfigurationParameterScope.cluster.toString(), cluster.getId()));
+                        break;
+                    case Capacity.CAPACITY_TYPE_MEMORY:
+                        capacityValue = Double.parseDouble(_configServer.getConfigValue(Config.MemoryCapacityThreshold.key(), Config.ConfigurationParameterScope.cluster.toString(), cluster.getId()));
+                        break;
+                    default:
+                        capacityValue = _capacityTypeThresholdMap.get(capacityType);
                 }
                 if (capacity == null || capacity.size() == 0){
                     continue;
-                }        		
-                if (capacityType == Capacity.CAPACITY_TYPE_CPU){
-                    overProvFactor = ApiDBUtils.getCpuOverprovisioningFactor();
                 }
 
                 double totalCapacity = capacity.get(0).getTotalCapacity() * overProvFactor; 
                 double usedCapacity =  capacity.get(0).getUsedCapacity() + capacity.get(0).getReservedCapacity();
-                if (totalCapacity != 0 && usedCapacity/totalCapacity > _capacityTypeThresholdMap.get(capacityType)){
+                if (totalCapacity != 0 && usedCapacity/totalCapacity > capacityValue){
                     generateEmailAlert(ApiDBUtils.findZoneById(cluster.getDataCenterId()), ApiDBUtils.findPodById(cluster.getPodId()), cluster,
                             totalCapacity, usedCapacity, capacityType);
                 }
@@ -789,6 +809,8 @@ public class AlertManagerImpl extends ManagerBase implements AlertManager {
 
         // TODO:  make sure this handles SSL transport (useAuth is true) and regular
         public void sendAlert(short alertType, long dataCenterId, Long podId, Long clusterId, String subject, String content) throws MessagingException, UnsupportedEncodingException {
+            s_alertsLogger.warn(" alertType:: " + alertType + " // dataCenterId:: " + dataCenterId + " // podId:: " +
+                podId + " // clusterId:: " + null + " // message:: " + subject);
             AlertVO alert = null;
             if ((alertType != AlertManager.ALERT_TYPE_HOST) &&
                     (alertType != AlertManager.ALERT_TYPE_USERVM) &&
@@ -796,7 +818,8 @@ public class AlertManagerImpl extends ManagerBase implements AlertManager {
                     (alertType != AlertManager.ALERT_TYPE_CONSOLE_PROXY) &&
                     (alertType != AlertManager.ALERT_TYPE_SSVM) &&
                     (alertType != AlertManager.ALERT_TYPE_STORAGE_MISC) &&
-                    (alertType != AlertManager.ALERT_TYPE_MANAGMENT_NODE)) {
+                    (alertType != AlertManager.ALERT_TYPE_MANAGMENT_NODE) &&
+                    (alertType != AlertManager.ALERT_TYPE_RESOURCE_LIMIT_EXCEEDED)) {
                 alert = _alertDao.getLastAlert(alertType, dataCenterId, podId, clusterId);
             }
 

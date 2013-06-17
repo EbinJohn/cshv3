@@ -29,11 +29,14 @@ import javax.inject.Inject;
 
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.network.ExternalNetworkDeviceManager.NetworkDevice;
+import org.apache.cloudstack.region.gslb.GslbServiceProvider;
 import org.apache.log4j.Logger;
-import org.springframework.stereotype.Component;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
+import com.cloud.agent.api.routing.GlobalLoadBalancerConfigCommand;
+import com.cloud.agent.api.routing.HealthCheckLBConfigAnswer;
+import com.cloud.agent.api.routing.HealthCheckLBConfigCommand;
 import com.cloud.agent.api.routing.LoadBalancerConfigCommand;
 import com.cloud.agent.api.routing.SetStaticNatRulesAnswer;
 import com.cloud.agent.api.routing.SetStaticNatRulesCommand;
@@ -82,6 +85,7 @@ import com.cloud.network.as.AutoScaleCounter;
 import com.cloud.network.as.AutoScaleCounter.AutoScaleCounterType;
 import com.cloud.network.dao.ExternalLoadBalancerDeviceDao;
 import com.cloud.network.dao.ExternalLoadBalancerDeviceVO;
+import com.cloud.network.dao.ExternalLoadBalancerDeviceVO.LBDeviceState;
 import com.cloud.network.dao.NetScalerPodDao;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkExternalLoadBalancerDao;
@@ -90,15 +94,17 @@ import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
-import com.cloud.network.dao.ExternalLoadBalancerDeviceVO.LBDeviceState;
 import com.cloud.network.lb.LoadBalancingRule;
 import com.cloud.network.lb.LoadBalancingRule.LbDestination;
 import com.cloud.network.resource.NetscalerResource;
 import com.cloud.network.rules.FirewallRule;
-import com.cloud.network.rules.FirewallRule.Purpose;
 import com.cloud.network.rules.LbStickinessMethod;
 import com.cloud.network.rules.LbStickinessMethod.StickinessMethodType;
+import com.cloud.network.rules.LoadBalancerContainer;
 import com.cloud.network.rules.StaticNat;
+import com.cloud.network.vpc.PrivateGateway;
+import com.cloud.network.vpc.StaticRouteProfile;
+import com.cloud.network.vpc.Vpc;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.db.DB;
@@ -111,9 +117,10 @@ import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineProfile;
 import com.google.gson.Gson;
 
-@Local(value = {NetworkElement.class, StaticNatServiceProvider.class, LoadBalancingServiceProvider.class})
-public class NetscalerElement extends ExternalLoadBalancerDeviceManagerImpl implements LoadBalancingServiceProvider, NetscalerLoadBalancerElementService, ExternalLoadBalancerDeviceManager, IpDeployer,
-StaticNatServiceProvider {
+@Local(value = {NetworkElement.class, StaticNatServiceProvider.class, LoadBalancingServiceProvider.class, GslbServiceProvider.class})
+public class NetscalerElement extends ExternalLoadBalancerDeviceManagerImpl implements LoadBalancingServiceProvider,
+        NetscalerLoadBalancerElementService, ExternalLoadBalancerDeviceManager, IpDeployer, StaticNatServiceProvider,
+        GslbServiceProvider {
 
     private static final Logger s_logger = Logger.getLogger(NetscalerElement.class);
     public static final AutoScaleCounterType AutoScaleCounterSnmp = new AutoScaleCounterType("snmp");
@@ -149,10 +156,13 @@ StaticNatServiceProvider {
     NetScalerPodDao _netscalerPodDao;
     @Inject
     DataCenterIpAddressDao _privateIpAddressDao;
+    @Inject
+    ExternalLoadBalancerDeviceDao _externalLoadBalancerDeviceDao;
 
     private boolean canHandle(Network config, Service service) {
         DataCenter zone = _dcDao.findById(config.getDataCenterId());
-        boolean handleInAdvanceZone = (zone.getNetworkType() == NetworkType.Advanced && config.getGuestType() == Network.GuestType.Isolated && config.getTrafficType() == TrafficType.Guest);
+        boolean handleInAdvanceZone = (zone.getNetworkType() == NetworkType.Advanced &&
+                (config.getGuestType() == Network.GuestType.Isolated || config.getGuestType() == Network.GuestType.Shared) && config.getTrafficType() == TrafficType.Guest);
         boolean handleInBasicZone = (zone.getNetworkType() == NetworkType.Basic && config.getGuestType() == Network.GuestType.Shared && config.getTrafficType() == TrafficType.Guest);
 
         if (!(handleInAdvanceZone || handleInBasicZone)) {
@@ -229,6 +239,10 @@ StaticNatServiceProvider {
         if (!canHandle(config, Service.Lb)) {
             return false;
         }
+        
+        if (!canHandleLbRules(rules)) {
+            return false;
+        }
 
         if (isBasicZoneNetwok(config)) {
             return applyElasticLoadBalancerRules(config, rules);
@@ -259,6 +273,9 @@ StaticNatServiceProvider {
         // Specifies that load balancing rules can only be made with public IPs that aren't source NAT IPs
         lbCapabilities.put(Capability.LoadBalancingSupportedIps, "additional");
 
+        // Supports only Public load balancing
+        lbCapabilities.put(Capability.LbSchemes, LoadBalancerContainer.Scheme.Public.toString());
+        
         // Specifies that load balancing rules can support autoscaling and the list of counters it supports
         AutoScaleCounter counter;
         List<AutoScaleCounter> counterList = new ArrayList<AutoScaleCounter>();
@@ -292,7 +309,8 @@ StaticNatServiceProvider {
         lbCapabilities.put(Capability.SupportedStickinessMethods, stickyMethodList);
 
         lbCapabilities.put(Capability.ElasticLb, "true");
-
+        //Setting HealthCheck Capability to True for Netscaler element
+        lbCapabilities.put(Capability.HealthCheckPolicy, "true");
         capabilities.put(Service.Lb, lbCapabilities);
 
         Map<Capability, String> staticNatCapabilities = new HashMap<Capability, String>();
@@ -335,7 +353,26 @@ StaticNatServiceProvider {
             throw new InvalidParameterValueException(msg);
         }
 
-        ExternalLoadBalancerDeviceVO lbDeviceVO = addExternalLoadBalancer(cmd.getPhysicalNetworkId(), cmd.getUrl(), cmd.getUsername(), cmd.getPassword(), deviceName, new NetscalerResource());
+        if (cmd.isGslbProvider()) {
+
+            if (!deviceName.equals(NetworkDevice.NetscalerVPXLoadBalancer.getName()) &&
+                    !deviceName.equals(NetworkDevice.NetscalerMPXLoadBalancer.getName())) {
+                String msg = "Only Netscaler VPX or MPX load balancers can be specified as GSLB service provider";
+                s_logger.debug(msg);
+                throw new InvalidParameterValueException(msg);
+            }
+
+            if (cmd.getSitePublicIp() == null || cmd.getSitePrivateIp() == null) {
+                String msg = "Public and Privae IP needs to provided for NetScaler that will be GSLB provider";
+                s_logger.debug(msg);
+                throw new InvalidParameterValueException(msg);
+            }
+        }
+
+        ExternalLoadBalancerDeviceVO lbDeviceVO = addExternalLoadBalancer(cmd.getPhysicalNetworkId(), cmd.getUrl(),
+                cmd.getUsername(), cmd.getPassword(), deviceName, new NetscalerResource(), cmd.isGslbProvider(),
+                cmd.getSitePublicIp(), cmd.getSitePrivateIp());
+
         return lbDeviceVO;
     }
 
@@ -552,6 +589,10 @@ StaticNatServiceProvider {
         response.setDeviceState(lbDeviceVO.getState().name());
         response.setObjectName("netscalerloadbalancer");
 
+        response.setGslbProvider(lbDeviceVO.getGslbProvider());
+        response.setGslbSitePublicIp(lbDeviceVO.getGslbSitePublicIP());
+        response.setGslbSitePrivateIp(lbDeviceVO.getGslbSitePrivateIP());
+
         List<Long> associatedPods = new ArrayList<Long>();
         List<NetScalerPodVO> currentPodVOs = _netscalerPodDao.listByNetScalerDeviceId(lbDeviceVO.getId());
         if (currentPodVOs != null && currentPodVOs.size() > 0) {
@@ -638,25 +679,15 @@ StaticNatServiceProvider {
 
     @Override
     public IpDeployer getIpDeployer(Network network) {
-        ExternalLoadBalancerDeviceVO lbDevice = getExternalLoadBalancerForNetwork(network);
-        if (lbDevice == null) {
-            s_logger.error("Cannot find external load balanacer for network " + network.getName());
-            return null;
-        }
+
         if (_networkMgr.isNetworkInlineMode(network)) {
             return getIpDeployerForInlineMode(network);
         }
+
         return this;
     }
 
-    public boolean applyElasticLoadBalancerRules(Network network, List<? extends FirewallRule> rules) throws ResourceUnavailableException {
-
-        List<LoadBalancingRule> loadBalancingRules = new ArrayList<LoadBalancingRule>();
-        for (FirewallRule rule : rules) {
-            if (rule.getPurpose().equals(Purpose.LoadBalancing)) {
-                loadBalancingRules.add((LoadBalancingRule) rule);
-            }
-        }
+    public boolean applyElasticLoadBalancerRules(Network network, List<LoadBalancingRule> loadBalancingRules) throws ResourceUnavailableException {
 
         if (loadBalancingRules == null || loadBalancingRules.isEmpty()) {
             return true;
@@ -687,12 +718,12 @@ StaticNatServiceProvider {
             String protocol = rule.getProtocol();
             String algorithm = rule.getAlgorithm();
             String lbUuid = rule.getUuid();
-            String srcIp = _networkMgr.getIp(rule.getSourceIpAddressId()).getAddress().addr();
+            String srcIp = rule.getSourceIp().addr();
             int srcPort = rule.getSourcePortStart();
             List<LbDestination> destinations = rule.getDestinations();
 
             if ((destinations != null && !destinations.isEmpty()) || rule.isAutoScaleConfig()) {
-                LoadBalancerTO loadBalancer = new LoadBalancerTO(lbUuid, srcIp, srcPort, protocol, algorithm, revoked, false, false, destinations, rule.getStickinessPolicies());
+                LoadBalancerTO loadBalancer = new LoadBalancerTO(lbUuid, srcIp, srcPort, protocol, algorithm, revoked, false, false, destinations, rule.getStickinessPolicies(), rule.getHealthCheckPolicies());
                 if (rule.isAutoScaleConfig()) {
                     loadBalancer.setAutoScaleVmGroup(rule.getAutoScaleVmGroup());
                 }
@@ -817,4 +848,172 @@ StaticNatServiceProvider {
         }
         return null;
     }
+
+    public List<LoadBalancerTO> getElasticLBRulesHealthCheck(Network network, List<LoadBalancingRule> loadBalancingRules)
+            throws ResourceUnavailableException {
+
+        HealthCheckLBConfigAnswer answer = null;
+
+        if (loadBalancingRules == null || loadBalancingRules.isEmpty()) {
+            return null;
+        }
+
+        String errMsg = null;
+        ExternalLoadBalancerDeviceVO lbDeviceVO = getExternalLoadBalancerForNetwork(network);
+
+        if (lbDeviceVO == null) {
+            s_logger.warn("There is no external load balancer device assigned to this network either network is not implement are already shutdown so just returning");
+            return null;
+        }
+
+        if (!isNetscalerDevice(lbDeviceVO.getDeviceName())) {
+            errMsg = "There are no NetScaler load balancer assigned for this network. So NetScaler element can not be handle elastic load balancer rules.";
+            s_logger.error(errMsg);
+            throw new ResourceUnavailableException(errMsg, this.getClass(), 0);
+        }
+
+        List<LoadBalancerTO> loadBalancersToApply = new ArrayList<LoadBalancerTO>();
+        for (int i = 0; i < loadBalancingRules.size(); i++) {
+            LoadBalancingRule rule = loadBalancingRules.get(i);
+            boolean revoked = (rule.getState().equals(FirewallRule.State.Revoke));
+            String protocol = rule.getProtocol();
+            String algorithm = rule.getAlgorithm();
+            String lbUuid = rule.getUuid();
+            String srcIp = rule.getSourceIp().addr();
+            int srcPort = rule.getSourcePortStart();
+            List<LbDestination> destinations = rule.getDestinations();
+
+            if ((destinations != null && !destinations.isEmpty()) || rule.isAutoScaleConfig()) {
+                LoadBalancerTO loadBalancer = new LoadBalancerTO(lbUuid, srcIp, srcPort, protocol, algorithm, revoked,
+                        false, false, destinations, null, rule.getHealthCheckPolicies());
+                loadBalancersToApply.add(loadBalancer);
+            }
+        }
+
+        if (loadBalancersToApply.size() > 0) {
+            int numLoadBalancersForCommand = loadBalancersToApply.size();
+            LoadBalancerTO[] loadBalancersForCommand = loadBalancersToApply
+                    .toArray(new LoadBalancerTO[numLoadBalancersForCommand]);
+            HealthCheckLBConfigCommand cmd = new HealthCheckLBConfigCommand(loadBalancersForCommand);
+            HostVO externalLoadBalancer = _hostDao.findById(lbDeviceVO.getHostId());
+            answer = (HealthCheckLBConfigAnswer) _agentMgr.easySend(externalLoadBalancer.getId(), cmd);
+            return answer.getLoadBalancers();
+        }
+        return null;
+    }
+
+    public List<LoadBalancerTO> updateHealthChecks(Network network, List<LoadBalancingRule> lbrules) {
+
+        if (canHandle(network, Service.Lb) && canHandleLbRules(lbrules)) {
+            try {
+
+                if (isBasicZoneNetwok(network)) {
+                    return getElasticLBRulesHealthCheck(network, lbrules);
+                } else {
+                    return getLBHealthChecks(network, lbrules);
+                }
+            } catch (ResourceUnavailableException e) {
+                s_logger.error("Error in getting the LB Rules from NetScaler " + e);
+            }
+        } else {
+            s_logger.error("Network cannot handle to LB service ");
+        }
+        return null;
+    }
+
+    public List<LoadBalancerTO> getLBHealthChecks(Network network, List<LoadBalancingRule> rules)
+            throws ResourceUnavailableException {
+        return super.getLBHealthChecks(network, rules);
+    }
+
+    @Override
+    public boolean applyGlobalLoadBalancerRule(long zoneId, long physicalNetworkId, GlobalLoadBalancerConfigCommand gslbConfigCmd)
+            throws ResourceUnavailableException {
+
+        long zoneGslbProviderHosId = 0;
+
+        // find the NetScaler device configured as gslb service provider in the zone
+        ExternalLoadBalancerDeviceVO nsGslbProvider = findGslbProvider(zoneId, physicalNetworkId);
+        if (nsGslbProvider == null) {
+            String msg = "Unable to find a NetScaler configured as gslb service provider in zone " + zoneId;
+            s_logger.debug(msg);
+            throw new ResourceUnavailableException(msg, DataCenter.class, zoneId);
+        }
+
+        // get the host Id corresponding to NetScaler acting as GSLB service provider in the zone
+        zoneGslbProviderHosId =  nsGslbProvider.getHostId();
+
+        // send gslb configuration to NetScaler device
+        Answer answer = _agentMgr.easySend(zoneGslbProviderHosId, gslbConfigCmd);
+        if (answer == null || !answer.getResult()) {
+            String msg = "Unable to apply global load balancer rule to the gslb service provider in zone " + zoneId;
+            s_logger.debug(msg);
+            throw new ResourceUnavailableException(msg, DataCenter.class, zoneId);
+        }
+
+        return true;
+    }
+
+    private ExternalLoadBalancerDeviceVO findGslbProvider(long zoneId, long physicalNetworkId) {
+        List<PhysicalNetworkVO> pNtwks = _physicalNetworkDao.listByZoneAndTrafficType(zoneId, TrafficType.Guest);
+
+        if (pNtwks == null || pNtwks.isEmpty()) {
+            throw new InvalidParameterValueException("Unable to get physical network: " + physicalNetworkId +
+                    " in zone id = " + zoneId);
+        } else {
+            for (PhysicalNetwork physicalNetwork : pNtwks) {
+                if (physicalNetwork.getId() == physicalNetworkId) {
+                    PhysicalNetworkVO physNetwork = pNtwks.get(0);
+                    ExternalLoadBalancerDeviceVO nsGslbProvider = _externalLoadBalancerDeviceDao.findGslbServiceProvider(
+                            physNetwork.getId(), Provider.Netscaler.getName());
+                    return nsGslbProvider;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    public boolean isServiceEnabledInZone(long zoneId, long physicalNetworkId) {
+
+        ExternalLoadBalancerDeviceVO nsGslbProvider = findGslbProvider(zoneId, physicalNetworkId);
+        //return true if a NetScaler device is configured in the zone
+        return (nsGslbProvider != null);
+    }
+
+    @Override
+    public String getZoneGslbProviderPublicIp(long zoneId, long physicalNetworkId) {
+        ExternalLoadBalancerDeviceVO nsGslbProvider = findGslbProvider(zoneId, physicalNetworkId);
+        if (nsGslbProvider != null) {
+            return nsGslbProvider.getGslbSitePublicIP();
+        }
+        return null;
+    }
+
+    @Override
+    public String getZoneGslbProviderPrivateIp(long zoneId, long physicalNetworkId) {
+        ExternalLoadBalancerDeviceVO nsGslbProvider = findGslbProvider(zoneId, physicalNetworkId);
+        if (nsGslbProvider != null) {
+            return nsGslbProvider.getGslbSitePrivateIP();
+        }
+        return null;
+    }
+    
+    private boolean canHandleLbRules(List<LoadBalancingRule> rules) {
+        Map<Capability, String> lbCaps = this.getCapabilities().get(Service.Lb);
+        if (!lbCaps.isEmpty()) {
+            String schemeCaps = lbCaps.get(Capability.LbSchemes);
+            if (schemeCaps != null) {
+                for (LoadBalancingRule rule : rules) {
+                    if (!schemeCaps.contains(rule.getScheme().toString())) {
+                        s_logger.debug("Scheme " + rules.get(0).getScheme() + " is not supported by the provider " + this.getName());
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
 }

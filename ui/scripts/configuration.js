@@ -136,6 +136,46 @@
                     isChecked: true,
                     docID: 'helpComputeOfferingPublic'
                   },
+
+                   isVolatile:{
+                     label:'isVolatile',
+                     isBoolean:true,
+                     isChecked:false
+
+                   },
+
+                  deploymentPlanner:{
+                    label:'Deployment Planner',
+                    select:function(args){
+                      $.ajax({
+                           url:createURL('listDeploymentPlanners'),
+                           dataType:'json',
+                           success:function(json){
+                              var items=[{id: '', description: ''}];
+                               var plannerObjs = json.listdeploymentplannersresponse.deploymentPlanner;
+                          $(plannerObjs).each(function(){
+                            items.push({id: this.name, description: this.name});
+                          });
+                          args.response.success({data: items});
+
+
+                            }
+                      });
+                     }
+                  },
+
+                 // plannerKey:{label:'Planner Key' , docID:'helpImplicitPlannerKey'},
+                  plannerMode:{
+                    label:'Planner Mode',
+                    select:function(args){
+                       var items=[];
+                       items.push({id:'',description:''});
+                       items.push({id:'Strict', description:'Strict'});
+                       items.push({id:'Preferred', description:'Preferred'});
+                       args.response.success({data:items});
+                    }
+                  },
+
                   domainId: {
                     label: 'label.domain',
                     docID: 'helpComputeOfferingDomain',
@@ -168,9 +208,20 @@
 									storageType: args.data.storageType,
 									cpuNumber: args.data.cpuNumber,
 									cpuSpeed: args.data.cpuSpeed,
-									memory: args.data.memory
-								};															
-               
+									memory: args.data.memory 
+								};	
+                
+                if(args.data.deploymentPlanner != null && args.data.deploymentPlanner.length > 0) {
+                  $.extend(data, {
+                    deploymentplanner: args.data.deploymentPlanner
+                  });
+                }
+                
+                var array1 =[];
+                   if(args.data.deploymentPlanner == "ImplicitDedicationPlanner" && args.data.plannerMode != ""){
+                       array1.push("&serviceofferingdetails[0].ImplicitDedicationMode" +  "=" + args.data.plannerMode);
+                 }
+
                 if(args.data.networkRate != null && args.data.networkRate.length > 0) {
 								  $.extend(data, {
 									  networkrate: args.data.networkRate
@@ -196,6 +247,10 @@
 								$.extend(data, {
 								  limitcpuuse: (args.data.cpuCap == "on")
 								});
+      
+                 $.extend(data, {
+                  isvolatile: (args.data.isVolatile == "on")
+                });
                 
                 if(args.$form.find('.form-item[rel=domainId]').css("display") != "none") {
 								  $.extend(data, {
@@ -204,7 +259,7 @@
 								}
 
                 $.ajax({
-                  url: createURL('createServiceOffering'),
+                  url: createURL('createServiceOffering' + array1.join("")),
                   data: data,                 
                   success: function(json) {
                     var item = json.createserviceofferingresponse.serviceoffering;
@@ -349,6 +404,8 @@
                       label: 'label.CPU.cap',
                       converter: cloudStack.converters.toBooleanText
                     },
+                    isvolatile:{ label:'Volatile' , converter: cloudStack.converters.toBooleanText },
+                    deploymentplanner:{label:'Deployment Planner'},
                     tags: { label: 'label.storage.tags' },
                     hosttags: { label: 'label.host.tags' },
                     domain: { label: 'label.domain' },
@@ -1109,7 +1166,8 @@
                 title: 'label.add.network.offering',               														
 								preFilter: function(args) {								  									
                   var $availability = args.$form.find('.form-item[rel=availability]');
-                  var $serviceOfferingId = args.$form.find('.form-item[rel=serviceOfferingId]');									
+                  var $lbType = args.$form.find('.form-item[rel=lbType]');  
+                  var $systemOfferingForRouter = args.$form.find('.form-item[rel=systemOfferingForRouter]');									
 									var $conservemode = args.$form.find('.form-item[rel=conservemode]');										
                   var $serviceSourceNatRedundantRouterCapabilityCheckbox = args.$form.find('.form-item[rel="service.SourceNat.redundantRouterCapabilityCheckbox"]');	                  		
                   var hasAdvancedZones = false;
@@ -1134,20 +1192,50 @@
 									  //check whether to show or hide availability field
                     var $sourceNATField = args.$form.find('input[name=\"service.SourceNat.isEnabled\"]');
                     var $guestTypeField = args.$form.find('select[name=guestIpType]');
-                    											
+                    
+                    //*** VPC checkbox ***
+                    var $useVpc = args.$form.find('.form-item[rel=\"useVpc\"]');
+                    var $useVpcCb = $useVpc.find("input[type=checkbox]");
                     if($guestTypeField.val() == 'Shared') { //Shared network offering
-                      args.$form.find('.form-item[rel=\"useVpc\"]').hide();
-																						
-											var $useVpcCb = args.$form.find('.form-item[rel=\"useVpc\"]').find("input[type=checkbox]");
-											if($useVpcCb.is(':checked')) { //if useVpc is checked,											  
-												$useVpcCb.removeAttr("checked");  //remove "checked" attribute in useVpc
-												$useVpcCb.trigger("click");  //trigger useVpc.onChange()
+                      $useVpc.hide();											
+											if($useVpcCb.is(':checked')) { //if useVpc is checked,												  
+												$useVpcCb.removeAttr("checked");  //remove "checked" attribute in useVpc												
 											}
 										}
 										else { //Isolated network offering 
-                      args.$form.find('.form-item[rel=\"useVpc\"]').css('display', 'inline-block');
-										}
-										
+										  $useVpc.css('display', 'inline-block');
+										}										                    
+                    var $providers = $useVpcCb.closest('form').find('.dynamic-input select');                     
+                    var $optionsOfProviders = $providers.find('option');                   
+                    //p.s. Netscaler is supported in both vpc and non-vpc                    
+                    if ($useVpc.is(':visible') && $useVpcCb.is(':checked')) { //*** vpc ***                      
+                      $optionsOfProviders.each(function(index) {                         
+                        if($(this).val() == 'InternalLbVm' || $(this).val() == 'VpcVirtualRouter' || $(this).val() == 'Netscaler') {
+                          $(this).attr('disabled', false);
+                        }
+                        else {
+                          $(this).attr('disabled', true);
+                        }
+                      });     
+                    } 
+                    else { //*** non-vpc ***                      
+                      $optionsOfProviders.each(function(index) {                          
+                        if($(this).val() == 'InternalLbVm' || $(this).val() == 'VpcVirtualRouter') { 
+                          $(this).attr('disabled', true);
+                        }
+                        else {
+                          $(this).attr('disabled', false);
+                        }
+                      });                                              
+                    }                    
+                    $providers.each(function() {  
+                      //if selected option is disabled, select the first enabled option instead
+                      if($(this).find('option:selected:disabled').length > 0) {                        
+                        $(this).val($(this).find('option:first'));
+                      }
+                    });
+                                      
+                    
 											
                     if (!requiredNetworkOfferingExists &&
                         $sourceNATField.is(':checked') &&
@@ -1157,7 +1245,59 @@
                       $availability.hide();
                     }
 
-										
+                    
+                    //*** LB providers ***
+                    var $lbProvider = args.$form.find('.form-item[rel=\"service.Lb.provider\"]').find('select');
+                    var $lbProviderOptions = $lbProvider.find('option');
+										//when useVpc is checked and service.Lb.isEnabled is checked                    
+                    if($useVpcCb.is(':checked') && $("input[name='service.Lb.isEnabled']").is(":checked") == true) {  
+                      $lbType.css('display', 'inline-block');   
+                                                                                                         
+                      if($lbType.find('select').val() == 'publicLb') { //disable all providers except the ones in lbProviderMap.publicLb.vpc => ["VpcVirtualRouter", "Netscaler"] 
+                        for(var i = 0; i < $lbProviderOptions.length; i++ ) {
+                          var $option = $lbProviderOptions.eq(i);                           
+                          var supportedProviders = lbProviderMap.publicLb.vpc;                            
+                          var thisOpionIsSupported = false;
+                          for(var k = 0; k < supportedProviders.length; k++ ) {
+                            if($option.val() == supportedProviders[k]) {
+                              thisOpionIsSupported = true;
+                              break;
+                            }                               
+                          }   
+                          if(thisOpionIsSupported == true) {
+                            $option.attr('disabled', false);
+                          }
+                          else {
+                            $option.attr('disabled', true);
+                          }                            
+                        }                                                    
+                      }                          
+                      else if($lbType.find('select').val() == 'internalLb') { //disable all providers except the ones in lbProviderMap.internalLb.vpc => ["InternalLbVm"]
+                        for(var i = 0; i < $lbProviderOptions.length; i++ ) {
+                          var $option = $lbProviderOptions.eq(i);                           
+                          var supportedProviders = lbProviderMap.internalLb.vpc;                            
+                          var thisOpionIsSupported = false;                            
+                          for(var k = 0; k < supportedProviders.length; k++ ) {
+                            if($option.val() == supportedProviders[k]) {
+                              thisOpionIsSupported = true;
+                              break;
+                            }                               
+                          }  
+                          if(thisOpionIsSupported == true) {
+                            $option.attr('disabled', false);
+                          }
+                          else {
+                            $option.attr('disabled', true);
+                          }                            
+                        }                             
+                      }     
+                      
+                      $lbProvider.val($lbProvider.find('option:first'));     
+                    }
+                    else {
+                      $lbType.hide();                      
+                    }
+                    
 										//when service(s) has Virtual Router as provider.....							
                     var havingVirtualRouterForAtLeastOneService = false;									
 										$(serviceCheckboxNames).each(function(){										  
@@ -1172,10 +1312,10 @@
 											}																					
 										});                    
                     if(havingVirtualRouterForAtLeastOneService == true) {
-                      $serviceOfferingId.css('display', 'inline-block');
+                      $systemOfferingForRouter.css('display', 'inline-block');
 										}
                     else {
-                      $serviceOfferingId.hide();		
+                      $systemOfferingForRouter.hide();		
 										}
 
 										
@@ -1197,7 +1337,7 @@
 												}
 											}																					
 										});   
-										if(havingVpcVirtualRouterForAtLeastOneService == true || $guestTypeField.val() == 'Shared') {			
+										if(havingVpcVirtualRouterForAtLeastOneService == true ) {			
 										  $conservemode.find("input[type=checkbox]").attr("disabled", "disabled"); 
                       $conservemode.find("input[type=checkbox]").attr('checked', false);	
 										
@@ -1413,25 +1553,20 @@
                   useVpc: {
                     label: 'VPC',
                     docID: 'helpNetworkOfferingVPC',
-                    isBoolean: true,
-                    onChange: function(args) {
-                      var $checkbox = args.$checkbox;
-                      var $selects = $checkbox.closest('form').find('.dynamic-input select');
-                      var $vpcOptions = $selects.find('option[value=VpcVirtualRouter]');
-                     
-                      if ($checkbox.is(':checked')) {
-                        $vpcOptions.siblings().attr('disabled', true);
-                        $selects.val('VpcVirtualRouter');
-                      } else {
-                        $vpcOptions.siblings().attr('disabled', false);
-                        $vpcOptions.attr('disabled', true);
-                        $selects.each(function() {
-                          $(this).val($(this).find('option:first'));
-                        });
-                      }
+                    isBoolean: true                    
+                  },
+					                  
+                  lbType: { //only shown when VPC is checked and LB service is checked
+                    label: 'Load Balancer Type', 
+                    isHidden: true,
+                    select: function(args) {
+                      args.response.success({data: [
+                        {id: 'publicLb', description: 'Public LB'}, 
+                        {id: 'internalLb', description: 'Internal LB'}
+                      ]});                       
                     }
                   },
-								
+                                    
                   supportedServices: {
                     label: 'label.supported.services',
 
@@ -1556,8 +1691,9 @@
                   },
 
 									//show or hide upon checked services and selected providers above (begin)
-                  serviceOfferingId: {
-                    label: 'label.system.offering',
+                  systemOfferingForRouter: {
+                    label: 'System Offering for Router',
+                    isHidden: true,
                     docID: 'helpNetworkOfferingSystemOffering',
                     select: function(args) {
                       $.ajax({
@@ -1603,9 +1739,9 @@
                     dependsOn: 'service.SourceNat.isEnabled',
                     select: function(args) {
                       args.response.success({
-                        data: [                          
-                          { id: 'perzone', description: 'Per zone'},
-													{ id: 'peraccount', description: 'Per account'}
+                        data: [     
+													{ id: 'peraccount', description: 'Per account'},
+													{ id: 'perzone', description: 'Per zone'}
                         ]
                       });
                     }
@@ -1735,7 +1871,13 @@
 											inputData['servicecapabilitylist[' + serviceCapabilityIndex + '].capabilitytype'] = 'associatePublicIP'; 
 											inputData['servicecapabilitylist[' + serviceCapabilityIndex + '].capabilityvalue'] = true; //because this checkbox's value == "on"
 											serviceCapabilityIndex++;
-										} 		
+										} 	
+                    else if((key == 'service.Lb.provider') && ("Lb" in serviceProviderMap) && (serviceProviderMap.Lb  == "InternalLbVm")) {                    
+                      inputData['servicecapabilitylist[' + serviceCapabilityIndex + '].service'] = 'lb';
+                      inputData['servicecapabilitylist[' + serviceCapabilityIndex + '].capabilitytype'] = 'lbSchemes';
+                      inputData['servicecapabilitylist[' + serviceCapabilityIndex + '].capabilityvalue'] = 'internal';
+                      serviceCapabilityIndex++;
+                    }
                   } 									
 									else if (value != '') { // Normal data
                     inputData[key] = value;
@@ -1775,26 +1917,22 @@
                                                                         inputData['isPersistent'] = false;
 								}
 								else if (inputData['guestIpType'] == "Isolated") { //specifyVlan checkbox is shown
-									if (inputData['specifyVlan'] == 'on') { //specifyVlan checkbox is checked
+								  inputData['specifyIpRanges'] = false;
+								  
+								  if (inputData['specifyVlan'] == 'on') { //specifyVlan checkbox is checked
 										inputData['specifyVlan'] = true;	
-                                                                                inputData['specifyIpRanges'] = true;							
-
-                    
-
-			
 									}
 									else { //specifyVlan checkbox is unchecked
 										inputData['specifyVlan'] = false;
-										inputData['specifyIpRanges'] = false;
+										
 									}	
                                                                         
-                                                                        if(inputData['isPersistent'] == 'on') {  //It is a persistent network
-                                                                               inputData['isPersistent'] = true;
-                                                                        }
-                                                                        else {    //Isolated Network with Non-persistent network
-                                                                               inputData['isPersistent'] = false;
-                                                                                              }
-				
+                  if(inputData['isPersistent'] == 'on') {  //It is a persistent network
+                    inputData['isPersistent'] = true;
+                  }
+                  else {    //Isolated Network with Non-persistent network
+                    inputData['isPersistent'] = false;
+                  }				
 								}			
 								
 																
@@ -1816,8 +1954,8 @@
 								if(args.$form.find('.form-item[rel=availability]').css("display") == "none")
                   inputData['availability'] = 'Optional';
 								
-                if(args.$form.find('.form-item[rel=serviceOfferingId]').css("display") == "none")									
-									delete inputData.serviceOfferingId;
+                if(args.$form.find('.form-item[rel=systemOfferingForRouter]').css("display") == "none")									
+									delete inputData.systemOfferingForRouter;
 								
                 inputData['traffictype'] = 'GUEST'; //traffic type dropdown has been removed since it has only one option ('Guest'). Hardcode traffic type value here.
 								

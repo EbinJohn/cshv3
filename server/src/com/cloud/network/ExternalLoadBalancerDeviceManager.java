@@ -18,11 +18,12 @@ package com.cloud.network;
 
 import java.util.List;
 
+import com.cloud.agent.api.to.LoadBalancerTO;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.host.Host;
 import com.cloud.network.dao.ExternalLoadBalancerDeviceVO;
-import com.cloud.network.rules.FirewallRule;
+import com.cloud.network.lb.LoadBalancingRule;
 import com.cloud.resource.ServerResource;
 import com.cloud.utils.component.Manager;
 
@@ -46,7 +47,9 @@ public interface ExternalLoadBalancerDeviceManager extends Manager{
      * @param server resource that will handle the commands specific to this device 
      * @return Host object for the device added
      */
-    public ExternalLoadBalancerDeviceVO addExternalLoadBalancer(long physicalNetworkId, String url, String username, String password, String deviceName, ServerResource resource);
+    public ExternalLoadBalancerDeviceVO addExternalLoadBalancer(long physicalNetworkId, String url, String username,
+                String password, String deviceName, ServerResource resource, boolean gslbProvider,
+                String gslbSitePublicIp, String gslbSitePrivateIp);
 
     /**
      * deletes load balancer device added in to a physical network
@@ -86,7 +89,7 @@ public interface ExternalLoadBalancerDeviceManager extends Manager{
      * @return true if successfully applied rules
      * @throws ResourceUnavailableException
      */
-    public boolean applyLoadBalancerRules(Network network, List<? extends FirewallRule> rules) throws ResourceUnavailableException;
+    public boolean applyLoadBalancerRules(Network network, List<LoadBalancingRule> rules) throws ResourceUnavailableException;
 
     /**
      * implements or shutdowns guest network on the load balancer device assigned to the guest network
@@ -96,7 +99,9 @@ public interface ExternalLoadBalancerDeviceManager extends Manager{
      * @throws ResourceUnavailableException
      * @throws InsufficientCapacityException
      */
-    public boolean manageGuestNetworkWithExternalLoadBalancer(boolean add, Network guestConfig) throws ResourceUnavailableException, 
+    public boolean manageGuestNetworkWithExternalLoadBalancer(boolean add, Network guestConfig) throws ResourceUnavailableException,
             InsufficientCapacityException;
-    
+
+    public List<LoadBalancerTO> getLBHealthChecks(Network network, List<LoadBalancingRule> rules)
+            throws ResourceUnavailableException;
 }

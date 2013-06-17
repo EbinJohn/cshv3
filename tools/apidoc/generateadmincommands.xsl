@@ -138,14 +138,22 @@ version="1.0">
                   
      
             </div>
+
         </div><!-- #BeginLibraryItem "/libraries/footer.lbi" -->
 <div id="footer">
+<div id="comments_thread">
+    <script type="text/javascript" src="https://comments.apache.org/show_comments.lua?site=test" async="true">
+    </script>
+    <noscript>
+    <iframe width="930" height="500" src="https://comments.apache.org/iframe.lua?site=test&amp;page=4.2.0/rootadmin"></iframe>
+    </noscript>
+  </div>
 
         	<div id="footer_mainmaster">
-                <p>Copyright © 2012 The Apache Software Foundation, Licensed under the
+                <p>Copyright © 2013 The Apache Software Foundation, Licensed under the
                    <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0.</a> <br />
-                Apache and the Apache feather logo are trademarks of The Apache Software Foundation.</p>
-            </div>
+                Apache, CloudStack, Apache CloudStack, the Apache CloudStack logo, the CloudMonkey logo  and the Apache feather logo are trademarks of The Apache Software Foundation.</p> 
+           </div>
         </div>
   </div>
  </div>

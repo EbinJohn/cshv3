@@ -112,7 +112,7 @@
                     label: 'label.last.name',
                     validation: { required: true },
                     docID: 'helpAccountLastName'
-                  },
+                  },                  
                   domainid: {
                     label: 'label.domain',
                     docID: 'helpAccountDomain',
@@ -181,7 +181,7 @@
 
               action: function(args) {
                 var data = {
-								  username: args.data.username									
+								  username: args.data.username,
 								};															               
                
                 var password = args.data.password;
@@ -195,7 +195,7 @@
                 $.extend(data, {
 								  email: args.data.email,
                   firstname: args.data.firstname,
-                  lastname: args.data.lastname,
+                  lastname: args.data.lastname,                 
                   domainid: args.data.domainid									
 								});								              
 
@@ -277,6 +277,7 @@
 
           detailView: {
             name: 'Account details',
+            isMaximized: true,
             viewAll: { path: 'accounts.users', label: 'label.users' },
 
             actions: {
@@ -290,7 +291,7 @@
 									  domainid: accountObj.domainid,
 										account: accountObj.name,
 										newname: args.data.name,
-										networkdomain: args.data.networkdomain
+										networkdomain: args.data.networkdomain                    
 									};
                 
                   $.ajax({
@@ -409,6 +410,77 @@
 										});
 									}
 
+									if(args.data.cpuLimit != null) {
+									  var data = {
+										  resourceType: 8,
+											max: args.data.cpuLimit,
+											domainid: accountObj.domainid,
+											account: accountObj.name
+										};
+
+										$.ajax({
+											url: createURL('updateResourceLimit'),
+											data: data,
+											async: false,
+											success: function(json) {
+												accountObj["cpuLimit"] = args.data.cpuLimit;
+											}
+										});
+									}
+
+									if(args.data.memoryLimit != null) {
+									  var data = {
+										  resourceType: 9,
+											max: args.data.memoryLimit,
+											domainid: accountObj.domainid,
+											account: accountObj.name
+										};
+
+										$.ajax({
+											url: createURL('updateResourceLimit'),
+											data: data,
+											async: false,
+											success: function(json) {
+												accountObj["memoryLimit"] = args.data.memoryLimit;
+											}
+										});
+									}
+
+									if(args.data.primaryStorageLimit != null) {
+									  var data = {
+										  resourceType: 10,
+											max: args.data.primaryStorageLimit,
+											domainid: accountObj.domainid,
+											account: accountObj.name
+										};
+
+										$.ajax({
+											url: createURL('updateResourceLimit'),
+											data: data,
+											async: false,
+											success: function(json) {
+												accountObj["primaryStorageLimit"] = args.data.primaryStorageLimit;
+											}
+										});
+									}
+
+									if(args.data.secondaryStorageLimit != null) {
+										  var data = {
+											  resourceType: 11,
+												max: args.data.secondaryStorageLimit,
+												domainid: accountObj.domainid,
+												account: accountObj.name
+											};
+
+											$.ajax({
+												url: createURL('updateResourceLimit'),
+												data: data,
+												async: false,
+												success: function(json) {
+													accountObj["secondaryStorageLimit"] = args.data.secondaryStorageLimit;
+												}
+											});
+										}
                   args.response.success({data: accountObj});
                 }
               },
@@ -633,7 +705,7 @@
                       converter: function(args){
                         return cloudStack.converters.toRole(args);
                       }
-                    },
+                    },                    
                     domain: { label: 'label.domain' },
                     state: { label: 'label.state' },
                     networkdomain: {
@@ -698,6 +770,42 @@
 												  return false;
 											}
                     },
+                    cpuLimit: {
+                      label: 'label.cpu.limits',
+                      isEditable: function(context) {
+  											  if (context.accounts[0].accounttype == roleTypeUser || context.accounts[0].accounttype == roleTypeDomainAdmin) //updateResourceLimits is only allowed on account whose type is user or domain-admin
+  												  return true;
+  												else
+  												  return false;
+  											}
+                    },
+                    memoryLimit: {
+                      label: 'label.memory.limits',
+                      isEditable: function(context) {
+  											  if (context.accounts[0].accounttype == roleTypeUser || context.accounts[0].accounttype == roleTypeDomainAdmin) //updateResourceLimits is only allowed on account whose type is user or domain-admin
+  												  return true;
+  												else
+  												  return false;
+  											}
+                    },
+                    primaryStorageLimit: {
+                      label: 'label.primary.storage.limits',
+                      isEditable: function(context) {
+  											  if (context.accounts[0].accounttype == roleTypeUser || context.accounts[0].accounttype == roleTypeDomainAdmin) //updateResourceLimits is only allowed on account whose type is user or domain-admin
+  												  return true;
+  												else
+  												  return false;
+  											}
+                    },
+                    secondaryStorageLimit: {
+                      label: 'label.secondary.storage.limits',
+                      isEditable: function(context) {
+  											  if (context.accounts[0].accounttype == roleTypeUser || context.accounts[0].accounttype == roleTypeDomainAdmin) //updateResourceLimits is only allowed on account whose type is user or domain-admin
+  												  return true;
+  												else
+  												  return false;
+  											}
+                    },
 
                     vmtotal: { label: 'label.total.of.vm' },
                     iptotal: { label: 'label.total.of.ip' },
@@ -725,11 +833,11 @@
                 dataProvider: function(args) {
 								  var data = {
 									  id: args.context.accounts[0].id
-									};								
+									};
 									$.ajax({
 										url: createURL('listAccounts'),
-										data: data,					
-										success: function(json) {		
+										data: data,
+										success: function(json) {
 											var accountObj = json.listaccountsresponse.account[0];
                       var data = {
 											  domainid: accountObj.domainid,
@@ -737,7 +845,7 @@
 											};
 											$.ajax({
 												url: createURL('listResourceLimits'),
-												data: data,											
+												data: data,
 												success: function(json) {
 													var limits = json.listresourcelimitsresponse.resourcelimit;													
 													if (limits != null) {
@@ -759,23 +867,85 @@
 															case "4":
 																accountObj["templateLimit"] = limit.max;
 																break;
-                              case "7":
+															case "7":
 																accountObj["vpcLimit"] = limit.max;
+																break;
+															case "8":
+																accountObj["cpuLimit"] = limit.max;
+																break;
+															case "9":
+																accountObj["memoryLimit"] = limit.max;
+																break;
+															case "10":
+																accountObj["primaryStorageLimit"] = limit.max;
+																break;
+															case "11":
+																accountObj["secondaryStorageLimit"] = limit.max;
 																break;
 															}
 														}
-													}																										
+													}
 													args.response.success(
 														{
 															actionFilter: accountActionfilter,
 															data: accountObj 
 														}
-													);							
+													);
 												}
-											});											
+											});
 										}
-									});		
+									});
                 }
+              },
+
+              // Granular settings for account
+              settings: {
+                title: 'Settings',
+                custom: cloudStack.uiCustom.granularSettings({
+                  dataProvider: function(args) {
+                     $.ajax({
+                            url:createURL('listConfigurations&accountid=' + args.context.accounts[0].id),
+                             data: { page: args.page, pageSize: pageSize, listAll: true },
+                            success:function(json){
+                              args.response.success({
+                                 data:json.listconfigurationsresponse.configuration
+
+                                 });
+
+                             },
+
+                            error:function(json){
+                              args.response.error(parseXMLHttpResponse(json));
+
+                             }
+                       });
+
+                  },
+                  actions: {
+                    edit: function(args) {
+                      // call updateAccountLevelParameters
+                       var data = {
+                                 name: args.data.jsonObj.name,
+                                 value: args.data.value
+                                     };
+
+                          $.ajax({
+                          url:createURL('updateConfiguration&accountid=' + args.context.accounts[0].id),
+                          data:data,
+                          success:function(json){
+                              var item = json.updateconfigurationresponse.configuration;
+                              args.response.success({data:item});
+                            },
+
+                          error: function(json) {
+                             args.response.error(parseXMLHttpResponse(json));
+                            }
+
+                           });
+
+                    }
+                  }
+                })
               }
             }
           }
@@ -1253,6 +1423,9 @@
 
     if (jsonObj.state == 'Destroyed') return [];
 
+    if( isAdmin() && jsonObj.isdefault == false)
+       allowedActions.push("remove");
+
     if(isAdmin()) {
         allowedActions.push("edit"); //updating networkdomain is allowed on any account, including system-generated default admin account 
         if(!(jsonObj.domain == "ROOT" && jsonObj.name == "admin" && jsonObj.accounttype == 1)) { //if not system-generated default admin account    
@@ -1274,6 +1447,10 @@
   var userActionfilter = function(args) {
     var jsonObj = args.context.item;
     var allowedActions = [];
+   
+    if( isAdmin() && jsonObj.isdefault == false)
+       allowedActions.push("remove");
+
     if(isAdmin()) {
       allowedActions.push("edit");
       allowedActions.push("changePassword");

@@ -52,14 +52,23 @@ public class NetworkResponse extends BaseResponse implements ControlledEntityRes
     @SerializedName(ApiConstants.NETMASK) @Param(description="the network's netmask")
     private String netmask;
 
-    @SerializedName(ApiConstants.CIDR) @Param(description="the cidr the network")
+    @SerializedName(ApiConstants.CIDR) @Param(description="Cloudstack managed address space, all CloudStack managed VMs get IP address from CIDR")
     private String cidr;
+
+    @SerializedName(ApiConstants.NETWORK_CIDR) @Param(description="the network CIDR of the guest network configured with IP reservation. It is the summation of CIDR and RESERVED_IP_RANGE")
+    private String networkCidr;
+
+    @SerializedName(ApiConstants.RESERVED_IP_RANGE) @Param(description="the network's IP range not to be used by CloudStack guest VMs and can be used for non CloudStack purposes")
+    private String reservedIpRange;
 
     @SerializedName(ApiConstants.ZONE_ID) @Param(description="zone id of the network")
     private String zoneId;
 
     @SerializedName(ApiConstants.ZONE_NAME) @Param(description="the name of the zone the network belongs to")
     private String zoneName;
+    
+    @SerializedName(ApiConstants.ZONE_TYPE) @Param(description="the networktype of the zone the network belongs to")
+    private String zoneType;
 
     @SerializedName("networkofferingid") @Param(description="network offering id the network is created from")
     private String networkOfferingId;
@@ -153,7 +162,22 @@ public class NetworkResponse extends BaseResponse implements ControlledEntityRes
     
     @SerializedName(ApiConstants.IP6_CIDR) @Param(description="the cidr of IPv6 network")
     private String ip6Cidr;
-    
+
+    @SerializedName(ApiConstants.DISPLAY_NETWORK) @Param(description="an optional field, whether to the display the network to the end user or not.")
+    private Boolean displayNetwork;
+
+    @SerializedName(ApiConstants.ACL_ID) @Param(description="ACL Id associated with the VPC network")
+    private String aclId;
+
+
+    public Boolean getDisplayNetwork() {
+        return displayNetwork;
+    }
+
+    public void setDisplayNetwork(Boolean displayNetwork) {
+        this.displayNetwork = displayNetwork;
+    }
+
     public void setId(String id) {
         this.id = id;
     }
@@ -285,8 +309,20 @@ public class NetworkResponse extends BaseResponse implements ControlledEntityRes
         this.zoneName = zoneName;
     }
 
+    public void setZoneType(String zoneType) {
+        this.zoneType = zoneType;
+    }
+    
     public void setCidr(String cidr) {
         this.cidr = cidr;
+    }
+
+    public void setNetworkCidr(String networkCidr) {
+        this.networkCidr = networkCidr;
+    }
+
+    public void setReservedIpRange(String reservedIpRange) {
+        this.reservedIpRange = reservedIpRange;
     }
 
     public void setRestartRequired(Boolean restartRequired) {
@@ -320,4 +356,12 @@ public class NetworkResponse extends BaseResponse implements ControlledEntityRes
 	public void setIp6Cidr(String ip6Cidr) {
 		this.ip6Cidr = ip6Cidr;
 	}
+
+    public String getAclId() {
+        return aclId;
+    }
+
+    public void setAclId(String aclId) {
+        this.aclId = aclId;
+    }
 }

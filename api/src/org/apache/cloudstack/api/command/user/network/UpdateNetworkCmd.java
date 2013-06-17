@@ -64,6 +64,12 @@ public class UpdateNetworkCmd extends BaseAsyncCmd {
             description="network offering ID")
     private Long networkOfferingId;
 
+    @Parameter(name=ApiConstants.GUEST_VM_CIDR, type=CommandType.STRING, description="CIDR for Guest VMs,Cloudstack allocates IPs to Guest VMs only from this CIDR")
+    private String guestVmCidr;
+
+    @Parameter(name=ApiConstants.DISPLAY_NETWORK, type=CommandType.BOOLEAN, description="an optional field, whether to the display the network to the end user or not.")
+    private Boolean displayNetwork;
+
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -94,6 +100,14 @@ public class UpdateNetworkCmd extends BaseAsyncCmd {
         }
         return false;
     }
+
+    private String getGuestVmCidr() {
+        return guestVmCidr;
+    }
+
+    public Boolean getDisplayNetwork() {
+        return displayNetwork;
+    }
     /////////////////////////////////////////////////////
     /////////////// API Implementation///////////////////
     /////////////////////////////////////////////////////
@@ -122,14 +136,9 @@ public class UpdateNetworkCmd extends BaseAsyncCmd {
             throw new InvalidParameterValueException("Couldn't find network by id");
         }
 
-        Network result = null;
-        if (network.getVpcId() != null) {
-            result = _vpcService.updateVpcGuestNetwork(getId(), getNetworkName(), getDisplayText(), callerAccount,
-                    callerUser, getNetworkDomain(), getNetworkOfferingId(), getChangeCidr());
-        } else {
-            result = _networkService.updateGuestNetwork(getId(), getNetworkName(), getDisplayText(), callerAccount,
-                    callerUser, getNetworkDomain(), getNetworkOfferingId(), getChangeCidr());
-        }
+        Network result = _networkService.updateGuestNetwork(getId(), getNetworkName(), getDisplayText(), callerAccount,
+                    callerUser, getNetworkDomain(), getNetworkOfferingId(), getChangeCidr(), getGuestVmCidr(), getDisplayNetwork());
+        
 
         if (result != null) {
             NetworkResponse response = _responseGenerator.createNetworkResponse(result);

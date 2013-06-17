@@ -26,16 +26,16 @@ import java.util.Map;
 import org.apache.cloudstack.engine.datacenter.entity.api.StorageEntity;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
 
-import com.cloud.storage.StoragePoolStatus;
 import com.cloud.storage.Storage.StoragePoolType;
+import com.cloud.storage.StoragePoolStatus;
 
 public class PrimaryDataStoreEntityImpl implements StorageEntity {
     private PrimaryDataStoreInfo dataStore;
-    
+
     public PrimaryDataStoreEntityImpl(PrimaryDataStoreInfo dataStore) {
         this.dataStore = dataStore;
     }
-    
+
     @Override
     public boolean enable() {
         // TODO Auto-generated method stub
@@ -72,7 +72,7 @@ public class PrimaryDataStoreEntityImpl implements StorageEntity {
 
     @Override
     public String getCurrentState() {
-       return null;
+        return null;
     }
 
     @Override
@@ -105,7 +105,6 @@ public class PrimaryDataStoreEntityImpl implements StorageEntity {
         return null;
     }
 
-
     @Override
     public void addDetail(String name, String value) {
         // TODO Auto-generated method stub
@@ -132,7 +131,8 @@ public class PrimaryDataStoreEntityImpl implements StorageEntity {
 
     @Override
     public State getState() {
-        return this.dataStore.getManagedState();
+        // return this.dataStore.getManagedState();
+        return null;
     }
 
     @Override
@@ -170,7 +170,7 @@ public class PrimaryDataStoreEntityImpl implements StorageEntity {
     }
 
     @Override
-    public long getAvailableBytes() {
+    public long getUsedBytes() {
         // TODO Auto-generated method stub
         return 0;
     }
@@ -229,22 +229,27 @@ public class PrimaryDataStoreEntityImpl implements StorageEntity {
         return null;
     }
 
-    @Override
-    public String getStorageProvider() {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
     public String getStorageType() {
         // TODO Auto-generated method stub
         return null;
     }
 
-	@Override
-	public void persist() {
-		// TODO Auto-generated method stub
-		
-	}
+    @Override
+    public void persist() {
+        // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public boolean isInMaintenance() {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public String getStorageProviderName() {
+        // TODO Auto-generated method stub
+        return null;
+    }
 
 }

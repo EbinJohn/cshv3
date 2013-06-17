@@ -68,8 +68,10 @@ import com.cloud.utils.DateUtil;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.Ternary;
+import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.component.ComponentLifecycle;
 import com.cloud.utils.component.ComponentLifecycleBase;
+import com.cloud.utils.component.ComponentMethodInterceptable;
 import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.SearchCriteria.SelectType;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -113,12 +115,12 @@ import edu.emory.mathcs.backport.java.util.Collections;
  * 
  **/
 @DB
-public abstract class GenericDaoBase<T, ID extends Serializable> extends ComponentLifecycleBase implements GenericDao<T, ID> {
+public abstract class GenericDaoBase<T, ID extends Serializable> extends ComponentLifecycleBase implements GenericDao<T, ID>, ComponentMethodInterceptable {
     private final static Logger s_logger = Logger.getLogger(GenericDaoBase.class);
 
     protected final static TimeZone s_gmtTimeZone = TimeZone.getTimeZone("GMT");
 
-    protected final static Map<Class<?>, GenericDaoBase<?, ? extends Serializable>> s_daoMaps = new ConcurrentHashMap<Class<?>, GenericDaoBase<?, ? extends Serializable>>(71);
+    protected final static Map<Class<?>, GenericDao<?, ? extends Serializable>> s_daoMaps = new ConcurrentHashMap<Class<?>, GenericDao<?, ? extends Serializable>>(71);
 
     protected Class<T> _entityBeanType;
     protected String _table;
@@ -128,8 +130,8 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
     protected Field[] _embeddedFields;
 
     // This is private on purpose.  Everyone should use createPartialSelectSql()
-    private final Pair<StringBuilder, Attribute[]> _partialSelectSql;
-    private final Pair<StringBuilder, Attribute[]> _partialQueryCacheSelectSql;
+    private Pair<StringBuilder, Attribute[]> _partialSelectSql;
+    private Pair<StringBuilder, Attribute[]> _partialQueryCacheSelectSql;
     protected StringBuilder _discriminatorClause;
     protected Map<String, Object> _discriminatorValues;
     protected String _selectByIdSql;
@@ -141,11 +143,11 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
     protected Pair<String, Attribute> _removed;
     protected Pair<String, Attribute[]> _removeSql;
     protected List<Pair<String, Attribute[]>> _deleteSqls;
-    protected final Map<String, Attribute[]> _idAttributes;
-    protected final Map<String, TableGenerator> _tgs;
-    protected final Map<String, Attribute> _allAttributes;
-    protected final List<Attribute> _ecAttributes;
-    protected final Map<Pair<String, String>, Attribute> _allColumns;
+    protected Map<String, Attribute[]> _idAttributes;
+    protected Map<String, TableGenerator> _tgs;
+    protected Map<String, Attribute> _allAttributes;
+    protected List<Attribute> _ecAttributes;
+    protected Map<Pair<String, String>, Attribute> _allColumns;
     protected Enhancer _enhancer;
     protected Factory _factory;
     protected Enhancer _searchEnhancer;
@@ -159,9 +161,9 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
 
     protected static final SequenceFetcher s_seqFetcher = SequenceFetcher.getInstance();
 
-    public static <J> GenericDaoBase<? extends J, ? extends Serializable> getDao(Class<J> entityType) {
+    public static <J> GenericDao<? extends J, ? extends Serializable> getDao(Class<J> entityType) {
         @SuppressWarnings("unchecked")
-        GenericDaoBase<? extends J, ? extends Serializable> dao = (GenericDaoBase<? extends J, ? extends Serializable>)s_daoMaps.get(entityType);
+        GenericDao<? extends J, ? extends Serializable> dao = (GenericDao<? extends J, ? extends Serializable>)s_daoMaps.get(entityType);
         assert dao != null : "Unable to find DAO for " + entityType + ".  Are you sure you waited for the DAO to be initialized before asking for it?";
         return dao;
     }
@@ -199,6 +201,7 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
                 s_daoMaps.put(interphace, this);
             }
         }
+  
         _table = DbUtil.getTableName(_entityBeanType);
 
         final SqlGenerator generator = new SqlGenerator(_entityBeanType);

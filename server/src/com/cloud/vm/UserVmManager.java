@@ -20,11 +20,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.cloud.agent.api.VmDiskStatsEntry;
 import com.cloud.agent.api.VmStatsEntry;
 import com.cloud.api.query.vo.UserVmJoinVO;
-import com.cloud.exception.ConcurrentOperationException;
-import com.cloud.exception.InsufficientCapacityException;
-import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.exception.*;
 import com.cloud.projects.Project.ListProjectResourcesCriteria;
 import com.cloud.server.Criteria;
 import com.cloud.user.Account;
@@ -49,16 +48,7 @@ public interface UserVmManager extends VirtualMachineGuru<UserVmVO>, UserVmServi
      * @return VirtualMachine
      */
     UserVmVO getVirtualMachine(long vmId);
-    
-    /**
-     * Attaches an ISO to the virtual CDROM device of the specified VM. Will eject any existing virtual CDROM if isoPath is null.
-     * @param vmId
-     * @param isoId
-     * @param attach whether to attach or detach the given iso
-     * @return
-     */
-    boolean attachISOToVM(long vmId, long isoId, boolean attach);
-    
+
     /**
      * Stops the virtual machine
      * @param userId the id of the user performing the action
@@ -75,6 +65,8 @@ public interface UserVmManager extends VirtualMachineGuru<UserVmVO>, UserVmServi
      * @return GetVmStatsAnswer
      */
     HashMap<Long, VmStatsEntry> getVirtualMachineStatistics(long hostId, String hostName, List<Long> vmIds);
+    
+    HashMap<Long, List<VmDiskStatsEntry>> getVmDiskStatistics(long hostId, String hostName, List<Long> vmIds);
     
     boolean deleteVmGroup(long groupId);
 
@@ -101,8 +93,11 @@ public interface UserVmManager extends VirtualMachineGuru<UserVmVO>, UserVmServi
      */
     Pair<List<UserVmJoinVO>, Integer> searchForUserVMs(Criteria c, Account caller, Long domainId, boolean isRecursive, List<Long> permittedAccounts, boolean listAll, ListProjectResourcesCriteria listProjectResourcesCriteria, Map<String, String> tags);
 
-    String getChecksum(Long hostId, String templatePath);
-    
     Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> startVirtualMachine(long vmId, Long hostId, Map<VirtualMachineProfile.Param, Object> additionalParams) throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException;
 
+    boolean upgradeVirtualMachine(Long id, Long serviceOfferingId) throws ResourceUnavailableException, ConcurrentOperationException, ManagementServerException, VirtualMachineMigrationException;
+
+    boolean setupVmForPvlan(boolean add, Long hostId, NicProfile nic);
+
+    void collectVmDiskStatistics (UserVmVO userVm);
 }

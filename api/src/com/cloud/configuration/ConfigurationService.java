@@ -20,6 +20,11 @@ import java.util.List;
 
 import javax.naming.NamingException;
 
+import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.exception.InsufficientCapacityException;
+import com.cloud.exception.ConcurrentOperationException;
+import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.exception.ResourceAllocationException;
 import org.apache.cloudstack.api.command.admin.config.UpdateCfgCmd;
 import org.apache.cloudstack.api.command.admin.ldap.LDAPConfigCmd;
 import org.apache.cloudstack.api.command.admin.ldap.LDAPRemoveCmd;
@@ -34,8 +39,13 @@ import org.apache.cloudstack.api.command.admin.offering.UpdateDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateServiceOfferingCmd;
 import org.apache.cloudstack.api.command.admin.pod.DeletePodCmd;
 import org.apache.cloudstack.api.command.admin.pod.UpdatePodCmd;
+import org.apache.cloudstack.api.command.admin.region.CreatePortableIpRangeCmd;
+import org.apache.cloudstack.api.command.admin.region.DeletePortableIpRangeCmd;
+import org.apache.cloudstack.api.command.admin.region.ListPortableIpRangesCmd;
 import org.apache.cloudstack.api.command.admin.vlan.CreateVlanIpRangeCmd;
+import org.apache.cloudstack.api.command.admin.vlan.DedicatePublicIpRangeCmd;
 import org.apache.cloudstack.api.command.admin.vlan.DeleteVlanIpRangeCmd;
+import org.apache.cloudstack.api.command.admin.vlan.ReleasePublicIpRangeCmd;
 import org.apache.cloudstack.api.command.admin.zone.CreateZoneCmd;
 import org.apache.cloudstack.api.command.admin.zone.DeleteZoneCmd;
 import org.apache.cloudstack.api.command.admin.zone.UpdateZoneCmd;
@@ -44,15 +54,13 @@ import org.apache.cloudstack.api.command.user.network.ListNetworkOfferingsCmd;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.Pod;
 import com.cloud.dc.Vlan;
-import com.cloud.exception.ConcurrentOperationException;
-import com.cloud.exception.InsufficientCapacityException;
-import com.cloud.exception.ResourceAllocationException;
-import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.user.Account;
+import org.apache.cloudstack.region.PortableIp;
+import org.apache.cloudstack.region.PortableIpRange;
 
 public interface ConfigurationService {
 
@@ -63,7 +71,7 @@ public interface ConfigurationService {
      *            - the command wrapping name and value parameters
      * @return updated configuration object if successful
      */
-    Configuration updateConfiguration(UpdateCfgCmd cmd);
+    Configuration updateConfiguration(UpdateCfgCmd cmd) throws InvalidParameterValueException;
 
     /**
      * Create a service offering through the API
@@ -234,6 +242,10 @@ public interface ConfigurationService {
 
     boolean deleteVlanIpRange(DeleteVlanIpRangeCmd cmd);
 
+    Vlan dedicatePublicIpRange(DedicatePublicIpRangeCmd cmd) throws ResourceAllocationException;
+
+    boolean releasePublicIpRange(ReleasePublicIpRangeCmd cmd);
+
     NetworkOffering createNetworkOffering(CreateNetworkOfferingCmd cmd);
 
     NetworkOffering updateNetworkOffering(UpdateNetworkOfferingCmd cmd);
@@ -244,7 +256,7 @@ public interface ConfigurationService {
 
     NetworkOffering getNetworkOffering(long id);
 
-    Integer getNetworkOfferingNetworkRate(long networkOfferingId);
+    Integer getNetworkOfferingNetworkRate(long networkOfferingId, Long dataCenterId);
 
     Account getVlanAccount(long vlanId);
 
@@ -256,7 +268,7 @@ public interface ConfigurationService {
 
     Long getDefaultPageSize();
 
-    Integer getServiceOfferingNetworkRate(long serviceOfferingId);
+    Integer getServiceOfferingNetworkRate(long serviceOfferingId, Long dataCenterId);
 
     DiskOffering getDiskOffering(long diskOfferingId);
 
@@ -264,9 +276,19 @@ public interface ConfigurationService {
 
 	boolean removeLDAP(LDAPRemoveCmd cmd);
 
+    LDAPConfigCmd listLDAPConfig(LDAPConfigCmd cmd);
+
     /**
      * @param offering
      * @return
      */
     boolean isOfferingForVpc(NetworkOffering offering);
+
+    PortableIpRange createPortableIpRange(CreatePortableIpRangeCmd cmd) throws ConcurrentOperationException;
+
+    boolean deletePortableIpRange(DeletePortableIpRangeCmd cmd);
+
+    List<? extends PortableIpRange> listPortableIpRanges(ListPortableIpRangesCmd cmd);
+
+    List<? extends PortableIp> listPortableIps(long id);
 }

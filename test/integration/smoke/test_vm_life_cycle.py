@@ -20,7 +20,6 @@
 import marvin
 from marvin.cloudstackTestCase import *
 from marvin.cloudstackAPI import *
-from marvin.remoteSSHClient import remoteSSHClient
 from marvin.integration.lib.utils import *
 from marvin.integration.lib.base import *
 from marvin.integration.lib.common import *
@@ -107,7 +106,7 @@ class Services:
                 {
                     "displaytext": "Test ISO",
                     "name": "testISO",
-                    "url": "http://iso.linuxquestions.org/download/504/1819/http/gd4.tuwien.ac.at/dsl-4.4.10.iso",
+                    "url": "http://people.apache.org/~tsp/dummy.iso",
                      # Source URL where ISO is located
                     "ostype": 'CentOS 5.3 (64-bit)',
                     "mode": 'HTTP_DOWNLOAD', # Downloading existing ISO 
@@ -130,72 +129,80 @@ class Services:
 
 class TestDeployVM(cloudstackTestCase):
 
-    def setUp(self):
-
-        self.apiclient = self.testClient.getApiClient()
-        self.dbclient = self.testClient.getDbConnection()
-        self.services = Services().services
+    @classmethod
+    def setUpClass(cls):
+        cls.services = Services().services
+        cls.apiclient = super(TestDeployVM, cls).getClsTestClient().getApiClient()
         # Get Zone, Domain and templates
-        domain = get_domain(self.apiclient, self.services)
-        zone = get_zone(self.apiclient, self.services)
-        self.services['mode'] = zone.networktype
+        domain = get_domain(cls.apiclient, cls.services)
+        cls.zone = get_zone(cls.apiclient, cls.services)
+        cls.services['mode'] = cls.zone.networktype
 
-        #if local storage is enabled, alter the offerings to use localstorage
+        #If local storage is enabled, alter the offerings to use localstorage
         #this step is needed for devcloud
-        if zone.localstorageenabled == True:
-            self.services["service_offerings"]["tiny"]["storagetype"] = 'local'
-            self.services["service_offerings"]["small"]["storagetype"] = 'local'
-            self.services["service_offerings"]["medium"]["storagetype"] = 'local'
+        if cls.zone.localstorageenabled == True:
+            cls.services["service_offerings"]["tiny"]["storagetype"] = 'local'
+            cls.services["service_offerings"]["small"]["storagetype"] = 'local'
+            cls.services["service_offerings"]["medium"]["storagetype"] = 'local'
 
         template = get_template(
-                            self.apiclient,
-                            zone.id,
-                            self.services["ostype"]
-                            )
+            cls.apiclient,
+            cls.zone.id,
+            cls.services["ostype"]
+        )
         # Set Zones and disk offerings
-        self.services["small"]["zoneid"] = zone.id
-        self.services["small"]["template"] = template.id
+        cls.services["small"]["zoneid"] = cls.zone.id
+        cls.services["small"]["template"] = template.id
 
-        self.services["medium"]["zoneid"] = zone.id
-        self.services["medium"]["template"] = template.id
-        self.services["iso"]["zoneid"] = zone.id
+        cls.services["medium"]["zoneid"] = cls.zone.id
+        cls.services["medium"]["template"] = template.id
+        cls.services["iso"]["zoneid"] = cls.zone.id
 
-        # Create Account, VMs, NAT Rules etc
-        self.account = Account.create(
-                            self.apiclient,
-                            self.services["account"],
-                            domainid=domain.id
-                            )
+        cls.account = Account.create(
+            cls.apiclient,
+            cls.services["account"],
+            domainid=domain.id
+        )
+        cls.debug(cls.account.id)
 
-        self.service_offering = ServiceOffering.create(
-                                    self.apiclient,
-                                    self.services["service_offerings"]["tiny"]
-                                    )
-        # Cleanup
-        self.cleanup = [
-                        self.service_offering,
-                        self.account
-                        ]
+        cls.service_offering = ServiceOffering.create(
+            cls.apiclient,
+            cls.services["service_offerings"]["tiny"]
+        )
 
-    @attr(tags = ["devcloud", "advanced", "advancedns", "smoke", "basic", "sg"])
+        cls.virtual_machine = VirtualMachine.create(
+            cls.apiclient,
+            cls.services["small"],
+            accountid=cls.account.name,
+            domainid=cls.account.domainid,
+            serviceofferingid=cls.service_offering.id,
+            mode=cls.services['mode']
+        )
+
+        cls.cleanup = [
+            cls.service_offering,
+            cls.account
+        ]
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cleanup_resources(cls.apiclient, cls.cleanup)
+        except Exception as e:
+            cls.debug("Warning! Exception in tearDown: %s" % e)
+
+    def setUp(self):
+        self.apiclient = self.testClient.getApiClient()
+        self.dbclient = self.testClient.getDbConnection()
+
+
+    @attr(tags = ["simulator", "devcloud", "advanced", "advancedns", "smoke", "basic", "sg"])
     def test_deploy_vm(self):
         """Test Deploy Virtual Machine
         """
-
         # Validate the following:
         # 1. Virtual Machine is accessible via SSH
         # 2. listVirtualMachines returns accurate information
-        # 3. The Cloud Database contains the valid information
-
-        self.virtual_machine = VirtualMachine.create(
-                                    self.apiclient,
-                                    self.services["small"],
-                                    accountid=self.account.account.name,
-                                    domainid=self.account.account.domainid,
-                                    serviceofferingid=self.service_offering.id,
-                                    mode=self.services['mode']
-                                )
-
         list_vm_response = list_virtual_machines(
                                                  self.apiclient,
                                                  id=self.virtual_machine.id
@@ -205,39 +212,75 @@ class TestDeployVM(cloudstackTestCase):
                 "Verify listVirtualMachines response for virtual machine: %s" \
                 % self.virtual_machine.id
             )
-
         self.assertEqual(
                             isinstance(list_vm_response, list),
                             True,
                             "Check list response returns a valid list"
                         )
-
         self.assertNotEqual(
                             len(list_vm_response),
                             0,
                             "Check VM available in List Virtual Machines"
                         )
         vm_response = list_vm_response[0]
-
         self.assertEqual(
 
                             vm_response.id,
                             self.virtual_machine.id,
                             "Check virtual machine id in listVirtualMachines"
                         )
-
         self.assertEqual(
                     vm_response.name,
                     self.virtual_machine.name,
                     "Check virtual machine name in listVirtualMachines"
                     )
+        self.assertEqual(
+            vm_response.state,
+            'Running',
+             msg="VM is not in Running state"
+        )
         return
 
+
+    @attr(tags = ["simulator", "advanced"])
+    def test_advZoneVirtualRouter(self):
+        """
+        Test advanced zone virtual router
+        1. Is Running
+        2. is in the account the VM was deployed in
+        3. Has a linklocalip, publicip and a guestip
+        @return:
+        """
+        routers = list_routers(self.apiclient, account=self.account.name)
+        self.assertTrue(len(routers) > 0, msg = "No virtual router found")
+        router = routers[0]
+
+        self.assertEqual(router.state, 'Running', msg="Router is not in running state")
+        self.assertEqual(router.account, self.account.name, msg="Router does not belong to the account")
+
+        #Has linklocal, public and guest ips
+        self.assertIsNotNone(router.linklocalip, msg="Router has no linklocal ip")
+        self.assertIsNotNone(router.publicip, msg="Router has no public ip")
+        self.assertIsNotNone(router.guestipaddress, msg="Router has no guest ip")
+
+    @attr(hypervisor = ["simulator"])
+    @attr(mode = ["basic"])
+    def test_basicZoneVirtualRouter(self):
+        """
+        Tests for basic zone virtual router
+        1. Is Running
+        2. is in the account the VM was deployed in
+        @return:
+        """
+        routers = list_routers(self.apiclient, account=self.account.name)
+        self.assertTrue(len(routers) > 0, msg = "No virtual router found")
+        router = routers[0]
+
+        self.assertEqual(router.state, 'Running', msg="Router is not in running state")
+        self.assertEqual(router.account, self.account.name, msg="Router does not belong to the account")
+
     def tearDown(self):
-        try:
-            cleanup_resources(self.apiclient, self.cleanup)
-        except Exception as e:
-            self.debug("Warning! Exception in tearDown: %s" % e)
+        pass
 
 
 class TestVMLifeCycle(cloudstackTestCase):
@@ -249,28 +292,28 @@ class TestVMLifeCycle(cloudstackTestCase):
 
         # Get Zone, Domain and templates
         domain = get_domain(cls.api_client, cls.services)
-        zone = get_zone(cls.api_client, cls.services)
-        cls.services['mode'] = zone.networktype
+        cls.zone = get_zone(cls.api_client, cls.services)
+        cls.services['mode'] = cls.zone.networktype
 
         #if local storage is enabled, alter the offerings to use localstorage
         #this step is needed for devcloud
-        if zone.localstorageenabled == True:
+        if cls.zone.localstorageenabled == True:
             cls.services["service_offerings"]["tiny"]["storagetype"] = 'local'
             cls.services["service_offerings"]["small"]["storagetype"] = 'local'
             cls.services["service_offerings"]["medium"]["storagetype"] = 'local'
 
         template = get_template(
                             cls.api_client,
-                            zone.id,
+                            cls.zone.id,
                             cls.services["ostype"]
                             )
         # Set Zones and disk offerings
-        cls.services["small"]["zoneid"] = zone.id
+        cls.services["small"]["zoneid"] = cls.zone.id
         cls.services["small"]["template"] = template.id
 
-        cls.services["medium"]["zoneid"] = zone.id
+        cls.services["medium"]["zoneid"] = cls.zone.id
         cls.services["medium"]["template"] = template.id
-        cls.services["iso"]["zoneid"] = zone.id
+        cls.services["iso"]["zoneid"] = cls.zone.id
 
         # Create VMs, NAT Rules etc
         cls.account = Account.create(
@@ -292,24 +335,24 @@ class TestVMLifeCycle(cloudstackTestCase):
         cls.small_virtual_machine = VirtualMachine.create(
                                         cls.api_client,
                                         cls.services["small"],
-                                        accountid=cls.account.account.name,
-                                        domainid=cls.account.account.domainid,
+                                        accountid=cls.account.name,
+                                        domainid=cls.account.domainid,
                                         serviceofferingid=cls.small_offering.id,
                                         mode=cls.services["mode"]
                                         )
         cls.medium_virtual_machine = VirtualMachine.create(
                                        cls.api_client,
                                        cls.services["medium"],
-                                       accountid=cls.account.account.name,
-                                       domainid=cls.account.account.domainid,
+                                       accountid=cls.account.name,
+                                       domainid=cls.account.domainid,
                                        serviceofferingid=cls.medium_offering.id,
                                        mode=cls.services["mode"]
                                     )
         cls.virtual_machine = VirtualMachine.create(
                                         cls.api_client,
                                         cls.services["small"],
-                                        accountid=cls.account.account.name,
-                                        domainid=cls.account.account.domainid,
+                                        accountid=cls.account.name,
+                                        domainid=cls.account.domainid,
                                         serviceofferingid=cls.small_offering.id,
                                         mode=cls.services["mode"]
                                         )
@@ -446,245 +489,6 @@ class TestVMLifeCycle(cloudstackTestCase):
                         )
         return
 
-    @attr(tags = ["advanced", "advancedns", "smoke"])
-    def test_04_change_offering_small(self):
-        """Change Offering to a small capacity
-        """
-
-        # Validate the following
-        # 1. Log in to the Vm .We should see that the CPU and memory Info of
-        #    this Vm matches the one specified for "Small" service offering. 
-        # 2. Using  listVM command verify that this Vm 
-        #    has Small service offering Id.
-
-        self.debug("Stopping VM - ID: %s" % self.medium_virtual_machine.id)
-
-        self.medium_virtual_machine.stop(self.apiclient)
-
-        # Poll listVM to ensure VM is stopped properly
-        timeout = self.services["timeout"]
-
-        while True:
-            time.sleep(self.services["sleep"])
-
-            # Ensure that VM is in stopped state
-            list_vm_response = list_virtual_machines(
-                                            self.apiclient,
-                                            id=self.medium_virtual_machine.id
-                                            )
-
-            if isinstance(list_vm_response, list):
-
-                vm = list_vm_response[0]
-                if vm.state == 'Stopped':
-                    self.debug("VM state: %s" % vm.state)
-                    break
-
-            if timeout == 0:
-                    raise Exception(
-                        "Failed to stop VM (ID: %s) in change service offering" % vm.id)
-
-            timeout = timeout - 1
-
-        self.debug("Change Service offering VM - ID: %s" %
-                                    self.medium_virtual_machine.id)
-
-        cmd = changeServiceForVirtualMachine.changeServiceForVirtualMachineCmd()
-        cmd.id = self.medium_virtual_machine.id
-        cmd.serviceofferingid = self.small_offering.id
-        self.apiclient.changeServiceForVirtualMachine(cmd)
-
-        self.debug("Starting VM - ID: %s" % self.medium_virtual_machine.id)
-        self.medium_virtual_machine.start(self.apiclient)
-
-        # Poll listVM to ensure VM is started properly
-        timeout = self.services["timeout"]
-
-        while True:
-            time.sleep(self.services["sleep"])
-
-            # Ensure that VM is in running state
-            list_vm_response = list_virtual_machines(
-                                            self.apiclient,
-                                            id=self.medium_virtual_machine.id
-                                            )
-
-            if isinstance(list_vm_response, list):
-
-                vm = list_vm_response[0]
-                if vm.state == 'Running':
-                    self.debug("VM state: %s" % vm.state)
-                    break
-
-            if timeout == 0:
-                    raise Exception(
-                        "Failed to start VM (ID: %s) after changing service offering" % vm.id)
-
-            timeout = timeout - 1
-
-        try:
-            ssh = self.medium_virtual_machine.get_ssh_client()
-        except Exception as e:
-            self.fail(
-                      "SSH Access failed for %s: %s" % \
-                      (self.medium_virtual_machine.ipaddress, e)
-                      )
-
-        cpuinfo = ssh.execute("cat /proc/cpuinfo")
-
-        cpu_cnt = len([i for i in cpuinfo if "processor" in i])
-        #'cpu MHz\t\t: 2660.499'
-        cpu_speed = [i for i in cpuinfo if "cpu MHz" in i ][0].split()[3]
-
-        meminfo = ssh.execute("cat /proc/meminfo")
-        #MemTotal:        1017464 kB
-        total_mem = [i for i in meminfo if "MemTotal" in i][0].split()[1]
-
-        self.debug(
-            "CPU count: %s, CPU Speed: %s, Mem Info: %s" % (
-                                                            cpu_cnt,
-                                                            cpu_speed,
-                                                            total_mem
-                                                            ))
-        self.assertAlmostEqual(
-                            int(cpu_cnt),
-                            self.small_offering.cpunumber,
-                            "Check CPU Count for small offering"
-                        )
-
-        self.assertAlmostEqual(
-                            list_vm_response[0].cpuspeed,
-                            self.small_offering.cpuspeed,
-                            "Check CPU Speed for small offering"
-                        )
-        self.assertAlmostEqual(
-                            int(total_mem) / 1024, # In MBs
-                            self.small_offering.memory,
-                            "Check Memory(kb) for small offering"
-                        )
-        return
-
-    @attr(tags = ["advanced", "advancedns", "smoke"])
-    def test_05_change_offering_medium(self):
-        """Change Offering to a medium capacity
-        """
-        # Validate the following
-        # 1. Log in to the Vm .We should see that the CPU and memory Info of
-        #    this Vm matches the one specified for "Medium" service offering. 
-        # 2. Using  listVM command verify that this Vm 
-        #    has Medium service offering Id.
-
-        self.debug("Stopping VM - ID: %s" % self.small_virtual_machine.id)
-        self.small_virtual_machine.stop(self.apiclient)
-
-        # Poll listVM to ensure VM is stopped properly
-        timeout = self.services["timeout"]
-
-        while True:
-            time.sleep(self.services["sleep"])
-
-            # Ensure that VM is in stopped state
-            list_vm_response = list_virtual_machines(
-                                            self.apiclient,
-                                            id=self.small_virtual_machine.id
-                                            )
-
-            if isinstance(list_vm_response, list):
-
-                vm = list_vm_response[0]
-                if vm.state == 'Stopped':
-                    self.debug("VM state: %s" % vm.state)
-                    break
-
-            if timeout == 0:
-                    raise Exception(
-                        "Failed to stop VM (ID: %s) in change service offering" % vm.id)
-
-            timeout = timeout - 1
-
-        self.debug("Change service offering VM - ID: %s" %
-                                            self.small_virtual_machine.id)
-
-        cmd = changeServiceForVirtualMachine.changeServiceForVirtualMachineCmd()
-        cmd.id = self.small_virtual_machine.id
-        cmd.serviceofferingid = self.medium_offering.id
-        self.apiclient.changeServiceForVirtualMachine(cmd)
-
-        self.debug("Starting VM - ID: %s" % self.small_virtual_machine.id)
-        self.small_virtual_machine.start(self.apiclient)
-
-        # Poll listVM to ensure VM is started properly
-        timeout = self.services["timeout"]
-
-        while True:
-            time.sleep(self.services["sleep"])
-
-            # Ensure that VM is in running state
-            list_vm_response = list_virtual_machines(
-                                            self.apiclient,
-                                            id=self.small_virtual_machine.id
-                                            )
-
-            if isinstance(list_vm_response, list):
-
-                vm = list_vm_response[0]
-                if vm.state == 'Running':
-                    self.debug("VM state: %s" % vm.state)
-                    break
-
-            if timeout == 0:
-                    raise Exception(
-                        "Failed to start VM (ID: %s) after changing service offering" % vm.id)
-
-            timeout = timeout - 1
-
-        list_vm_response = list_virtual_machines(
-                                            self.apiclient,
-                                            id=self.small_virtual_machine.id
-                                            )
-
-        try:
-            ssh_client = self.small_virtual_machine.get_ssh_client()
-        except Exception as e:
-            self.fail(
-                    "SSH Access failed for %s: %s" % \
-                    (self.small_virtual_machine.ipaddress, e)
-                    )
-
-        cpuinfo = ssh_client.execute("cat /proc/cpuinfo")
-
-        cpu_cnt = len([i for i in cpuinfo if "processor" in i])
-        #'cpu MHz\t\t: 2660.499'
-        cpu_speed = [i for i in cpuinfo if "cpu MHz" in i][0].split()[3]
-
-        meminfo = ssh_client.execute("cat /proc/meminfo")
-        #MemTotal:        1017464 kB
-        total_mem = [i for i in meminfo if "MemTotal" in i][0].split()[1]
-
-        self.debug(
-            "CPU count: %s, CPU Speed: %s, Mem Info: %s" % (
-                                                            cpu_cnt,
-                                                            cpu_speed,
-                                                            total_mem
-                                                            ))
-        self.assertAlmostEqual(
-                            int(cpu_cnt),
-                            self.medium_offering.cpunumber,
-                            "Check CPU Count for medium offering"
-                        )
-
-        self.assertAlmostEqual(
-                            list_vm_response[0].cpuspeed,
-                            self.medium_offering.cpuspeed,
-                            "Check CPU Speed for medium offering"
-                        )
-
-        self.assertAlmostEqual(
-                            int(total_mem) / 1024, # In MBs
-                            self.medium_offering.memory,
-                            "Check Memory(kb) for medium offering"
-                        )
-        return
 
     @attr(tags = ["devcloud", "advanced", "advancedns", "smoke", "basic", "sg"])
     def test_06_destroy_vm(self):
@@ -767,68 +571,76 @@ class TestVMLifeCycle(cloudstackTestCase):
         """Test migrate VM
         """
         # Validate the following
-        # 1. Should be able to login to the VM.
-        # 2. listVM command should return this VM.State of this VM
-        #    should be "Running" and the host should be the host 
-        #    to which the VM was migrated to
+        # 1. Environment has enough hosts for migration
+        # 2. DeployVM on suitable host (with another host in the cluster)
+        # 3. Migrate the VM and assert migration successful
 
         hosts = Host.list(
-                          self.apiclient,
-                          zoneid=self.medium_virtual_machine.zoneid,
-                          type='Routing'
-                          )
-
+            self.apiclient,
+            zoneid=self.zone.id,
+            type='Routing'
+        )
         self.assertEqual(
-                         isinstance(hosts, list),
-                         True,
-                         "Check the number of hosts in the zone"
-                         )
+            isinstance(hosts, list),
+            True,
+            "Check the number of hosts in the zone"
+        )
         self.assertGreaterEqual(
-                len(hosts),
-                2,
-                "Atleast 2 hosts should be present in a zone for VM migration"
-                )
-        # Remove the host of current VM from the hosts list
-        hosts[:] = [host for host in hosts if host.id != self.medium_virtual_machine.hostid]
+            len(hosts),
+            2,
+            "Atleast 2 hosts should be present for VM migration"
+        )
 
-        host = hosts[0]
+        #identify suitable host
+        clusters = [h.clusterid for h in hosts]
+        #find hosts withe same clusterid
+        clusters = [cluster for index, cluster in enumerate(clusters) if clusters.count(cluster) > 1]
+
+        if len(clusters) <= 1:
+            self.skipTest("Migration needs a cluster with at least two hosts")
+
+        suitable_hosts = [host for host in hosts if host.clusterid == clusters[0]]
+        target_host = suitable_hosts[0]
+        migrate_host = suitable_hosts[1]
+
+        #deploy VM on target host
+        self.vm_to_migrate = VirtualMachine.create(
+            self.api_client,
+            self.services["small"],
+            accountid=self.account.name,
+            domainid=self.account.domainid,
+            serviceofferingid=self.small_offering.id,
+            mode=self.services["mode"],
+            hostid=target_host.id
+        )
         self.debug("Migrating VM-ID: %s to Host: %s" % (
-                                        self.medium_virtual_machine.id,
-                                        host.id
+                                        self.vm_to_migrate.id,
+                                        migrate_host.id
                                         ))
 
-        cmd = migrateVirtualMachine.migrateVirtualMachineCmd()
-        cmd.hostid = host.id
-        cmd.virtualmachineid = self.medium_virtual_machine.id
-        self.apiclient.migrateVirtualMachine(cmd)
+        self.vm_to_migrate.migrate(self.api_client, migrate_host.id)
 
         list_vm_response = list_virtual_machines(
                                             self.apiclient,
-                                            id=self.medium_virtual_machine.id
+                                            id=self.vm_to_migrate.id
                                             )
-        self.assertEqual(
-                            isinstance(list_vm_response, list),
-                            True,
-                            "Check list response returns a valid list"
-                        )
-
         self.assertNotEqual(
                             list_vm_response,
                             None,
-                            "Check virtual machine is listVirtualMachines"
+                            "Check virtual machine is listed"
                         )
 
         vm_response = list_vm_response[0]
 
         self.assertEqual(
                             vm_response.id,
-                            self.medium_virtual_machine.id,
+                            self.vm_to_migrate.id,
                             "Check virtual machine ID of migrated VM"
                         )
 
         self.assertEqual(
                             vm_response.hostid,
-                            host.id,
+                            migrate_host.id,
                             "Check destination hostID of migrated VM"
                         )
         return
@@ -854,9 +666,6 @@ class TestVMLifeCycle(cloudstackTestCase):
                                      )
 
         expunge_delay = int(config[0].value)
-        if expunge_delay < 600:
-            expunge_delay = 600
-        # Wait for some time more than expunge.delay
         time.sleep(expunge_delay * 2)
 
         #VM should be destroyed unless expunge thread hasn't run
@@ -866,9 +675,6 @@ class TestVMLifeCycle(cloudstackTestCase):
                                      name='expunge.interval'
                                      )
         expunge_cycle = int(config[0].value)
-        if expunge_cycle < 600:
-            expunge_cycle = 600
-
         wait_time = expunge_cycle * 2
         while wait_time >= 0:
             list_vm_response = list_virtual_machines(
@@ -881,10 +687,12 @@ class TestVMLifeCycle(cloudstackTestCase):
             else:
                 break
 
+        self.debug("listVirtualMachines response: %s" % list_vm_response)
+
         self.assertEqual(
                         list_vm_response,
                         None,
-                        "Check Expunged virtual machine is listVirtualMachines"
+                        "Check Expunged virtual machine is in listVirtualMachines response"
                     )
         return
 
@@ -903,8 +711,8 @@ class TestVMLifeCycle(cloudstackTestCase):
         iso = Iso.create(
                          self.apiclient,
                          self.services["iso"],
-                         account=self.account.account.name,
-                         domainid=self.account.account.domainid
+                         account=self.account.name,
+                         domainid=self.account.domainid
                          )
 
         self.debug("Successfully created ISO with ID: %s" % iso.id)
@@ -924,30 +732,35 @@ class TestVMLifeCycle(cloudstackTestCase):
         cmd.virtualmachineid = self.virtual_machine.id
         self.apiclient.attachIso(cmd)
 
+        #determine device type from hypervisor
+        hosts = Host.list(self.apiclient, id=self.virtual_machine.hostid)
+        self.assertTrue(isinstance(hosts, list))
+        self.assertTrue(len(hosts) > 0)
+        self.debug("Found %s host" % hosts[0].hypervisor)
+
+        if hosts[0].hypervisor.lower() == "kvm":
+            self.services["diskdevice"] = "/dev/vda"
+
         try:
             ssh_client = self.virtual_machine.get_ssh_client()
-
-            cmds = [
-                        "mkdir -p %s" % self.services["mount_dir"],
-                        "mount -rt iso9660 %s %s" \
-                                    % (
-                                       self.services["diskdevice"],
-                                       self.services["mount_dir"]
-                                       ),
-                ]
-
-            for c in cmds:
-                res = ssh_client.execute(c)
-
-                self.assertEqual(res, [], "Check mount is successful or not")
-
-                c = "fdisk -l|grep %s|head -1" % self.services["diskdevice"]
-                res = ssh_client.execute(c)
-                #Disk /dev/xvdd: 4393 MB, 4393723904 bytes
-
         except Exception as e:
             self.fail("SSH failed for virtual machine: %s - %s" %
                                 (self.virtual_machine.ipaddress, e))
+
+        cmds = [
+                    "mkdir -p %s" % self.services["mount_dir"],
+                    "mount -rt iso9660 %s %s" \
+                                % (
+                                   self.services["diskdevice"],
+                                   self.services["mount_dir"]
+                                   ),
+            ]
+        for c in cmds:
+            res = ssh_client.execute(c)
+            self.assertEqual(res, [], "Check mount is successful or not")
+            c = "fdisk -l|grep %s|head -1" % self.services["diskdevice"]
+            res = ssh_client.execute(c)
+            #Disk /dev/xvdd: 4393 MB, 4393723904 bytes
 
         # Res may contain more than one strings depending on environment
         # Split strings to form new list which is used for assertion on ISO size 
@@ -977,7 +790,6 @@ class TestVMLifeCycle(cloudstackTestCase):
             #Unmount ISO
             command = "umount %s" % self.services["mount_dir"]
             ssh_client.execute(command)
-
         except Exception as e:
             self.fail("SSH failed for virtual machine: %s - %s" %
                                 (self.virtual_machine.ipaddress, e))
@@ -989,7 +801,6 @@ class TestVMLifeCycle(cloudstackTestCase):
 
         try:
             res = ssh_client.execute(c)
-
         except Exception as e:
             self.fail("SSH failed for virtual machine: %s - %s" %
                                 (self.virtual_machine.ipaddress, e))
@@ -1002,176 +813,4 @@ class TestVMLifeCycle(cloudstackTestCase):
                          False,
                          "Check if ISO is detached from virtual machine"
                          )
-        return
-
-@unittest.skip("Additional test")
-class TestVMPasswordEnabled(cloudstackTestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.api_client = super(
-                               TestVMPasswordEnabled,
-                               cls
-                               ).getClsTestClient().getApiClient()
-        cls.services = Services().services
-
-        # Get Zone, Domain and templates
-        domain = get_domain(cls.api_client, cls.services)
-        zone = get_zone(cls.api_client, cls.services)
-        template = get_template(
-                            cls.api_client,
-                            zone.id,
-                            cls.services["ostype"]
-                            )
-        # Set Zones and disk offerings
-        cls.services["small"]["zoneid"] = zone.id
-        cls.services["small"]["template"] = template.id
-
-        # Create VMs, NAT Rules etc
-        cls.account = Account.create(
-                            cls.api_client,
-                            cls.services["account"],
-                            domainid=domain.id
-                            )
-
-        cls.small_offering = ServiceOffering.create(
-                                    cls.api_client,
-                                    cls.services["service_offerings"]["small"]
-                                    )
-
-        cls.virtual_machine = VirtualMachine.create(
-                                        cls.api_client,
-                                        cls.services["small"],
-                                        accountid=cls.account.account.name,
-                                        domainid=cls.account.account.domainid,
-                                        serviceofferingid=cls.small_offering.id,
-                                        mode=cls.services["mode"]
-                                        )
-        #Stop virtual machine
-        cls.virtual_machine.stop(cls.api_client)
-
-        # Poll listVM to ensure VM is stopped properly
-        timeout = cls.services["timeout"]
-        while True:
-            time.sleep(cls.services["sleep"])
-
-            # Ensure that VM is in stopped state
-            list_vm_response = list_virtual_machines(
-                                            cls.api_client,
-                                            id=cls.virtual_machine.id
-                                            )
-
-            if isinstance(list_vm_response, list):
-
-                vm = list_vm_response[0]
-                if vm.state == 'Stopped':
-                    break
-
-            if timeout == 0:
-                raise Exception(
-                    "Failed to stop VM (ID: %s) in change service offering" %
-                                                                        vm.id)
-
-            timeout = timeout - 1
-
-        list_volume = list_volumes(
-                                   cls.api_client,
-                                   virtualmachineid=cls.virtual_machine.id,
-                                   type='ROOT',
-                                   listall=True
-                                   )
-        if isinstance(list_volume, list):
-            cls.volume = list_volume[0]
-        else:
-            raise Exception(
-                "Exception: Unable to find root volume foe VM: %s" %
-                                                    cls.virtual_machine.id)
-
-        cls.services["template"]["ostype"] = cls.services["ostype"]
-        #Create templates for Edit, Delete & update permissions testcases
-        cls.pw_enabled_template = Template.create(
-                                         cls.api_client,
-                                         cls.services["template"],
-                                         cls.volume.id,
-                                         account=cls.account.account.name,
-                                         domainid=cls.account.account.domainid
-                                         )
-        # Delete the VM - No longer needed
-        cls.virtual_machine.delete(cls.api_client)
-        cls.services["small"]["template"] = cls.pw_enabled_template.id
-
-        cls.vm = VirtualMachine.create(
-                                        cls.api_client,
-                                        cls.services["small"],
-                                        accountid=cls.account.account.name,
-                                        domainid=cls.account.account.domainid,
-                                        serviceofferingid=cls.small_offering.id,
-                                        mode=cls.services["mode"]
-                                        )
-        cls._cleanup = [
-                        cls.small_offering,
-                        cls.pw_enabled_template,
-                        cls.account
-                        ]
-
-    @classmethod
-    def tearDownClass(cls):
-        # Cleanup VMs, templates etc.
-        cleanup_resources(cls.api_client, cls._cleanup)
-        return
-
-    def setUp(self):
-        self.apiclient = self.testClient.getApiClient()
-        self.dbclient = self.testClient.getDbConnection()
-        self.cleanup = []
-
-    def tearDown(self):
-        #Clean up, terminate the created instances
-        cleanup_resources(self.apiclient, self.cleanup)
-        return
-
-    @attr(tags = ["advanced", "advancedns", "smoke", "basic", "sg"])
-    def test_11_get_vm_password(self):
-        """Test get VM password for password enabled template"""
-
-        # Validate the following
-        # 1. Create an account
-        # 2. Deploy VM with default service offering and "password enabled"
-        #    template. Vm should be in running state.
-        # 3. Stop VM deployed in step 2
-        # 4. Reset VM password. SSH with new password should be successful
-
-        self.debug("Stopping VM: %s" % self.vm.name)
-        self.vm.stop(self.apiclient)
-
-        # Sleep to ensure VM is stopped properly
-        time.sleep(self.services["sleep"])
-
-        self.debug("Resetting VM password for VM: %s" % self.vm.name)
-        password = self.vm.resetPassword(self.apiclient)
-        self.debug("Password reset to: %s" % password)
-
-        self.debug("Starting VM to verify new password..")
-        self.vm.start(self.apiclient)
-        self.debug("VM - %s stated!" % self.vm.name)
-
-        vms = VirtualMachine.list(self.apiclient, id=self.vm.id, listall=True)
-        self.assertEqual(
-            isinstance(vms, list),
-            True,
-            "List VMs should retun valid response for VM: %s" % self.vm.name
-            )
-        virtual_machine = vms[0]
-
-        self.assertEqual(
-                         virtual_machine.state,
-                         "Running",
-                         "VM state should be running"
-                         )
-        try:
-            self.debug("SSHing into VM: %s" % self.vm.ssh_ip)
-            self.vm.password = password
-            ssh = self.vm.get_ssh_client()
-        except Exception as e:
-            self.fail("SSH into VM: %s failed" % self.vm.ssh_ip)
         return

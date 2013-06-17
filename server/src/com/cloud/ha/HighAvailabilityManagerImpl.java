@@ -31,7 +31,6 @@ import javax.naming.ConfigurationException;
 
 import org.apache.log4j.Logger;
 import org.apache.log4j.NDC;
-import org.springframework.stereotype.Component;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.alert.AlertManager;
@@ -60,6 +59,7 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.resource.ResourceManager;
 import com.cloud.server.ManagementServer;
 import com.cloud.storage.StorageManager;
+import com.cloud.storage.VolumeManager;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
 import com.cloud.user.AccountManager;
@@ -116,11 +116,23 @@ public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvai
     ClusterDetailsDao _clusterDetailsDao;
     long _serverId;
 
-    @Inject
     List<Investigator> _investigators;
-    @Inject
-    List<FenceBuilder> _fenceBuilders;
-    @Inject
+    public List<Investigator> getInvestigators() {
+		return _investigators;
+	}
+	public void setInvestigators(List<Investigator> _investigators) {
+		this._investigators = _investigators;
+	}
+
+	List<FenceBuilder> _fenceBuilders;
+    public List<FenceBuilder> getFenceBuilders() {
+		return _fenceBuilders;
+	}
+	public void setFenceBuilders(List<FenceBuilder> _fenceBuilders) {
+		this._fenceBuilders = _fenceBuilders;
+	}
+
+	@Inject
     AgentManager _agentMgr;
     @Inject
     AlertManager _alertMgr;
@@ -140,6 +152,8 @@ public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvai
     ManagementServer _msServer;
     @Inject
     ConfigurationDao _configDao;
+    @Inject
+    VolumeManager volumeMgr;
 
     String _instance;
     ScheduledExecutorService _executor;
@@ -499,7 +513,7 @@ public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvai
             return null; // VM doesn't require HA
         }
 
-        if (!_storageMgr.canVmRestartOnAnotherServer(vm.getId())) {
+        if (!this.volumeMgr.canVmRestartOnAnotherServer(vm.getId())) {
             if (s_logger.isDebugEnabled()) {
                 s_logger.debug("VM can not restart on another server.");
             }

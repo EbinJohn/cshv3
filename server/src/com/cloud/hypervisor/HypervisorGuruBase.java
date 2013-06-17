@@ -22,10 +22,14 @@ import java.util.Map;
 import javax.inject.Inject;
 
 import com.cloud.agent.api.Command;
+import com.cloud.agent.api.to.DataTO;
+import com.cloud.agent.api.to.DiskTO;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.agent.api.to.VolumeTO;
+import com.cloud.configuration.Config;
 import com.cloud.offering.ServiceOffering;
+import com.cloud.server.ConfigurationServer;
 import com.cloud.storage.dao.VMTemplateDetailsDao;
 import com.cloud.utils.component.AdapterBase;
 import com.cloud.vm.NicProfile;
@@ -34,6 +38,7 @@ import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineProfile;
 import com.cloud.vm.dao.NicDao;
+import com.cloud.vm.dao.NicSecondaryIpDao;
 import com.cloud.vm.dao.VMInstanceDao;
 
 public abstract class HypervisorGuruBase extends AdapterBase implements HypervisorGuru {
@@ -41,7 +46,10 @@ public abstract class HypervisorGuruBase extends AdapterBase implements Hypervis
 	@Inject VMTemplateDetailsDao _templateDetailsDao;
     @Inject NicDao _nicDao;
     @Inject VMInstanceDao _virtualMachineDao;
-	
+    @Inject NicSecondaryIpDao _nicSecIpDao;
+    @Inject ConfigurationServer _configServer;
+
+
     protected HypervisorGuruBase() {
         super();
     }
@@ -68,17 +76,27 @@ public abstract class HypervisorGuruBase extends AdapterBase implements Hypervis
         // Workaround to make sure the TO has the UUID we need for Niciri integration
         NicVO nicVO = _nicDao.findById(profile.getId());
         to.setUuid(nicVO.getUuid());
+        //check whether the this nic has secondary ip addresses set
+        //set nic secondary ip address in NicTO which are used for security group
+        // configuration. Use full when vm stop/start
+        List <String> secIps = null;
+        if (nicVO.getSecondaryIp()) {
+            secIps = _nicSecIpDao.getSecondaryIpAddressesForNic(nicVO.getId());
+        }
+        to.setNicSecIps(secIps);
         return to;
     }
 
 
-    protected <T extends VirtualMachine> VirtualMachineTO toVirtualMachineTO(VirtualMachineProfile<T> vmProfile) {
+    protected <T extends VirtualMachine> VirtualMachineTO  toVirtualMachineTO(VirtualMachineProfile<T> vmProfile) {
 
         ServiceOffering offering = vmProfile.getServiceOffering();  
         VirtualMachine vm = vmProfile.getVirtualMachine();
-
-        VirtualMachineTO to = new VirtualMachineTO(vm.getId(), vm.getInstanceName(), vm.getType(), offering.getCpu(), offering.getSpeed(), 
-                offering.getRamSize() * 1024l * 1024l, offering.getRamSize() * 1024l * 1024l, null, null, vm.isHaEnabled(), vm.limitCpuUse(), vm.getVncPassword());
+        Long minMemory = (long) (offering.getRamSize() / vmProfile.getMemoryOvercommitRatio());
+        int minspeed = (int) (offering.getSpeed() / vmProfile.getCpuOvercommitRatio());
+        int  maxspeed = (offering.getSpeed());
+        VirtualMachineTO to = new VirtualMachineTO(vm.getId(), vm.getInstanceName(), vm.getType(), offering.getCpu(), minspeed, maxspeed,
+                minMemory * 1024l * 1024l, offering.getRamSize() * 1024l * 1024l, null, null, vm.isHaEnabled(), vm.limitCpuUse(), vm.getVncPassword());
         to.setBootArgs(vmProfile.getBootArgs());
 
         List<NicProfile> nicProfiles = vmProfile.getNics();
@@ -89,7 +107,7 @@ public abstract class HypervisorGuruBase extends AdapterBase implements Hypervis
         }
 
         to.setNics(nics);
-        to.setDisks(vmProfile.getDisks().toArray(new VolumeTO[vmProfile.getDisks().size()]));
+        to.setDisks(vmProfile.getDisks().toArray(new DiskTO[vmProfile.getDisks().size()]));
 
         if(vmProfile.getTemplate().getBits() == 32) {
             to.setArch("i686");
@@ -110,11 +128,19 @@ public abstract class HypervisorGuruBase extends AdapterBase implements Hypervis
         VMInstanceVO vmInstance = _virtualMachineDao.findById(to.getId());
         to.setUuid(vmInstance.getUuid());
         
+        //
+        to.setEnableDynamicallyScaleVm(Boolean.parseBoolean(_configServer.getConfigValue(Config.EnableDynamicallyScaleVm.key(), Config.ConfigurationParameterScope.zone.toString(), vm.getDataCenterId())));
+
         return to;
     }
 
     @Override
     public long getCommandHostDelegation(long hostId, Command cmd) {
         return hostId;
+    }
+    
+    @Override
+    public List<Command> finalizeExpunge(VirtualMachine vm) {
+        return null;
     }
 }

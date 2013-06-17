@@ -16,8 +16,10 @@
 // under the License.
 package com.cloud.capacity;
 
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+
+import com.cloud.host.Host;
 import com.cloud.host.HostVO;
-import com.cloud.storage.StoragePoolVO;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.utils.component.Manager;
 import com.cloud.vm.VirtualMachine;
@@ -38,9 +40,9 @@ public interface CapacityManager extends Manager {
      * @param ram required RAM
      * @param cpuOverprovisioningFactor factor to apply to the actual host cpu
      */
-    boolean checkIfHostHasCapacity(long hostId, Integer cpu, long ram, boolean checkFromReservedCapacity, float cpuOverprovisioningFactor, boolean considerReservedCapacity);
-    
-	void updateCapacityForHost(HostVO host);
+    boolean checkIfHostHasCapacity(long hostId, Integer cpu, long ram, boolean checkFromReservedCapacity, float cpuOverprovisioningFactor, float memoryOvercommitRatio, boolean considerReservedCapacity);
+
+	void updateCapacityForHost(Host host);
     
 	/**
      * @param pool storage pool

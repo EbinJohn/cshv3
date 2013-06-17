@@ -128,6 +128,9 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
     @Column(name="limit_cpu_use", updatable=true, nullable=true)
     private boolean limitCpuUse;
 
+    @Column(name="display_vm", updatable=true, nullable=false)
+    protected boolean displayVm = true;
+
     @Column(name="last_host_id", updatable=true, nullable=true)
     private Long lastHostId;
 
@@ -153,6 +156,9 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
     @Column(name="data_center_name")
     private String dataCenterName = null;
 
+    @Column(name="data_center_type")
+    private String dataCenterType = null;
+    
     @Column(name="security_group_enabled")
     private boolean securityGroupEnabled;
 
@@ -269,6 +275,15 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
     @Column(name = "netmask")
     private String netmask;
 
+    @Column(name = "ip6_address")
+    private String ip6Address;
+
+    @Column(name = "ip6_gateway")
+    private String ip6Gateway;
+
+    @Column(name = "ip6_cidr")
+    private String ip6Cidr;
+
     @Column(name = "mac_address")
     private String macAddress;
 
@@ -283,6 +298,9 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
 
     @Column(name="network_uuid")
     private String networkUuid;
+
+    @Column(name="network_name")
+    private String networkName;
 
     @Column(name="traffic_type")
     @Enumerated(value=EnumType.STRING)
@@ -317,7 +335,7 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
     private String keypairName;
 
     @Column(name="job_id")
-    private long jobId;
+    private Long jobId;
 
     @Column(name="job_uuid")
     private String jobUuid;
@@ -355,6 +373,18 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
 
     @Column(name="tag_customer")
     private String tagCustomer;
+
+    @Column(name = "affinity_group_id")
+    private long affinityGroupId;
+
+    @Column(name = "affinity_group_uuid")
+    private String affinityGroupUuid;
+
+    @Column(name = "affinity_group_name")
+    private String affinityGroupName;
+
+    @Column(name = "affinity_group_description")
+    private String affinityGroupDescription;
 
     transient String password;
 
@@ -753,6 +783,13 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
         limitCpuUse = value;
     }
 
+    public boolean isDisplayVm() {
+        return displayVm;
+    }
+
+    public void setDisplayVm(boolean displayVm) {
+        this.displayVm = displayVm;
+    }
 
     public String getDataCenterUuid() {
         return dataCenterUuid;
@@ -776,7 +813,17 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
     public void setDataCenterName(String zoneName) {
         this.dataCenterName = zoneName;
     }
+   
+    
+    public String getDataCenterType() {
+        return dataCenterType;
+    }
 
+
+    public void setDataCenterType(String zoneType) {
+        this.dataCenterType = zoneType;
+    }   
+    
 
     public boolean isSecurityGroupEnabled() {
         return securityGroupEnabled;
@@ -1156,6 +1203,16 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
 
     public void setNetworkId(long networkId) {
         this.networkId = networkId;
+    }
+
+
+    public String getNetworkName() {
+        return networkName;
+    }
+
+
+    public void setNetworkName(String networkName) {
+        this.networkName = networkName;
     }
 
 
@@ -1561,14 +1618,14 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
 
 
 
-    public long getJobId() {
+    public Long getJobId() {
         return jobId;
     }
 
 
 
 
-    public void setJobId(long jobId) {
+    public void setJobId(Long jobId) {
         this.jobId = jobId;
     }
 
@@ -1610,5 +1667,68 @@ public class UserVmJoinVO extends BaseViewVO implements ControlledViewEntity {
         }
         return toString;
     }
+
+	public String getIp6Address() {
+		return ip6Address;
+	}
+
+
+
+
+	public void setIp6Address(String ip6Address) {
+		this.ip6Address = ip6Address;
+	}
+
+
+
+
+	public String getIp6Gateway() {
+		return ip6Gateway;
+	}
+
+
+
+
+	public void setIp6Gateway(String ip6Gateway) {
+		this.ip6Gateway = ip6Gateway;
+	}
+
+
+
+
+	public String getIp6Cidr() {
+		return ip6Cidr;
+	}
+
+
+
+
+	public void setIp6Cidr(String ip6Cidr) {
+		this.ip6Cidr = ip6Cidr;
+	}
+
+
+    public long getAffinityGroupId() {
+        return affinityGroupId;
+    }
+
+
+
+    public String getAffinityGroupUuid() {
+        return affinityGroupUuid;
+    }
+
+
+
+    public String getAffinityGroupName() {
+        return affinityGroupName;
+    }
+
+
+
+    public String getAffinityGroupDescription() {
+        return affinityGroupDescription;
+    }
+
 
 }

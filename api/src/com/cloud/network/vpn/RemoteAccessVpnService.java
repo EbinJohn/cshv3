@@ -32,7 +32,7 @@ public interface RemoteAccessVpnService {
 
     RemoteAccessVpn createRemoteAccessVpn(long vpnServerAddressId, String ipRange, boolean openFirewall, long networkId)
             throws NetworkRuleConflictException;
-    void destroyRemoteAccessVpn(long vpnServerAddressId, Account caller) throws ResourceUnavailableException;
+    void destroyRemoteAccessVpnForIp(long vpnServerAddressId, Account caller) throws ResourceUnavailableException;
     RemoteAccessVpn startRemoteAccessVpn(long vpnServerAddressId, boolean openFirewall) throws ResourceUnavailableException;
 
     VpnUser addVpnUser(long vpnOwnerId, String userName, String password);
@@ -45,6 +45,6 @@ public interface RemoteAccessVpnService {
 
     List<? extends RemoteAccessVpn> listRemoteAccessVpns(long networkId);
 
-    RemoteAccessVpn getRemoteAccessVpn(long vpnId);
+    RemoteAccessVpn getRemoteAccessVpn(long vpnAddrId);
 
 }

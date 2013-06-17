@@ -28,6 +28,7 @@ import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.NetworkRuleConflictException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.network.rules.FirewallRule;
+import com.cloud.network.rules.FirewallRuleVO;
 import com.cloud.network.rules.PortForwardingRule;
 import com.cloud.network.rules.PortForwardingRuleVO;
 import com.cloud.network.rules.RulesManager;
@@ -39,6 +40,8 @@ import com.cloud.uservm.UserVm;
 import com.cloud.utils.Pair;
 import com.cloud.utils.component.Manager;
 import com.cloud.utils.component.ManagerBase;
+import com.cloud.utils.net.Ip;
+import com.cloud.vm.Nic;
 import com.cloud.vm.VirtualMachine;
 
 @Local(value = {RulesManager.class, RulesService.class})
@@ -49,14 +52,6 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 			Long ipId, Long id, Long vmId, Long start, Long size,
 			String accountName, Long domainId, Long projectId,
 			boolean isRecursive, boolean listAll) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public PortForwardingRule createPortForwardingRule(PortForwardingRule rule,
-			Long vmId, boolean openFirewall)
-			throws NetworkRuleConflictException {
 		// TODO Auto-generated method stub
 		return null;
 	}
@@ -83,8 +78,7 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 
 	@Override
 	public boolean enableStaticNat(long ipAddressId, long vmId, long networkId,
-			boolean isSystemVm) throws NetworkRuleConflictException,
-			ResourceUnavailableException {
+			String ipAddr) throws NetworkRuleConflictException, ResourceUnavailableException {
 		// TODO Auto-generated method stub
 		return false;
 	}
@@ -141,19 +135,6 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 		return false;
 	}
 
-	@Override
-	public boolean applyPortForwardingRules(long ipAddressId,
-			boolean continueOnError, Account caller) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-	@Override
-	public boolean applyStaticNatRulesForIp(long sourceIpId,
-			boolean continueOnError, Account caller, boolean forRevoke) {
-		// TODO Auto-generated method stub
-		return false;
-	}
 
 	@Override
 	public boolean applyPortForwardingRulesForNetwork(long networkId,
@@ -167,13 +148,6 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 			boolean continueOnError, Account caller) {
 		// TODO Auto-generated method stub
 		return false;
-	}
-
-	@Override
-	public void checkIpAndUserVm(IpAddress ipAddress, UserVm userVm,
-			Account caller) {
-		// TODO Auto-generated method stub
-
 	}
 
 	@Override
@@ -197,25 +171,6 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 		return false;
 	}
 
-	@Override
-	public List<? extends FirewallRule> listFirewallRulesByIp(long ipAddressId) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public List<? extends PortForwardingRule> listPortForwardingRulesForApplication(
-			long ipId) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public List<? extends PortForwardingRule> gatherPortForwardingRulesForApplication(
-			List<? extends IpAddress> addrs) {
-		// TODO Auto-generated method stub
-		return null;
-	}
 
 	@Override
 	public boolean revokePortForwardingRulesForVm(long vmId) {
@@ -223,11 +178,6 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 		return false;
 	}
 
-	@Override
-	public boolean revokeStaticNatRulesForVm(long vmId) {
-		// TODO Auto-generated method stub
-		return false;
-	}
 
 	@Override
 	public FirewallRule[] reservePorts(IpAddress ip, String protocol,
@@ -237,25 +187,6 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 		return null;
 	}
 
-	@Override
-	public boolean releasePorts(long ipId, String protocol, Purpose purpose,
-			int... ports) {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-	@Override
-	public List<PortForwardingRuleVO> listByNetworkId(long networkId) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public boolean applyStaticNatForIp(long sourceIpId,
-			boolean continueOnError, Account caller, boolean forRevoke) {
-		// TODO Auto-generated method stub
-		return false;
-	}
 
 	@Override
 	public boolean applyStaticNatsForNetwork(long networkId,
@@ -309,5 +240,19 @@ public class MockRulesManagerImpl extends ManagerBase implements RulesManager, R
 		// TODO Auto-generated method stub
 		return "MockRulesManagerImpl";
 	}
+
+    @Override
+    public PortForwardingRule createPortForwardingRule(PortForwardingRule rule,
+            Long vmId, Ip vmIp, boolean openFirewall)
+            throws NetworkRuleConflictException {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public List<FirewallRuleVO> listAssociatedRulesForGuestNic(Nic nic) {
+        // TODO Auto-generated method stub
+        return null;
+    }
 
 }

@@ -298,6 +298,17 @@
      * Layout/behavior for each step in wizard
      */
     var steps = {
+      start: function(args) {
+        if (cloudStack.preInstall) {
+          return cloudStack.preInstall({
+            complete: function() {
+              goTo('intro');
+            }
+          });
+        }
+
+        return steps.intro(args);
+      },
       intro: function(args) {
         var $intro = $('<div></div>').addClass('intro what-is-cloudstack');
         var $title = $('<div></div>').addClass('title').html(_l('label.what.is.cloudstack'));
@@ -413,8 +424,8 @@
         nextStepID: 'addPodIntro',
         form: {
           name: { label: 'label.name', validation: { required: true } },
-          dns1: { label: 'label.dns.1', validation: { required: true } },
-          dns2: { label: 'label.dns.2' },
+          ip4dns1: { label: 'label.dns.1', validation: { required: true } },
+          ip4dns2: { label: 'label.dns.2' },
           internaldns1: { label: 'label.internal.dns.1', validation: { required: true } },
           internaldns2: { label: 'label.internal.dns.2' }
         }
@@ -775,7 +786,7 @@
       }
     };
 
-    var initialStep = steps.intro().addClass('step');
+    var initialStep = steps.start().addClass('step');
     
 
     showDiagram('');

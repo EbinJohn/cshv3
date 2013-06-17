@@ -17,35 +17,6 @@
 
 package com.cloud.network.router;
 
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.TimeZone;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
-import javax.ejb.Local;
-import javax.inject.Inject;
-import javax.naming.ConfigurationException;
-import org.apache.cloudstack.api.command.admin.router.UpgradeRouterCmd;
-import com.cloud.agent.api.to.*;
-import org.apache.log4j.Logger;
-import org.springframework.stereotype.Component;
-
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.AgentManager.OnError;
 import com.cloud.agent.Listener;
@@ -63,11 +34,16 @@ import com.cloud.agent.api.GetDomRVersionCmd;
 import com.cloud.agent.api.ModifySshKeysCommand;
 import com.cloud.agent.api.NetworkUsageAnswer;
 import com.cloud.agent.api.NetworkUsageCommand;
+import com.cloud.agent.api.PvlanSetupCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StopAnswer;
 import com.cloud.agent.api.check.CheckSshAnswer;
 import com.cloud.agent.api.check.CheckSshCommand;
+import com.cloud.agent.api.routing.CreateIpAliasCommand;
+import com.cloud.agent.api.routing.DeleteIpAliasCommand;
 import com.cloud.agent.api.routing.DhcpEntryCommand;
+import com.cloud.agent.api.routing.DnsMasqConfigCommand;
+import com.cloud.agent.api.routing.IpAliasTO;
 import com.cloud.agent.api.routing.IpAssocCommand;
 import com.cloud.agent.api.routing.LoadBalancerConfigCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
@@ -79,6 +55,7 @@ import com.cloud.agent.api.routing.SetPortForwardingRulesVpcCommand;
 import com.cloud.agent.api.routing.SetStaticNatRulesCommand;
 import com.cloud.agent.api.routing.VmDataCommand;
 import com.cloud.agent.api.routing.VpnUsersCfgCommand;
+import com.cloud.agent.api.to.DnsmasqTO;
 import com.cloud.agent.api.to.FirewallRuleTO;
 import com.cloud.agent.api.to.IpAddressTO;
 import com.cloud.agent.api.to.LoadBalancerTO;
@@ -101,6 +78,8 @@ import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.Pod;
+import com.cloud.dc.Vlan;
+import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.HostPodDao;
@@ -122,6 +101,7 @@ import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.OperationTimedoutException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.exception.StorageUnavailableException;
+import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
@@ -162,17 +142,19 @@ import com.cloud.network.dao.Site2SiteCustomerGatewayDao;
 import com.cloud.network.dao.Site2SiteVpnConnectionDao;
 import com.cloud.network.dao.Site2SiteVpnConnectionVO;
 import com.cloud.network.dao.Site2SiteVpnGatewayDao;
+import com.cloud.network.dao.UserIpv6AddressDao;
 import com.cloud.network.dao.VirtualRouterProviderDao;
 import com.cloud.network.dao.VpnUserDao;
 import com.cloud.network.lb.LoadBalancingRule;
 import com.cloud.network.lb.LoadBalancingRule.LbDestination;
+import com.cloud.network.lb.LoadBalancingRule.LbHealthCheckPolicy;
 import com.cloud.network.lb.LoadBalancingRule.LbStickinessPolicy;
 import com.cloud.network.lb.LoadBalancingRulesManager;
 import com.cloud.network.router.VirtualRouter.RedundantState;
 import com.cloud.network.router.VirtualRouter.Role;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.FirewallRule.Purpose;
-import com.cloud.network.rules.FirewallRuleVO;
+import com.cloud.network.rules.LoadBalancerContainer.Scheme;
 import com.cloud.network.rules.PortForwardingRule;
 import com.cloud.network.rules.RulesManager;
 import com.cloud.network.rules.StaticNat;
@@ -184,6 +166,7 @@ import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.resource.ResourceManager;
+import com.cloud.server.ConfigurationServer;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.GuestOSVO;
@@ -208,7 +191,6 @@ import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.PasswordGenerator;
 import com.cloud.utils.StringUtils;
-
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.db.DB;
@@ -219,10 +201,12 @@ import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.utils.net.Ip;
 import com.cloud.utils.net.MacAddress;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.Nic;
+import com.cloud.vm.NicIpAlias;
 import com.cloud.vm.NicProfile;
 import com.cloud.vm.NicVO;
 import com.cloud.vm.ReservationContext;
@@ -238,9 +222,36 @@ import com.cloud.vm.VirtualMachineProfile;
 import com.cloud.vm.VirtualMachineProfile.Param;
 import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.NicDao;
+import com.cloud.vm.dao.NicIpAliasDao;
+import com.cloud.vm.dao.NicIpAliasVO;
 import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.UserVmDetailsDao;
 import com.cloud.vm.dao.VMInstanceDao;
+import org.apache.cloudstack.api.command.admin.router.UpgradeRouterCmd;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
+
+import javax.ejb.Local;
+import javax.inject.Inject;
+import javax.naming.ConfigurationException;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * VirtualNetworkApplianceManagerImpl manages the different types of virtual network appliances available in the Cloud Stack.
@@ -288,12 +299,12 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     @Inject
     ConfigurationManager _configMgr;
     @Inject
+    ConfigurationServer _configServer;
+    @Inject
     ServiceOfferingDao _serviceOfferingDao = null;
     @Inject
     UserVmDao _userVmDao;
     @Inject VMInstanceDao _vmDao;
-    @Inject
-    UserStatisticsDao _statsDao = null;
     @Inject
     NetworkOfferingDao _networkOfferingDao = null;
     @Inject
@@ -307,8 +318,6 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     @Inject
     VpnUserDao _vpnUsersDao;
     @Inject
-    RemoteAccessVpnDao _remoteAccessVpnDao;
-    @Inject
     RulesManager _rulesMgr;
     @Inject
     NetworkDao _networkDao;
@@ -320,6 +329,8 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     RemoteAccessVpnDao _vpnDao;
     @Inject
     NicDao _nicDao;
+    @Inject
+    NicIpAliasDao _nicIpAliasDao;
     @Inject
     VolumeDao _volumeDao = null;
     @Inject
@@ -342,6 +353,8 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     Site2SiteVpnConnectionDao _s2sVpnConnectionDao;
     @Inject
     Site2SiteVpnManager _s2sVpnMgr;
+    @Inject
+    UserIpv6AddressDao _ipv6Dao;
 
     
     int _routerRamSize;
@@ -364,7 +377,9 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     private String _usageTimeZone = "GMT";
     private final long mgmtSrvrId = MacAddress.getMacAddress().toLong();
     private static final int ACQUIRE_GLOBAL_LOCK_TIMEOUT_FOR_COOPERATION = 5;    // 5 seconds
-    
+    private static final int USAGE_AGGREGATION_RANGE_MIN = 10; // 10 minutes, same as com.cloud.usage.UsageManagerImpl.USAGE_AGGREGATION_RANGE_MIN
+    private boolean _dailyOrHourly = false;
+
     ScheduledExecutorService _executor;
     ScheduledExecutorService _checkExecutor;
     ScheduledExecutorService _networkStatsUpdateExecutor;
@@ -728,6 +743,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             cal.roll(Calendar.DAY_OF_YEAR, true);
             cal.add(Calendar.MILLISECOND, -1);
             endDate = cal.getTime().getTime();
+            _dailyOrHourly = true;
         } else if (_usageAggregationRange == HOURLY_TIME) {
             cal.roll(Calendar.HOUR_OF_DAY, false);
             cal.set(Calendar.MINUTE, 0);
@@ -736,8 +752,15 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             cal.roll(Calendar.HOUR_OF_DAY, true);
             cal.add(Calendar.MILLISECOND, -1);
             endDate = cal.getTime().getTime();
+            _dailyOrHourly = true;
         } else {
             endDate = cal.getTime().getTime();
+            _dailyOrHourly = false;
+        }
+
+        if (_usageAggregationRange < USAGE_AGGREGATION_RANGE_MIN) {
+            s_logger.warn("Usage stats job aggregation range is to small, using the minimum value of " + USAGE_AGGREGATION_RANGE_MIN);
+            _usageAggregationRange = USAGE_AGGREGATION_RANGE_MIN;
         }
 
         _networkStatsUpdateExecutor.scheduleAtFixedRate(new NetworkStatsUpdateTask(), (endDate - System.currentTimeMillis()),
@@ -854,7 +877,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                                 final NetworkUsageCommand usageCmd = new NetworkUsageCommand(privateIP, router.getHostName(),
                                         forVpc, routerNic.getIp4Address());
                                 String routerType = router.getType().toString();
-                                UserStatisticsVO previousStats = _statsDao.findBy(router.getAccountId(),
+                                UserStatisticsVO previousStats = _userStatsDao.findBy(router.getAccountId(),
                                         router.getDataCenterId(), network.getId(), (forVpc ? routerNic.getIp4Address() : null), router.getId(), routerType);
                                 NetworkUsageAnswer answer = null;
                                 try {
@@ -876,7 +899,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                                             continue;
                                         }
                                         txn.start();
-                                        UserStatisticsVO stats = _statsDao.lock(router.getAccountId(),
+                                        UserStatisticsVO stats = _userStatsDao.lock(router.getAccountId(),
                                                 router.getDataCenterId(), network.getId(), (forVpc ? routerNic.getIp4Address() : null), router.getId(), routerType);
                                         if (stats == null) {
                                             s_logger.warn("unable to find stats for account: " + router.getAccountId());
@@ -912,7 +935,12 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                                             stats.setNetBytesSent(stats.getNetBytesSent() + stats.getCurrentBytesSent());
                                         }
                                         stats.setCurrentBytesSent(answer.getBytesSent());
-                                        _statsDao.update(stats.getId(), stats);
+                                        if (! _dailyOrHourly) {
+                                            //update agg bytes
+                                            stats.setAggBytesSent(stats.getNetBytesSent() + stats.getCurrentBytesSent());
+                                            stats.setAggBytesReceived(stats.getNetBytesReceived() + stats.getCurrentBytesReceived());
+                                        }
+                                        _userStatsDao.update(stats.getId(), stats);
                                         txn.commit();
                                     } catch (Exception e) {
                                         txn.rollback();
@@ -954,7 +982,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                     try {
                         txn.start();
                         //get all stats with delta > 0
-                        List<UserStatisticsVO> updatedStats = _statsDao.listUpdatedStats();
+                        List<UserStatisticsVO> updatedStats = _userStatsDao.listUpdatedStats();
                         Date updatedTime = new Date();
                         for(UserStatisticsVO stat : updatedStats){
                             //update agg bytes                    
@@ -1152,7 +1180,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 _alertMgr.sendAlert(AlertManager.ALERT_TYPE_DOMAIN_ROUTER,
                         backupRouter.getDataCenterId(), backupRouter.getPodIdToDeployIn(), title, title);
                 try {
-                    rebootRouter(backupRouter.getId(), false);
+                    rebootRouter(backupRouter.getId(), true);
                 } catch (ConcurrentOperationException e) {
                     s_logger.warn("Fail to reboot " + backupRouter.getInstanceName(), e);
                 } catch (ResourceUnavailableException e) {
@@ -1264,13 +1292,22 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                      * We update the router pair which the lower id router owned by this mgmt server, in order
                      * to prevent duplicate update of router status from cluster mgmt servers
                      */
-                    DomainRouterVO router = routers.get(0);
-                    if (routers.get(1).getId() < router.getId()) {
-                        router = routers.get(1);
+                    DomainRouterVO router0 = routers.get(0);
+                    DomainRouterVO router1 = routers.get(1);
+                    DomainRouterVO router = router0;
+                    if ((router0.getId() < router1.getId()) && router0.getHostId() != null) {
+                    	router = router0;
+                    } else {
+                    	router = router1;
+                    }
+                    if (router.getHostId() == null) {
+                    	s_logger.debug("Skip router pair (" + router0.getInstanceName() + "," + router1.getInstanceName() + ") due to can't find host");
+                    	continue;
                     }
                     HostVO host = _hostDao.findById(router.getHostId());
                     if (host == null || host.getManagementServerId() == null ||
                             host.getManagementServerId() != ManagementServerNode.getManagementServerId()) {
+                    	s_logger.debug("Skip router pair (" + router0.getInstanceName() + "," + router1.getInstanceName() + ") due to not belong to this mgmt server");
                         continue;
                     }
                 updateRoutersRedundantState(routers);
@@ -1402,9 +1439,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             assert guestNetwork.getTrafficType() == TrafficType.Guest;
         
             // 1) Get deployment plan and find out the list of routers
-            boolean isPodBased = (dest.getDataCenter().getNetworkType() == NetworkType.Basic ||
-                    _networkModel.areServicesSupportedInNetwork(guestNetwork.getId(), Service.SecurityGroup))
-                    && guestNetwork.getTrafficType() == TrafficType.Guest;
+            boolean isPodBased = (dest.getDataCenter().getNetworkType() == NetworkType.Basic);
         
             // dest has pod=null, for Basic Zone findOrDeployVRs for all Pods
             List<DeployDestination> destinations = new ArrayList<DeployDestination>();
@@ -1503,13 +1538,15 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 for (int i = 0; i < count; i++) {
                 List<Pair<NetworkVO, NicProfile>> networks = createRouterNetworks(owner, isRedundant, plan, guestNetwork,
                         new Pair<Boolean, PublicIp>(publicNetwork, sourceNatIp));
-                //don't start the router as we are holding the network lock that needs to be released at the end of router allocation
+                    //don't start the router as we are holding the network lock that needs to be released at the end of router allocation
                     DomainRouterVO router = deployRouter(owner, destination, plan, params, isRedundant, vrProvider, offeringId,
                         null, networks, false, null);
 
-                _routerDao.addRouterToGuestNetwork(router, guestNetwork);
-                routers.add(router);
-            }
+                    if (router != null) {
+                        _routerDao.addRouterToGuestNetwork(router, guestNetwork);
+                        routers.add(router);
+                    }
+                }
             }
         } finally {
             if (lock != null) {
@@ -1566,7 +1603,26 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             HypervisorType hType = iter.next();
             try {
                 s_logger.debug("Allocating the domR with the hypervisor type " + hType);
-                VMTemplateVO template = _templateDao.findRoutingTemplate(hType);
+                String templateName = null;
+                switch (hType) {
+                    case XenServer:
+                        templateName = _configServer.getConfigValue(Config.RouterTemplateXen.key(), Config.ConfigurationParameterScope.zone.toString(), dest.getDataCenter().getId());
+                        break;
+                    case KVM:
+                        templateName = _configServer.getConfigValue(Config.RouterTemplateKVM.key(), Config.ConfigurationParameterScope.zone.toString(), dest.getDataCenter().getId());
+                        break;
+                    case VMware:
+                        templateName = _configServer.getConfigValue(Config.RouterTemplateVmware.key(), Config.ConfigurationParameterScope.zone.toString(), dest.getDataCenter().getId());
+                        break;
+                    case Hyperv:
+                        templateName = _configServer.getConfigValue(Config.RouterTemplateHyperv.key(), Config.ConfigurationParameterScope.zone.toString(), dest.getDataCenter().getId());
+                        break;
+                    case LXC:
+                        templateName = _configServer.getConfigValue(Config.RouterTemplateLXC.key(), Config.ConfigurationParameterScope.zone.toString(), dest.getDataCenter().getId());
+                        break;
+                    default: break;
+                }
+                VMTemplateVO template = _templateDao.findRoutingTemplate(hType, templateName);
 
                 if (template == null) {
                     s_logger.debug(hType + " won't support system vm, skip it");
@@ -1688,18 +1744,41 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         boolean hasGuestNetwork = false;
         if (guestNetwork != null) {
             s_logger.debug("Adding nic for Virtual Router in Guest network " + guestNetwork);
-            String defaultNetworkStartIp = null;
-            if (guestNetwork.getCidr() != null && !setupPublicNetwork) {
-                String startIp = _networkModel.getStartIpAddress(guestNetwork.getId());
-                if (startIp != null && _ipAddressDao.findByIpAndSourceNetworkId(guestNetwork.getId(), startIp).getAllocatedTime() == null) {
-                    defaultNetworkStartIp = startIp;
-                } else if (s_logger.isDebugEnabled()){
-                    s_logger.debug("First ip " + startIp + " in network id=" + guestNetwork.getId() + 
-                            " is already allocated, can't use it for domain router; will get random ip address from the range");
-                }
+            String defaultNetworkStartIp = null, defaultNetworkStartIpv6 = null;
+            if (!setupPublicNetwork) {
+            	    Nic placeholder = _networkModel.getPlaceholderNicForRouter(guestNetwork, plan.getPodId());
+            	if (guestNetwork.getCidr() != null) {
+            		if (placeholder != null && placeholder.getIp4Address() != null) {
+            			s_logger.debug("Requesting ipv4 address " + placeholder.getIp4Address() + " stored in placeholder nic for the network " + guestNetwork);
+            	        defaultNetworkStartIp = placeholder.getIp4Address();
+            	    } else {
+            	        String startIp = _networkModel.getStartIpAddress(guestNetwork.getId());
+                        if (startIp != null && _ipAddressDao.findByIpAndSourceNetworkId(guestNetwork.getId(), startIp).getAllocatedTime() == null) {
+                            defaultNetworkStartIp = startIp;
+                        } else if (s_logger.isDebugEnabled()){
+            				s_logger.debug("First ipv4 " + startIp + " in network id=" + guestNetwork.getId() + 
+                                    " is already allocated, can't use it for domain router; will get random ip address from the range");
+                        }
+            	    }
+            	}
+            	
+            	if (guestNetwork.getIp6Cidr() != null) {
+            		if (placeholder != null && placeholder.getIp6Address() != null) {
+            			s_logger.debug("Requesting ipv6 address " + placeholder.getIp6Address() + " stored in placeholder nic for the network " + guestNetwork);
+            			defaultNetworkStartIpv6 = placeholder.getIp6Address(); 
+            		} else {
+            		String startIpv6 = _networkModel.getStartIpv6Address(guestNetwork.getId());
+            		if (startIpv6 != null && _ipv6Dao.findByNetworkIdAndIp(guestNetwork.getId(), startIpv6) == null) {
+            			defaultNetworkStartIpv6 = startIpv6;
+            		} else if (s_logger.isDebugEnabled()){
+            			s_logger.debug("First ipv6 " + startIpv6 + " in network id=" + guestNetwork.getId() + 
+            					" is already allocated, can't use it for domain router; will get random ipv6 address from the range");
+            		}
+            	}
+            }
             }
 
-            NicProfile gatewayNic = new NicProfile(defaultNetworkStartIp, null);
+            NicProfile gatewayNic = new NicProfile(defaultNetworkStartIp, defaultNetworkStartIpv6);
             if (setupPublicNetwork) {
                 if (isRedundant) {
                     gatewayNic.setIp4Address(_networkMgr.acquireGuestIpAddress(guestNetwork, null));
@@ -1927,6 +2006,8 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         NicProfile controlNic = null;
         String defaultDns1 = null;
         String defaultDns2 = null;
+        String defaultIp6Dns1 = null;
+        String defaultIp6Dns2 = null;
         for (NicProfile nic : profile.getNics()) {
             int deviceId = nic.getDeviceId();
             boolean ipv4 = false, ipv6 = false;
@@ -1950,6 +2031,8 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             	}
                 defaultDns1 = nic.getDns1();
                 defaultDns2 = nic.getDns2();
+                defaultIp6Dns1 = nic.getIp6Dns1();
+                defaultIp6Dns2 = nic.getIp6Dns2();
             }
 
             if (nic.getTrafficType() == TrafficType.Management) {
@@ -2045,10 +2128,16 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             if (defaultDns2 != null) {
                 buf.append(" dns2=").append(defaultDns2);
             }
+            if (defaultIp6Dns1 != null) {
+                buf.append(" ip6dns1=").append(defaultIp6Dns1);
+            }
+            if (defaultIp6Dns2 != null) {
+                buf.append(" ip6dns2=").append(defaultIp6Dns2);
+            }
 
             boolean useExtDns = !dnsProvided;
             /* For backward compatibility */
-            String use_external_dns =  _configDao.getValue(Config.UseExternalDnsServers.key());
+            String use_external_dns = _configServer.getConfigValue(Config.UseExternalDnsServers.key(), Config.ConfigurationParameterScope.zone.toString(), dc.getId());
             if (use_external_dns != null && use_external_dns.equals("true")) {
                 useExtDns = true;
             }
@@ -2142,6 +2231,36 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         return dhcpRange;
     }
 
+    @Override
+    public boolean setupDhcpForPvlan(boolean add, DomainRouterVO router, Long hostId, NicProfile nic) {
+    	if (!nic.getBroadCastUri().getScheme().equals("pvlan")) {
+    		return false;
+    	}
+    	String op = "add";
+    	if (!add) {
+    		op = "delete";
+    	}
+    	Network network = _networkDao.findById(nic.getNetworkId());
+    	String networkTag = _networkModel.getNetworkTag(router.getHypervisorType(), network);
+    	PvlanSetupCommand cmd = PvlanSetupCommand.createDhcpSetup(op, nic.getBroadCastUri(), networkTag, router.getInstanceName(), nic.getMacAddress(), nic.getIp4Address());
+    	// In fact we send command to the host of router, we're not programming router but the host
+        Answer answer = null;
+    	try {
+            answer = _agentMgr.send(hostId, cmd);
+        } catch (OperationTimedoutException e) {
+            s_logger.warn("Timed Out", e);
+            return false;
+		} catch (AgentUnavailableException e) {
+            s_logger.warn("Agent Unavailable ", e);
+			return false;
+		}
+
+        if (answer == null || !answer.getResult()) {
+        	return false;
+        }
+    	return true;
+    }
+    
     @Override
     public boolean finalizeDeployment(Commands cmds, VirtualMachineProfile<DomainRouterVO> profile, 
             DeployDestination dest, ReservationContext context) throws ResourceUnavailableException {
@@ -2292,7 +2411,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 }
       
                 if (_networkModel.isProviderSupportServiceInNetwork(guestNetworkId, Service.Vpn, provider)) {
-                    RemoteAccessVpn vpn = _vpnDao.findById(ip.getId());
+                    RemoteAccessVpn vpn = _vpnDao.findByPublicIpAddress(ip.getId());
                     if (vpn != null) {
                         vpns.add(vpn);
                     }
@@ -2300,8 +2419,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
       
                 if (_networkModel.isProviderSupportServiceInNetwork(guestNetworkId, Service.StaticNat, provider)) {
                     if (ip.isOneToOneNat()) {
-                            String dstIp = _networkModel.getIpInNetwork(ip.getAssociatedWithVmId(), guestNetworkId);
-                            StaticNatImpl staticNat = new StaticNatImpl(ip.getAccountId(), ip.getDomainId(), guestNetworkId, ip.getId(), dstIp, false);
+                            StaticNatImpl staticNat = new StaticNatImpl(ip.getAccountId(), ip.getDomainId(), guestNetworkId, ip.getId(), ip.getVmIp(), false);
                         staticNats.add(staticNat);
                     }
                 }
@@ -2343,22 +2461,44 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 }
             }
    
-            List<LoadBalancerVO> lbs = _loadBalancerDao.listByNetworkId(guestNetworkId);
+            List<LoadBalancerVO> lbs = _loadBalancerDao.listByNetworkIdAndScheme(guestNetworkId, Scheme.Public);
             List<LoadBalancingRule> lbRules = new ArrayList<LoadBalancingRule>();
             if (_networkModel.isProviderSupportServiceInNetwork(guestNetworkId, Service.Lb, provider)) {
                 // Re-apply load balancing rules
                 for (LoadBalancerVO lb : lbs) {
                     List<LbDestination> dstList = _lbMgr.getExistingDestinations(lb.getId());
                     List<LbStickinessPolicy> policyList = _lbMgr.getStickinessPolicies(lb.getId());
-                    LoadBalancingRule loadBalancing = new LoadBalancingRule(lb, dstList, policyList);
+                    List<LbHealthCheckPolicy> hcPolicyList = _lbMgr.getHealthCheckPolicies(lb.getId());
+                    Ip sourceIp = _networkModel.getPublicIpAddress(lb.getSourceIpAddressId()).getAddress();
+                    LoadBalancingRule loadBalancing = new LoadBalancingRule(lb, dstList, policyList, hcPolicyList, sourceIp);
                     lbRules.add(loadBalancing);
                 }
             }
-   
+
             s_logger.debug("Found " + lbRules.size() + " load balancing rule(s) to apply as a part of domR " + router + " start.");
             if (!lbRules.isEmpty()) {
                     createApplyLoadBalancingRulesCommands(lbRules, router, cmds, guestNetworkId);
             }
+        }
+        //Reapply dhcp and dns configuration.
+        if (_networkModel.isProviderSupportServiceInNetwork(guestNetworkId, Service.Dhcp, provider)) {
+            List<NicIpAliasVO> revokedIpAliasVOs = _nicIpAliasDao.listByNetworkIdAndState(guestNetworkId, NicIpAlias.state.revoked);
+            s_logger.debug("Found" + revokedIpAliasVOs.size() + "ip Aliases to revoke on the router as a part of dhcp configuration");
+            List<IpAliasTO> revokedIpAliasTOs = new ArrayList<IpAliasTO>();
+            for (NicIpAliasVO revokedAliasVO : revokedIpAliasVOs) {
+                revokedIpAliasTOs.add(new IpAliasTO(revokedAliasVO.getIp4Address(), revokedAliasVO.getNetmask(), revokedAliasVO.getAliasCount().toString()));
+            }
+            List<NicIpAliasVO> aliasVOs = _nicIpAliasDao.listByNetworkIdAndState(guestNetworkId, NicIpAlias.state.active);
+            s_logger.debug("Found" + aliasVOs.size() + "ip Aliases to apply on the router as a part of dhcp configuration");
+            List<IpAliasTO> activeIpAliasTOs = new ArrayList<IpAliasTO>();
+            for (NicIpAliasVO aliasVO : aliasVOs) {
+                   activeIpAliasTOs.add(new IpAliasTO(aliasVO.getIp4Address(), aliasVO.getNetmask(), aliasVO.getAliasCount().toString()));
+            }
+            if (revokedIpAliasTOs.size() != 0 || activeIpAliasTOs.size() != 0){
+            createDeleteIpAliasCommand(router, revokedIpAliasTOs, activeIpAliasTOs, guestNetworkId, cmds);
+                configDnsMasq(router, _networkDao.findById(guestNetworkId), cmds);
+            }
+
         }
     }
 
@@ -2396,8 +2536,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 
                 if (addIp) {
                     IPAddressVO ipVO = _ipAddressDao.findById(userIp.getId());
-                    PublicIp publicIp = new PublicIp(ipVO, _vlanDao.findById(userIp.getVlanId()), 
-                            NetUtils.createSequenceBasedMacAddress(ipVO.getMacAddress()));
+                    PublicIp publicIp = PublicIp.createFromAddrAndVlan(ipVO, _vlanDao.findById(userIp.getVlanId()));
                     allPublicIps.add(publicIp);
                 }
             }
@@ -2438,11 +2577,19 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         List<Network> guestNetworks = new ArrayList<Network>();
         
         List<? extends Nic> routerNics = _nicDao.listByVmId(profile.getId());
-        for (Nic routerNic : routerNics) {
-            Network network = _networkModel.getNetwork(routerNic.getNetworkId());
+        for (Nic nic : routerNics) {
+        	Network network = _networkModel.getNetwork(nic.getNetworkId());
             if (network.getTrafficType() == TrafficType.Guest) {
                 guestNetworks.add(network);
-            } 
+                if (nic.getBroadcastUri().getScheme().equals("pvlan")) {
+                	NicProfile nicProfile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), 0, false, "pvlan-nic");
+                	result = setupDhcpForPvlan(true, router, router.getHostId(), nicProfile);
+                }
+            }
+        }
+        
+        if (!result) {
+        	return result;
         }
         
         answer = cmds.getAnswer("getDomRVersion");
@@ -2470,6 +2617,15 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             VMInstanceVO vm = profile.getVirtualMachine();
             DomainRouterVO domR = _routerDao.findById(vm.getId());
             processStopOrRebootAnswer(domR, answer);
+            List<? extends Nic> routerNics = _nicDao.listByVmId(profile.getId());
+            for (Nic nic : routerNics) {
+            	Network network = _networkModel.getNetwork(nic.getNetworkId());
+            	if (network.getTrafficType() == TrafficType.Guest && nic.getBroadcastUri() != null && nic.getBroadcastUri().getScheme().equals("pvlan")) {
+                	NicProfile nicProfile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), 0, false, "pvlan-nic");
+            		setupDhcpForPvlan(false, domR, domR.getHostId(), nicProfile);
+            	}
+            }
+
         }
     }
 
@@ -2602,7 +2758,135 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             throw new CloudRuntimeException("Unable to stop " + router, e);
         }
     }
-    
+
+    @Override
+    public boolean configDhcpForSubnet(Network network, final NicProfile nic, VirtualMachineProfile<UserVm> profile, DeployDestination dest, List<DomainRouterVO> routers) throws ResourceUnavailableException {
+        _userVmDao.loadDetails((UserVmVO) profile.getVirtualMachine());
+
+        final VirtualMachineProfile<UserVm> updatedProfile = profile;
+        final boolean isZoneBasic = (dest.getDataCenter().getNetworkType() == NetworkType.Basic);
+        final Long podId = isZoneBasic ? dest.getPod().getId() : null;
+
+        //Asuming we have only one router per network For Now.
+        DomainRouterVO router = routers.get(0);
+        if (router.getState() != State.Running) {
+            s_logger.warn("Failed to add/remove VPN users: router not in running state");
+            throw new ResourceUnavailableException("Unable to assign ip addresses, domR is not in right state " +
+                    router.getState(), DataCenter.class, network.getDataCenterId());
+        }
+        //check if this is not the primary subnet.
+
+
+        //check if the the ip Alias is configured on the virtualrouter.
+        UserVm vm = updatedProfile.getVirtualMachine();
+        NicVO domr_guest_nic = _nicDao.findByInstanceIdAndIpAddressAndVmtype(router.getId(), _nicDao.getIpAddress(nic.getNetworkId(), router.getId()), VirtualMachine.Type.DomainRouter);
+        //check if the router ip address and the vm ip address belong to same subnet.
+        //if they do not belong to same netwoek check for the alias ips. if not create one.
+        // This should happen only in case of Basic and Advanced SG enabled networks.
+        if (!NetUtils.sameSubnet(domr_guest_nic.getIp4Address(), nic.getIp4Address(), nic.getNetmask())){
+            List<NicIpAliasVO> aliasIps = _nicIpAliasDao.listByNetworkIdAndState(domr_guest_nic.getNetworkId(), NicIpAlias.state.active);
+            boolean ipInVmsubnet =false;
+            for (NicIpAliasVO alias : aliasIps) {
+                //check if any of the alias ips belongs to the Vm's subnet.
+                if (NetUtils.sameSubnet(alias.getIp4Address(),nic.getIp4Address(),nic.getNetmask())){
+                    ipInVmsubnet = true;
+                    break;
+                }
+            }
+            PublicIp routerPublicIP = null;
+            String routerAliasIp =null;
+            DataCenter dc = _dcDao.findById(router.getDataCenterId());
+            if (ipInVmsubnet == false) {
+                try {
+                    if (network.getTrafficType() == TrafficType.Guest && network.getGuestType() == GuestType.Shared) {
+                        Pod pod = _podDao.findById(vm.getPodIdToDeployIn());
+                        Account caller = UserContext.current().getCaller();
+                        List<VlanVO> vlanList = _vlanDao.listVlansByNetworkIdAndGateway(network.getId(), nic.getGateway());
+                        List<Long>   vlanDbIdList = new ArrayList<Long>();
+                        for (VlanVO vlan : vlanList) {
+                            vlanDbIdList.add(vlan.getId());
+                        }
+                        if (dc.getNetworkType() == NetworkType.Basic) {
+                        routerPublicIP = _networkMgr.assignPublicIpAddressFromVlans(router.getDataCenterId(), vm.getPodIdToDeployIn(), caller, Vlan.VlanType.DirectAttached, vlanDbIdList, nic.getNetworkId(), null, false);
+                        }
+                        else {
+                            routerPublicIP = _networkMgr.assignPublicIpAddressFromVlans(router.getDataCenterId(), null, caller, Vlan.VlanType.DirectAttached, vlanDbIdList, nic.getNetworkId(), null, false);
+                        }
+
+                        routerAliasIp = routerPublicIP.getAddress().addr();
+                    }
+                }
+                catch (InsufficientAddressCapacityException e){
+                    s_logger.info(e.getMessage());
+                    s_logger.info("unable to configure dhcp for this VM.");
+                    return false;
+                }
+                //this means we did not create a ip alis on the router.
+                NicIpAliasVO alias = new NicIpAliasVO(domr_guest_nic.getId(), routerAliasIp, router.getId(), UserContext.current().getAccountId(), network.getDomainId(), nic.getNetworkId(),nic.getGateway(), nic.getNetmask());
+                alias.setAliasCount((routerPublicIP.getIpMacAddress()));
+                _nicIpAliasDao.persist(alias);
+                List<IpAliasTO> ipaliasTo = new ArrayList<IpAliasTO>();
+                ipaliasTo.add(new IpAliasTO(routerAliasIp, alias.getNetmask(), alias.getAliasCount().toString()));
+                Commands cmds = new Commands(OnError.Stop);
+                createIpAlias(router, ipaliasTo, alias.getNetworkId(), cmds);
+                //also add the required configuration to the dnsmasq for supporting dhcp and dns on the new ip.
+                configDnsMasq(router, network, cmds);
+                boolean result = sendCommandsToRouter(router, cmds);
+                if (result == false) {
+                    NicIpAliasVO ipAliasVO = _nicIpAliasDao.findByInstanceIdAndNetworkId(network.getId(), router.getId());
+                    _nicIpAliasDao.expunge(ipAliasVO.getId());
+                    _ipAddressDao.unassignIpAddress(routerPublicIP.getId());
+                    throw new CloudRuntimeException("failed to configure ip alias on the router as a part of dhcp config");
+                }
+            }
+            return true;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean removeDhcpSupportForSubnet(Network network,  List<DomainRouterVO> routers) throws ResourceUnavailableException {
+        if (routers == null || routers.isEmpty()) {
+            s_logger.warn("Failed to add/remove VPN users: no router found for account and zone");
+            throw new ResourceUnavailableException("Unable to assign ip addresses, domR doesn't exist for network " +
+                    network.getId(), DataCenter.class, network.getDataCenterId());
+        }
+
+        boolean agentResults = true;
+
+        for (DomainRouterVO router : routers) {
+            if (router.getState() != State.Running) {
+                s_logger.warn("Failed to add/remove VPN users: router not in running state");
+                throw new ResourceUnavailableException("Unable to assign ip addresses, domR is not in right state " +
+                        router.getState(), DataCenter.class, network.getDataCenterId());
+            }
+
+            Commands cmds = new Commands(OnError.Continue);
+            List<NicIpAliasVO> revokedIpAliasVOs = _nicIpAliasDao.listByNetworkIdAndState(network.getId(), NicIpAlias.state.revoked);
+            s_logger.debug("Found" + revokedIpAliasVOs.size() + "ip Aliases to revoke on the router as a part of dhcp configuration");
+            List<IpAliasTO> revokedIpAliasTOs = new ArrayList<IpAliasTO>();
+            for (NicIpAliasVO revokedAliasVO : revokedIpAliasVOs) {
+                revokedIpAliasTOs.add(new IpAliasTO(revokedAliasVO.getIp4Address(), revokedAliasVO.getNetmask(), revokedAliasVO.getAliasCount().toString()));
+            }
+            List<NicIpAliasVO> aliasVOs = _nicIpAliasDao.listByNetworkIdAndState(network.getId(), NicIpAlias.state.active);
+            s_logger.debug("Found" + aliasVOs.size() + "ip Aliases to apply on the router as a part of dhcp configuration");
+            List<IpAliasTO> activeIpAliasTOs = new ArrayList<IpAliasTO>();
+            for (NicIpAliasVO aliasVO : aliasVOs) {
+                activeIpAliasTOs.add(new IpAliasTO(aliasVO.getIp4Address(), aliasVO.getNetmask(), aliasVO.getAliasCount().toString()));
+            }
+            createDeleteIpAliasCommand(router, revokedIpAliasTOs, activeIpAliasTOs, network.getId(), cmds);
+            configDnsMasq(router, network, cmds);
+            boolean result = sendCommandsToRouter(router, cmds);
+            if (result) {
+                for (NicIpAliasVO revokedAliasVO : revokedIpAliasVOs) {
+                    _nicIpAliasDao.expunge(revokedAliasVO.getId());
+                }
+            }
+        }
+        return  false;
+    }
+
+
     @Override
     public boolean applyDhcpEntry(Network network, final NicProfile nic, VirtualMachineProfile<UserVm> profile, 
             DeployDestination dest, List<DomainRouterVO> routers)
@@ -2635,7 +2919,19 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         });
     }
 
-    private String findDefaultDnsIp(long userVmId) {
+    private void createDeleteIpAliasCommand(DomainRouterVO router, List<IpAliasTO> deleteIpAliasTOs, List<IpAliasTO> createIpAliasTos, long networkId, Commands cmds) {
+        String routerip = getRouterIpInNetwork(networkId, router.getId());
+        DataCenterVO dcVo = _dcDao.findById(router.getDataCenterId());
+        DeleteIpAliasCommand deleteIpaliasCmd = new DeleteIpAliasCommand(routerip, deleteIpAliasTOs, createIpAliasTos);
+        deleteIpaliasCmd.setAccessDetail(NetworkElementCommand.ROUTER_IP, getRouterControlIp(router.getId()));
+        deleteIpaliasCmd.setAccessDetail(NetworkElementCommand.ROUTER_NAME, router.getInstanceName());
+        deleteIpaliasCmd.setAccessDetail(NetworkElementCommand.ROUTER_GUEST_IP,routerip);
+        deleteIpaliasCmd.setAccessDetail(NetworkElementCommand.ZONE_NETWORK_TYPE, dcVo.getNetworkType().toString());
+
+        cmds.addCommand("deleteIpalias", deleteIpaliasCmd);
+    }
+
+    private NicVO findDefaultDnsIp(long userVmId) {
         NicVO defaultNic = _nicDao.findDefaultNicForVM(userVmId);
         
         //check if DNS provider is the domR
@@ -2658,12 +2954,12 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         } else{
             domrDefaultNic = _nicDao.findByNetworkIdAndType(defaultNic.getNetworkId(), VirtualMachine.Type.DomainRouter);
         }
-        return domrDefaultNic.getIp4Address();
+        return domrDefaultNic;
     }
 
-    private String findGatewayIp(long userVmId) {
+    private NicVO findGatewayIp(long userVmId) {
         NicVO defaultNic = _nicDao.findDefaultNicForVM(userVmId);
-        return defaultNic.getGateway();
+        return defaultNic;
      }
 
     @Override
@@ -2854,6 +3150,16 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             vlanIpMap.put(vlanTag, ipList);
         }
 
+        List<NicVO> nics = _nicDao.listByVmId(router.getId());
+        String baseMac = null;
+        for (NicVO nic : nics) {
+        	NetworkVO nw = _networkDao.findById(nic.getNetworkId());
+        	if (nw.getTrafficType() == TrafficType.Public) {
+        		baseMac = nic.getMacAddress();
+        		break;
+        	}
+        }
+
         for (Map.Entry<String, ArrayList<PublicIpAddress>> vlanAndIp : vlanIpMap.entrySet()) {
             List<PublicIpAddress> ipAddrList = vlanAndIp.getValue();
             // Source nat ip address should always be sent first
@@ -2885,7 +3191,14 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 String vlanId = ipAddr.getVlanTag();
                 String vlanGateway = ipAddr.getGateway();
                 String vlanNetmask = ipAddr.getNetmask();
-                String vifMacAddress = ipAddr.getMacAddress();
+                String vifMacAddress = null;
+                // For non-source nat IP, set the mac to be something based on first public nic's MAC
+                // We cannot depends on first ip because we need to deal with first ip of other nics
+                if (!ipAddr.isSourceNat() && ipAddr.getVlanId() != 0) {
+                	vifMacAddress = NetUtils.generateMacOnIncrease(baseMac, ipAddr.getVlanId());
+                } else {
+                	vifMacAddress = ipAddr.getMacAddress();
+                }
 
                 IpAddressTO ip = new IpAddressTO(ipAddr.getAccountId(), ipAddr.getAddress().addr(), add, firstIP, 
                         sourceNat, vlanId, vlanGateway, vlanNetmask, vifMacAddress, networkRate, ipAddr.isOneToOneNat());
@@ -2969,7 +3282,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             String algorithm = rule.getAlgorithm();
             String uuid = rule.getUuid();
 
-            String srcIp = _networkModel.getIp(rule.getSourceIpAddressId()).getAddress().addr();
+            String srcIp = rule.getSourceIp().addr();
             int srcPort = rule.getSourcePortStart();
             List<LbDestination> destinations = rule.getDestinations();
             List<LbStickinessPolicy> stickinessPolicies = rule.getStickinessPolicies();
@@ -2984,7 +3297,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         }
         
         Network guestNetwork = _networkModel.getNetwork(guestNetworkId);
-        Nic nic = _nicDao.findByInstanceIdAndNetworkId(guestNetwork.getId(), router.getId());
+        Nic nic = _nicDao.findByNtwkIdAndInstanceId(guestNetwork.getId(), router.getId());
         NicProfile nicProfile = new NicProfile(nic, guestNetwork, nic.getBroadcastUri(), nic.getIsolationUri(), 
                 _networkModel.getNetworkRate(guestNetwork.getId(), router.getId()), 
                 _networkModel.isSecurityGroupSupportedInNetwork(guestNetwork), 
@@ -3046,7 +3359,12 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
 
         // password should be set only on default network element
         if (password != null && nic.isDefaultNic()) {
-            final String encodedPassword = PasswordGenerator.rot13(password);
+            String encodedPassword = PasswordGenerator.rot13(password);
+            // We would unset password for BACKUP router in the RvR, to prevent user from accidently reset the 
+            // password again after BACKUP become MASTER
+            if (router.getIsRedundantRouter() && router.getRedundantState() != RedundantState.MASTER) {
+            	encodedPassword = PasswordGenerator.rot13("saved_password");
+            }
             SavePasswordCommand cmd = new SavePasswordCommand(encodedPassword, nic.getIp4Address(), profile.getVirtualMachine().getHostName());
             cmd.setAccessDetail(NetworkElementCommand.ROUTER_IP, getRouterControlIp(router.getId()));
             cmd.setAccessDetail(NetworkElementCommand.ROUTER_GUEST_IP, getRouterIpInNetwork(nic.getNetworkId(), router.getId()));
@@ -3077,7 +3395,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             }
 
             if (createVmData) {
-                NicVO nic = _nicDao.findByInstanceIdAndNetworkId(guestNetworkId, vm.getId());
+                NicVO nic = _nicDao.findByNtwkIdAndInstanceId(guestNetworkId, vm.getId());
                 if (nic != null) {
                     s_logger.debug("Creating user data entry for vm " + vm + " on domR " + router);
                     createVmDataCommand(router, vm, nic, null, cmds);
@@ -3089,27 +3407,21 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     private void createDhcpEntryCommand(VirtualRouter router, UserVm vm, NicVO nic, Commands cmds) {
         DhcpEntryCommand dhcpCommand = new DhcpEntryCommand(nic.getMacAddress(), nic.getIp4Address(), vm.getHostName(), nic.getIp6Address());
         DataCenterVO dcVo = _dcDao.findById(router.getDataCenterId());
-        String gatewayIp = findGatewayIp(vm.getId());
-        boolean needGateway = true;
+        Nic defaultNic = findGatewayIp(vm.getId());
+        String gatewayIp = defaultNic.getGateway();
         if (gatewayIp != null && !gatewayIp.equals(nic.getGateway())) {
-            needGateway = false;
-            GuestOSVO guestOS = _guestOSDao.findById(vm.getGuestOSId());
-            // Do set dhcp:router option for non-default nic on certain OS(including Windows), and leave other OS unset.
-            // Because some OS(e.g. CentOS) would set routing on wrong interface
-            for (String name : _guestOSNeedGatewayOnNonDefaultNetwork) {
-                if (guestOS.getDisplayName().startsWith(name)) {
-                    needGateway = true;
-                    break;
-            }
-        }
-        }
-        if (!needGateway) {
             gatewayIp = "0.0.0.0";
         }
         dhcpCommand.setDefaultRouter(gatewayIp);
         dhcpCommand.setIp6Gateway(nic.getIp6Gateway());
-        dhcpCommand.setDefaultDns(findDefaultDnsIp(vm.getId()));
+        String ipaddress=null;
+        NicVO domrDefaultNic =  findDefaultDnsIp(vm.getId());
+        if (domrDefaultNic != null){
+            ipaddress  = domrDefaultNic.getIp4Address();
+        }
+        dhcpCommand.setDefaultDns(ipaddress);
         dhcpCommand.setDuid(NetUtils.getDuidLL(nic.getMacAddress()));
+        dhcpCommand.setDefault(nic.isDefaultNic());
 
         dhcpCommand.setAccessDetail(NetworkElementCommand.ROUTER_IP, getRouterControlIp(router.getId()));
         dhcpCommand.setAccessDetail(NetworkElementCommand.ROUTER_NAME, router.getInstanceName());
@@ -3117,6 +3429,48 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         dhcpCommand.setAccessDetail(NetworkElementCommand.ZONE_NETWORK_TYPE, dcVo.getNetworkType().toString());
 
         cmds.addCommand("dhcp", dhcpCommand);
+    }
+
+    private void configDnsMasq(VirtualRouter router, Network network, Commands cmds) {
+        DataCenterVO dcVo = _dcDao.findById(router.getDataCenterId());
+        List<NicIpAliasVO> ipAliasVOList = _nicIpAliasDao.getAliasIpForVm(router.getId());
+        List<DnsmasqTO> ipList = new ArrayList<DnsmasqTO>();
+
+        NicVO router_guest_nic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), router.getId());
+        String cidr = NetUtils.getCidrFromGatewayAndNetmask(router_guest_nic.getGateway(), router_guest_nic.getNetmask());
+        String[] cidrPair = cidr.split("\\/");
+        String cidrAddress = cidrPair[0];
+        long cidrSize = Long.parseLong(cidrPair[1]);
+        String startIpOfSubnet = NetUtils.getIpRangeStartIpFromCidr(cidrAddress, cidrSize);
+
+        ipList.add(new DnsmasqTO(router_guest_nic.getIp4Address(),router_guest_nic.getGateway(),router_guest_nic.getNetmask(), startIpOfSubnet));
+        for (NicIpAliasVO ipAliasVO : ipAliasVOList) {
+             DnsmasqTO dnsmasqTO = new DnsmasqTO(ipAliasVO.getIp4Address(), ipAliasVO.getGateway(), ipAliasVO.getNetmask(), ipAliasVO.getStartIpOfSubnet());
+             ipList.add(dnsmasqTO);
+        }
+        DataCenterVO dcvo = _dcDao.findById(router.getDataCenterId());
+        DnsMasqConfigCommand dnsMasqConfigCmd = new DnsMasqConfigCommand(network.getNetworkDomain(),ipList, dcvo.getDns1(), dcvo.getDns2(), dcvo.getInternalDns1(), dcvo.getInternalDns2());
+        dnsMasqConfigCmd.setAccessDetail(NetworkElementCommand.ROUTER_IP, getRouterControlIp(router.getId()));
+        dnsMasqConfigCmd.setAccessDetail(NetworkElementCommand.ROUTER_NAME, router.getInstanceName());
+        dnsMasqConfigCmd.setAccessDetail(NetworkElementCommand.ROUTER_GUEST_IP, getRouterIpInNetwork(network.getId(), router.getId()));
+        dnsMasqConfigCmd.setAccessDetail(NetworkElementCommand.ZONE_NETWORK_TYPE, dcVo.getNetworkType().toString());
+
+        cmds.addCommand("dhcpConfig" ,dnsMasqConfigCmd);
+        //To change body of created methods use File | Settings | File Templates.
+    }
+
+
+    private void createIpAlias(VirtualRouter router, List<IpAliasTO> ipAliasTOs, Long networkid, Commands cmds) {
+
+        String routerip = getRouterIpInNetwork(networkid, router.getId());
+        DataCenterVO dcVo = _dcDao.findById(router.getDataCenterId());
+        CreateIpAliasCommand ipaliasCmd = new CreateIpAliasCommand(routerip, ipAliasTOs);
+        ipaliasCmd.setAccessDetail(NetworkElementCommand.ROUTER_IP, getRouterControlIp(router.getId()));
+        ipaliasCmd.setAccessDetail(NetworkElementCommand.ROUTER_NAME, router.getInstanceName());
+        ipaliasCmd.setAccessDetail(NetworkElementCommand.ROUTER_GUEST_IP,routerip);
+        ipaliasCmd.setAccessDetail(NetworkElementCommand.ZONE_NETWORK_TYPE, dcVo.getNetworkType().toString());
+
+        cmds.addCommand("ipalias", ipaliasCmd);
     }
 
     private void createDhcpEntryCommandsForVMs(DomainRouterVO router, Commands cmds, long guestNetworkId) {
@@ -3129,7 +3483,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 createDhcp = false;
             }
             if (createDhcp) {
-                NicVO nic = _nicDao.findByInstanceIdAndNetworkId(guestNetworkId, vm.getId());
+                NicVO nic = _nicDao.findByNtwkIdAndInstanceId(guestNetworkId, vm.getId());
                 if (nic != null) {
                     s_logger.debug("Creating dhcp entry for vm " + vm + " on domR " + router + ".");
                     createDhcpEntryCommand(router, vm, nic, cmds);
@@ -3247,12 +3601,14 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             public boolean execute(Network network, VirtualRouter router) throws ResourceUnavailableException {
                 if (rules.get(0).getPurpose() == Purpose.LoadBalancing) {
                     // for load balancer we have to resend all lb rules for the network
-                    List<LoadBalancerVO> lbs = _loadBalancerDao.listByNetworkId(network.getId());
+                    List<LoadBalancerVO> lbs = _loadBalancerDao.listByNetworkIdAndScheme(network.getId(), Scheme.Public);
                     List<LoadBalancingRule> lbRules = new ArrayList<LoadBalancingRule>();
                     for (LoadBalancerVO lb : lbs) {
                         List<LbDestination> dstList = _lbMgr.getExistingDestinations(lb.getId());
                         List<LbStickinessPolicy> policyList = _lbMgr.getStickinessPolicies(lb.getId());
-                        LoadBalancingRule loadBalancing = new LoadBalancingRule(lb, dstList,policyList);
+                        List<LbHealthCheckPolicy> hcPolicyList = _lbMgr.getHealthCheckPolicies(lb.getId());
+                        Ip sourceIp = _networkModel.getPublicIpAddress(lb.getSourceIpAddressId()).getAddress();
+                        LoadBalancingRule loadBalancing = new LoadBalancingRule(lb, dstList, policyList, hcPolicyList, sourceIp);
                         lbRules.add(loadBalancing);
                     }
                     return sendLBRules(router, lbRules, network.getId());
@@ -3266,6 +3622,32 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                     s_logger.warn("Unable to apply rules of purpose: " + rules.get(0).getPurpose());
                     return false;
                 }
+            }
+        });
+    }
+    
+    
+    @Override
+    public boolean applyLoadBalancingRules(Network network, final List<? extends LoadBalancingRule> rules, List<? extends VirtualRouter> routers) throws ResourceUnavailableException {
+        if (rules == null || rules.isEmpty()) {
+            s_logger.debug("No lb rules to be applied for network " + network.getId());
+            return true;
+        }
+        return applyRules(network, routers, "loadbalancing rules", false, null, false, new RuleApplier() {
+            @Override
+            public boolean execute(Network network, VirtualRouter router) throws ResourceUnavailableException {
+                // for load balancer we have to resend all lb rules for the network
+                List<LoadBalancerVO> lbs = _loadBalancerDao.listByNetworkIdAndScheme(network.getId(), Scheme.Public);
+                List<LoadBalancingRule> lbRules = new ArrayList<LoadBalancingRule>();
+                for (LoadBalancerVO lb : lbs) {
+                    List<LbDestination> dstList = _lbMgr.getExistingDestinations(lb.getId());
+                    List<LbStickinessPolicy> policyList = _lbMgr.getStickinessPolicies(lb.getId());
+                    List<LbHealthCheckPolicy> hcPolicyList = _lbMgr.getHealthCheckPolicies(lb.getId());
+                    Ip sourceIp = _networkModel.getPublicIpAddress(lb.getSourceIpAddressId()).getAddress();
+                    LoadBalancingRule loadBalancing = new LoadBalancingRule(lb, dstList, policyList, hcPolicyList, sourceIp);
+                    lbRules.add(loadBalancing);
+                }
+                return sendLBRules(router, lbRules, network.getId());  
             }
         });
     }
@@ -3492,7 +3874,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
     }
 
     @Override
-    public void processConnect(HostVO host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
+    public void processConnect(Host host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
         UserContext context = UserContext.current();
         context.setAccountId(1);
         List<DomainRouterVO> routers = _routerDao.listIsolatedByHostId(host.getId());
@@ -3586,26 +3968,29 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         String privateIP = router.getPrivateIpAddress();
 
         if (privateIP != null) {
+            boolean forVpc = router.getVpcId() != null;
             List<? extends Nic> routerNics = _nicDao.listByVmId(router.getId());
             for (Nic routerNic : routerNics) {
                 Network network = _networkModel.getNetwork(routerNic.getNetworkId());
-                if (network.getTrafficType() == TrafficType.Public) {
-                    boolean forVpc = router.getVpcId() != null;
+                //Send network usage command for public nic in VPC VR
+                //Send network usage command for isolated guest nic of non VPC VR
+                if ((forVpc && network.getTrafficType() == TrafficType.Public) || (!forVpc && network.getTrafficType() == TrafficType.Guest && network.getGuestType() == Network.GuestType.Isolated)) {
                     final NetworkUsageCommand usageCmd = new NetworkUsageCommand(privateIP, router.getHostName(),
                             forVpc, routerNic.getIp4Address());
-                    UserStatisticsVO previousStats = _statsDao.findBy(router.getAccountId(), 
-                            router.getDataCenterId(), network.getId(), null, router.getId(), router.getType().toString());
+                    String routerType = router.getType().toString();
+                    UserStatisticsVO previousStats = _userStatsDao.findBy(router.getAccountId(),
+                            router.getDataCenterId(), network.getId(), (forVpc ? routerNic.getIp4Address() : null), router.getId(), routerType);
                     NetworkUsageAnswer answer = null;
                     try {
                         answer = (NetworkUsageAnswer) _agentMgr.easySend(router.getHostId(), usageCmd);
                     } catch (Exception e) {
-                        s_logger.warn("Error while collecting network stats from router: "+router.getInstanceName()+" from host: "+router.getHostId(), e);
+                        s_logger.warn("Error while collecting network stats from router: " + router.getInstanceName() + " from host: " + router.getHostId(), e);
                         continue;
                     }
 
                     if (answer != null) {
                         if (!answer.getResult()) {
-                            s_logger.warn("Error while collecting network stats from router: "+router.getInstanceName()+" from host: "+router.getHostId() + "; details: " + answer.getDetails());
+                            s_logger.warn("Error while collecting network stats from router: " + router.getInstanceName() + " from host: " + router.getHostId() + "; details: " + answer.getDetails());
                             continue;
                         }
                         Transaction txn = Transaction.open(Transaction.CLOUD_DB);
@@ -3615,27 +4000,27 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                                 continue;
                             }
                             txn.start();
-                            UserStatisticsVO stats = _statsDao.lock(router.getAccountId(), 
-                                    router.getDataCenterId(), network.getId(), null, router.getId(), router.getType().toString());
+                            UserStatisticsVO stats = _userStatsDao.lock(router.getAccountId(),
+                                    router.getDataCenterId(), network.getId(), (forVpc ? routerNic.getIp4Address() : null), router.getId(), routerType);
                             if (stats == null) {
                                 s_logger.warn("unable to find stats for account: " + router.getAccountId());
                                 continue;
                             }
 
-                            if(previousStats != null 
-                                    && ((previousStats.getCurrentBytesReceived() != stats.getCurrentBytesReceived()) 
-                                            || (previousStats.getCurrentBytesSent() != stats.getCurrentBytesSent()))){
+                            if (previousStats != null
+                                    && ((previousStats.getCurrentBytesReceived() != stats.getCurrentBytesReceived())
+                                    || (previousStats.getCurrentBytesSent() != stats.getCurrentBytesSent()))){
                                 s_logger.debug("Router stats changed from the time NetworkUsageCommand was sent. " +
-                                        "Ignoring current answer. Router: "+answer.getRouterName()+" Rcvd: " + 
-                                        answer.getBytesReceived()+ "Sent: " +answer.getBytesSent());
+                                        "Ignoring current answer. Router: " + answer.getRouterName() + " Rcvd: " +
+                                        answer.getBytesReceived() + "Sent: " + answer.getBytesSent());
                                 continue;
                             }
 
                             if (stats.getCurrentBytesReceived() > answer.getBytesReceived()) {
                                 if (s_logger.isDebugEnabled()) {
                                     s_logger.debug("Received # of bytes that's less than the last one.  " +
-                                            "Assuming something went wrong and persisting it. Router: " + 
-                                            answer.getRouterName()+" Reported: " + answer.getBytesReceived()
+                                            "Assuming something went wrong and persisting it. Router: " +
+                                            answer.getRouterName() + " Reported: " + answer.getBytesReceived()
                                             + " Stored: " + stats.getCurrentBytesReceived());
                                 }
                                 stats.setNetBytesReceived(stats.getNetBytesReceived() + stats.getCurrentBytesReceived());
@@ -3644,14 +4029,19 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                             if (stats.getCurrentBytesSent() > answer.getBytesSent()) {
                                 if (s_logger.isDebugEnabled()) {
                                     s_logger.debug("Received # of bytes that's less than the last one.  " +
-                                            "Assuming something went wrong and persisting it. Router: " + 
-                                            answer.getRouterName()+" Reported: " + answer.getBytesSent()
+                                            "Assuming something went wrong and persisting it. Router: " +
+                                            answer.getRouterName() + " Reported: " + answer.getBytesSent()
                                             + " Stored: " + stats.getCurrentBytesSent());
                                 }
                                 stats.setNetBytesSent(stats.getNetBytesSent() + stats.getCurrentBytesSent());
                             }
                             stats.setCurrentBytesSent(answer.getBytesSent());
-                            _statsDao.update(stats.getId(), stats);
+                            if (! _dailyOrHourly) {
+                                //update agg bytes
+                                stats.setAggBytesSent(stats.getNetBytesSent() + stats.getCurrentBytesSent());
+                                stats.setAggBytesReceived(stats.getNetBytesReceived() + stats.getCurrentBytesReceived());
+                            }
+                            _userStatsDao.update(stats.getId(), stats);
                             txn.commit();
                         } catch (Exception e) {
                             txn.rollback();
@@ -3664,5 +4054,12 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
                 }
             }
         }
+    }
+
+
+
+    @Override
+    public VirtualRouter findRouter(long routerId) {
+        return _routerDao.findById(routerId);
     }
 }

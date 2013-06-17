@@ -31,7 +31,7 @@ import com.cloud.agent.manager.Commands;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.ConnectionException;
-import com.cloud.host.HostVO;
+import com.cloud.host.Host;
 import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
@@ -69,10 +69,11 @@ public class SshKeysDistriMonitor implements Listener {
 	    }
 	    
 	    @Override
-	    public void processConnect(HostVO host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
+	    public void processConnect(Host host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
 	    	if (cmd instanceof StartupRoutingCommand) {
 	    		if (((StartupRoutingCommand) cmd).getHypervisorType() == HypervisorType.KVM ||
-	    		    ((StartupRoutingCommand) cmd).getHypervisorType() == HypervisorType.XenServer) {
+                    ((StartupRoutingCommand) cmd).getHypervisorType() == HypervisorType.XenServer ||
+                    ((StartupRoutingCommand) cmd).getHypervisorType() == HypervisorType.LXC) {
 	    			/*TODO: Get the private/public keys here*/
 	    			
 	    			String pubKey = _configDao.getValue("ssh.publickey");

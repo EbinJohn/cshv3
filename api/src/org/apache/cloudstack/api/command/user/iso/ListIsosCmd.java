@@ -52,7 +52,7 @@ public class ListIsosCmd extends BaseListTaggedResourcesCmd {
     private String hypervisor;
 
     @Parameter(name=ApiConstants.ID, type=CommandType.UUID, entityType = TemplateResponse.class,
-            description="list all isos by id")
+            description="list ISO by id")
     private Long id;
 
     @Parameter(name=ApiConstants.IS_PUBLIC, type=CommandType.BOOLEAN, description="true if the ISO is publicly available to all users, false otherwise.")
@@ -61,11 +61,14 @@ public class ListIsosCmd extends BaseListTaggedResourcesCmd {
     @Parameter(name=ApiConstants.IS_READY, type=CommandType.BOOLEAN, description="true if this ISO is ready to be deployed")
     private Boolean ready;
 
-    @Parameter(name=ApiConstants.ISO_FILTER, type=CommandType.STRING, description="possible values are \"featured\", \"self\", \"self-executable\",\"executable\", and \"community\". " +
-                                                            "* featured-ISOs that are featured and are publicself-ISOs that have been registered/created by the owner. " +
-                                                            "* selfexecutable-ISOs that have been registered/created by the owner that can be used to deploy a new VM. " +
-                                                            "* executable-all ISOs that can be used to deploy a new VM " +
-                                                            "* community-ISOs that are public.")
+    @Parameter(name=ApiConstants.ISO_FILTER, type=CommandType.STRING, description="possible values are \"featured\", \"self\", \"selfexecutable\",\"sharedexecutable\",\"executable\", and \"community\". " +
+                                                             "* featured : templates that have been marked as featured and public. " +
+                                                             "* self : templates that have been registered or created by the calling user. " +
+                                                             "* selfexecutable : same as self, but only returns templates that can be used to deploy a new VM. " +
+                                                             "* sharedexecutable : templates ready to be deployed that have been granted to the calling user by another user. " +
+                                                             "* executable : templates that are owned by the calling user, or public templates, that can be used to deploy a VM. " +
+                                                             "* community : templates that have been marked as public but not featured. " +
+                                                             "* all : all templates (only usable by admins).")
     private String isoFilter = TemplateFilter.selfexecutable.toString();
 
     @Parameter(name=ApiConstants.NAME, type=CommandType.STRING, description="list all isos by name")
@@ -75,6 +78,9 @@ public class ListIsosCmd extends BaseListTaggedResourcesCmd {
             description="the ID of the zone")
     private Long zoneId;
 
+    @Parameter(name=ApiConstants.ZONE_TYPE, type=CommandType.STRING, description="the network type of the zone that the virtual machine belongs to")
+    private String zoneType;
+    
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -112,6 +118,10 @@ public class ListIsosCmd extends BaseListTaggedResourcesCmd {
         return zoneId;
     }
 
+    public String getZoneType() {
+        return zoneType;
+    }
+    
     public boolean listInReadyState() {
         Account account = UserContext.current().getCaller();
         // It is account specific if account is admin type and domainId and accountName are not null
@@ -145,16 +155,7 @@ public class ListIsosCmd extends BaseListTaggedResourcesCmd {
 
     @Override
     public void execute(){
-        Set<Pair<Long, Long>> isoZonePairSet = _mgr.listIsos(this);
-        ListResponse<TemplateResponse> response = new ListResponse<TemplateResponse>();
-        List<TemplateResponse> templateResponses = new ArrayList<TemplateResponse>();
-
-        for (Pair<Long, Long> iso : isoZonePairSet) {
-            List<TemplateResponse> responses = new ArrayList<TemplateResponse>();
-            responses = _responseGenerator.createIsoResponses(iso.first(), iso.second(), listInReadyState());
-            templateResponses.addAll(responses);
-        }
-        response.setResponses(templateResponses);
+        ListResponse<TemplateResponse> response = _queryService.listIsos(this);
         response.setResponseName(getCommandName());
         this.setResponseObject(response);
     }

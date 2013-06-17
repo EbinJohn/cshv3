@@ -18,6 +18,8 @@ package org.apache.cloudstack.api.response;
 
 import java.util.Date;
 
+import javax.persistence.Column;
+
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseResponse;
 import org.apache.cloudstack.api.EntityReference;
@@ -58,6 +60,9 @@ public class ServiceOfferingResponse extends BaseResponse {
     @SerializedName("limitcpuuse") @Param(description="restrict the CPU usage to committed service offering")
     private Boolean limitCpuUse;
 
+    @SerializedName("isvolatile") @Param(description="true if the vm needs to be volatile, i.e., on every reboot of vm from API root disk is discarded and creates a new root disk")
+    private Boolean isVolatile;
+
     @SerializedName("tags") @Param(description="the tags for the service offering")
     private String tags;
 
@@ -82,6 +87,8 @@ public class ServiceOfferingResponse extends BaseResponse {
     @SerializedName(ApiConstants.NETWORKRATE) @Param(description="data transfer rate in megabits per second allowed.")
     private Integer networkRate;
 
+    @SerializedName(ApiConstants.DEPLOYMENT_PLANNER) @Param(description="deployment strategy used to deploy VM.")
+    private String deploymentPlanner;
 
     public String getId() {
         return id;
@@ -224,5 +231,21 @@ public class ServiceOfferingResponse extends BaseResponse {
 
     public void setNetworkRate(Integer networkRate) {
         this.networkRate = networkRate;
+    }
+
+    public String getDeploymentPlanner() {
+        return deploymentPlanner;
+    }
+
+    public void setDeploymentPlanner(String deploymentPlanner) {
+        this.deploymentPlanner = deploymentPlanner;
+    }
+
+    public boolean getVolatileVm() {
+        return isVolatile;
+    }
+
+    public void setVolatileVm(boolean isVolatile) {
+        this.isVolatile = isVolatile;
     }
 }

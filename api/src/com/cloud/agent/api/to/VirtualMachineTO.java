@@ -28,7 +28,20 @@ public class VirtualMachineTO {
     private BootloaderType bootloader;
     Type type;
     int cpus;
+
+    /**
+        'speed' is still here since 4.0.X/4.1.X management servers do not support
+         the overcommit feature yet.
+
+         The overcommit feature sends minSpeed and maxSpeed
+
+         So this is here for backwards compatibility with 4.0.X/4.1.X management servers
+         and newer agents.
+    */
     Integer speed;
+    Integer minSpeed;
+    Integer maxSpeed;
+
     long minRam;
     long maxRam;
     String hostName;
@@ -39,12 +52,13 @@ public class VirtualMachineTO {
     boolean rebootOnCrash;
     boolean enableHA;
     boolean limitCpuUse;
+    boolean enableDynamicallyScaleVm;
     String vncPassword;
     String vncAddr;
     Map<String, String> params;
     String uuid;
 
-    VolumeTO[] disks;
+    DiskTO[] disks;
     NicTO[] nics;
 
     public VirtualMachineTO(long id, String instanceName, VirtualMachine.Type type, int cpus, Integer speed, long minRam, long maxRam, BootloaderType bootloader, String os, boolean enableHA, boolean limitCpuUse, String vncPassword) {
@@ -53,6 +67,22 @@ public class VirtualMachineTO {
         this.type = type;
         this.cpus = cpus;
         this.speed = speed;
+        this.minRam = minRam;
+        this.maxRam = maxRam;
+        this.bootloader = bootloader;
+        this.os = os;
+        this.enableHA = enableHA;
+        this.limitCpuUse = limitCpuUse;
+        this.vncPassword = vncPassword;
+    }
+
+    public VirtualMachineTO(long id, String instanceName, VirtualMachine.Type type, int cpus, Integer minSpeed, Integer maxSpeed, long minRam, long maxRam, BootloaderType bootloader, String os, boolean enableHA, boolean limitCpuUse, String vncPassword) {
+        this.id = id;
+        this.name = instanceName;
+        this.type = type;
+        this.cpus = cpus;
+        this.minSpeed = minSpeed;
+        this.maxSpeed = maxSpeed;
         this.minRam = minRam;
         this.maxRam = maxRam;
         this.bootloader = bootloader;
@@ -71,6 +101,14 @@ public class VirtualMachineTO {
 
     public void setId(long id) {
         this.id = id;
+    }
+
+    public boolean isEnableDynamicallyScaleVm() {
+        return enableDynamicallyScaleVm;
+    }
+
+    public void setEnableDynamicallyScaleVm(boolean enableDynamicallyScaleVm) {
+        this.enableDynamicallyScaleVm = enableDynamicallyScaleVm;
     }
 
     public String getName() {
@@ -105,6 +143,13 @@ public class VirtualMachineTO {
         return speed;
     }
 
+    public Integer getMinSpeed() {
+        return minSpeed;
+    }
+
+    public Integer getMaxSpeed() {
+        return maxSpeed;
+    }
     public boolean getLimitCpuUse() {
     	return limitCpuUse;
     }
@@ -170,11 +215,11 @@ public class VirtualMachineTO {
         this.bootupScripts = bootupScripts;
     }
 
-    public VolumeTO[] getDisks() {
+    public DiskTO[] getDisks() {
         return disks;
     }
 
-    public void setDisks(VolumeTO[] disks) {
+    public void setDisks(DiskTO[] disks) {
         this.disks = disks;
     }
 

@@ -20,34 +20,59 @@ package org.apache.cloudstack.storage.volume;
 
 import javax.inject.Inject;
 
-import org.apache.cloudstack.engine.subsystem.api.storage.DataObjectType;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
-import org.apache.cloudstack.storage.datastore.DataStoreManager;
-import org.apache.cloudstack.storage.datastore.ObjectInDataStoreManager;
-import org.apache.cloudstack.storage.datastore.VolumeDataFactory;
-import org.apache.cloudstack.storage.db.ObjectInDataStoreVO;
-import org.apache.cloudstack.storage.volume.db.VolumeDao2;
-import org.apache.cloudstack.storage.volume.db.VolumeVO;
+import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.springframework.stereotype.Component;
+
+import com.cloud.storage.DataStoreRole;
+import com.cloud.storage.VolumeVO;
+import com.cloud.storage.dao.VolumeDao;
 
 @Component
 public class VolumeDataFactoryImpl implements VolumeDataFactory {
     @Inject
-    VolumeDao2 volumeDao;
+    VolumeDao volumeDao;
     @Inject
-    ObjectInDataStoreManager objMap;
+    VolumeDataStoreDao volumeStoreDao;
     @Inject
     DataStoreManager storeMgr;
+
     @Override
     public VolumeInfo getVolume(long volumeId, DataStore store) {
         VolumeVO volumeVO = volumeDao.findById(volumeId);
-        ObjectInDataStoreVO obj = objMap.findObject(volumeId, DataObjectType.VOLUME, store.getId(), store.getRole());
-        if (obj == null) {
-            VolumeObject vol = VolumeObject.getVolumeObject(null, volumeVO);
-            return vol;
-        }
+
         VolumeObject vol = VolumeObject.getVolumeObject(store, volumeVO);
+
+        return vol;
+    }
+
+    @Override
+    public VolumeInfo getVolume(long volumeId) {
+        VolumeVO volumeVO = volumeDao.findById(volumeId);
+        VolumeObject vol = null;
+        if (volumeVO.getPoolId() == null) {
+            DataStore store = null;
+            VolumeDataStoreVO volumeStore = volumeStoreDao.findByVolume(volumeId);
+            if (volumeStore != null) {
+                store = this.storeMgr.getDataStore(volumeStore.getDataStoreId(), DataStoreRole.Image);
+            }
+            vol = VolumeObject.getVolumeObject(store, volumeVO);
+        } else {
+            DataStore store = this.storeMgr.getDataStore(volumeVO.getPoolId(), DataStoreRole.Primary);
+            vol = VolumeObject.getVolumeObject(store, volumeVO);
+        }
+        return vol;
+    }
+
+    @Override
+    public VolumeInfo getVolume(DataObject volume, DataStore store) {
+        VolumeInfo vol = getVolume(volume.getId(), store);
+        vol.addPayload(((VolumeInfo) volume).getpayload());
         return vol;
     }
 

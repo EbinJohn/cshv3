@@ -18,10 +18,7 @@
 build/replace.properties
 build/build.number
 bin/
-cloudstack-proprietary/
-premium/
 .lock-wscript
-artifacts/
 .waf-*
 waf-*
 target/
@@ -37,7 +34,7 @@ cloud-*.tar.bz2
 *.egg-info/
 *.prefs
 build.number
-api.log.*.gz
+*.log.*.gz
 cloud.log.*.*
 unittest
 deps/cloud.userlibraries
@@ -59,6 +56,8 @@ tools/cli/build/
 *.iso
 *.tar.gz
 *.tgz
+.*
+target-eclipse
 awsapi/modules/*
 !.gitignore
 .classpath
@@ -74,3 +73,12 @@ docs/runbook/tmp
 docs/runbook/publish
 .project
 Gemfile.lock
+debian/tmp
+debian/files
+debian/cloudstack-*/*
+debian/*.substvars
+debian/*.debhelper
+replace.properties.tmp
+build-indep-stamp
+configure-stamp
+*_flymake.js

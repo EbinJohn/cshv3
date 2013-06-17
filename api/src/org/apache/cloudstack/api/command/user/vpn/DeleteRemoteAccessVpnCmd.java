@@ -63,7 +63,7 @@ public class DeleteRemoteAccessVpnCmd extends BaseAsyncCmd {
     @Override
     public long getEntityOwnerId() {
         if (ownerId == null) {
-            RemoteAccessVpn vpnEntity = _entityMgr.findById(RemoteAccessVpn.class, publicIpId);
+            RemoteAccessVpn vpnEntity = _ravService.getRemoteAccessVpn(publicIpId);
             if(vpnEntity != null)
                 return vpnEntity.getAccountId();
 
@@ -84,7 +84,7 @@ public class DeleteRemoteAccessVpnCmd extends BaseAsyncCmd {
 
     @Override
     public void execute() throws ResourceUnavailableException {
-        _ravService.destroyRemoteAccessVpn(publicIpId, UserContext.current().getCaller());
+        _ravService.destroyRemoteAccessVpnForIp(publicIpId, UserContext.current().getCaller());
     }
 
     @Override

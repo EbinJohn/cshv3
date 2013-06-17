@@ -20,28 +20,58 @@ package org.apache.cloudstack.storage.snapshot;
 
 import javax.inject.Inject;
 
-import org.apache.cloudstack.engine.subsystem.api.storage.DataObjectType;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
-import org.apache.cloudstack.storage.datastore.DataStoreManager;
-import org.apache.cloudstack.storage.datastore.ObjectInDataStoreManager;
-import org.apache.cloudstack.storage.db.ObjectInDataStoreVO;
-import org.apache.cloudstack.storage.snapshot.db.SnapshotDao2;
-import org.apache.cloudstack.storage.snapshot.db.SnapshotVO;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
+import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotDataFactory;
+import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
+import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreVO;
 import org.springframework.stereotype.Component;
+
+import com.cloud.storage.DataStoreRole;
+import com.cloud.storage.SnapshotVO;
+import com.cloud.storage.dao.SnapshotDao;
+import com.cloud.utils.exception.CloudRuntimeException;
 
 @Component
 public class SnapshotDataFactoryImpl implements SnapshotDataFactory {
     @Inject
-    SnapshotDao2 snapshotDao;
+    SnapshotDao snapshotDao;
     @Inject
-    ObjectInDataStoreManager objMap;
+    SnapshotDataStoreDao snapshotStoreDao;
     @Inject
     DataStoreManager storeMgr;
+    @Inject
+    VolumeDataFactory volumeFactory;
+
     @Override
     public SnapshotInfo getSnapshot(long snapshotId, DataStore store) {
         SnapshotVO snapshot = snapshotDao.findById(snapshotId);
-        ObjectInDataStoreVO obj = objMap.findObject(snapshotId, DataObjectType.SNAPSHOT, store.getId(), store.getRole());
-        SnapshotObject so = new SnapshotObject(snapshot, store);
+        SnapshotObject so = SnapshotObject.getSnapshotObject(snapshot, store);
+        return so;
+    }
+
+    @Override
+    public SnapshotInfo getSnapshot(DataObject obj, DataStore store) {
+        SnapshotVO snapshot = snapshotDao.findById(obj.getId());
+        if (snapshot == null) {
+            throw new CloudRuntimeException("Can't find snapshot: " + obj.getId());
+        }
+        SnapshotObject so = SnapshotObject.getSnapshotObject(snapshot, store);
+        return so;
+    }
+
+    @Override
+    public SnapshotInfo getSnapshot(long snapshotId, DataStoreRole role) {
+        SnapshotVO snapshot = snapshotDao.findById(snapshotId);
+        SnapshotDataStoreVO snapshotStore = snapshotStoreDao.findBySnapshot(snapshotId, role);
+        if (snapshotStore == null) {
+            return null;
+        }
+        DataStore store = this.storeMgr.getDataStore(snapshotStore.getDataStoreId(), role);
+        SnapshotObject so = SnapshotObject.getSnapshotObject(snapshot, store);
         return so;
     }
 }

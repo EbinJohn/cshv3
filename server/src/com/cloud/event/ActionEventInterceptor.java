@@ -16,46 +16,22 @@
 // under the License.
 package com.cloud.event;
 
-import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 
-import org.aspectj.lang.ProceedingJoinPoint;
-import org.aspectj.lang.reflect.MethodSignature;
+import org.apache.log4j.Logger;
 
 import com.cloud.user.UserContext;
+import com.cloud.utils.component.ComponentMethodInterceptor;
 
-public class ActionEventInterceptor {
+public class ActionEventInterceptor implements ComponentMethodInterceptor {
+	private static final Logger s_logger = Logger.getLogger(ActionEventInterceptor.class);
 
 	public ActionEventInterceptor() {
 	}
 
-	public Object AroundAnyMethod(ProceedingJoinPoint call) throws Throwable {
-		MethodSignature methodSignature = (MethodSignature)call.getSignature();
-        Method targetMethod = methodSignature.getMethod();	
-        if(needToIntercept(targetMethod)) {
-            EventVO event = interceptStart(targetMethod);
-        	
-            boolean success = true;
-			Object ret = null;
-			try {
-				 ret = call.proceed();
-			} catch (Throwable e) {
-	            success = false;
-	            interceptException(targetMethod, event);
-	            throw e;
-			} finally {
-	            if(success){
-	                interceptComplete(targetMethod, event);
-	            }
-			}
-			return ret;
-        }
-        return call.proceed();
-	}
-
-    public EventVO interceptStart(AnnotatedElement element) {
+	@Override
+    public Object interceptStart(Method method, Object target) {
         EventVO event = null;
-        Method method = (Method)element;
         ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
         if (actionEvent != null) {
             boolean async = actionEvent.async();
@@ -74,8 +50,8 @@ public class ActionEventInterceptor {
         return event;
     }
 
-    public void interceptComplete(AnnotatedElement element, EventVO event) {
-        Method method = (Method)element;
+	@Override
+    public void interceptComplete(Method method, Object target, Object event) {
         ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
         if (actionEvent != null) {
             UserContext ctx = UserContext.current();
@@ -96,8 +72,8 @@ public class ActionEventInterceptor {
         }
     }
 
-    public void interceptException(AnnotatedElement element, EventVO event) {
-        Method method = (Method)element;
+	@Override
+    public void interceptException(Method method, Object target, Object event) {
         ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
         if (actionEvent != null) {
             UserContext ctx = UserContext.current();
@@ -117,7 +93,8 @@ public class ActionEventInterceptor {
         }
     }
 	
-	private boolean needToIntercept(Method method) {
+	@Override
+	public boolean needToIntercept(Method method) {
         ActionEvent actionEvent = method.getAnnotation(ActionEvent.class);
         if (actionEvent != null) {
             return true;

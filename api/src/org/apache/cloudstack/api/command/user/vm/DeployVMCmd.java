@@ -24,6 +24,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.cloudstack.acl.SecurityChecker.AccessType;
+import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.api.ACL;
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
@@ -49,11 +51,11 @@ import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.event.EventTypes;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientCapacityException;
+import com.cloud.exception.InsufficientServerCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.network.IpAddress;
 import com.cloud.network.Network;
 import com.cloud.network.Network.IpAddresses;
 import com.cloud.offering.DiskOffering;
@@ -103,7 +105,7 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
     private Long domainId;
 
     //Network information
-    @ACL
+    @ACL(accessType = AccessType.UseNetwork)
     @Parameter(name=ApiConstants.NETWORK_IDS, type=CommandType.LIST, collectionType=CommandType.UUID, entityType=NetworkResponse.class,
             description="list of network ids used by virtual machine. Can't be specified with ipToNetworkList parameter")
     private List<Long> networkIds;
@@ -127,7 +129,7 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
     @Parameter(name=ApiConstants.HYPERVISOR, type=CommandType.STRING, description="the hypervisor on which to deploy the virtual machine")
     private String hypervisor;
 
-    @Parameter(name=ApiConstants.USER_DATA, type=CommandType.STRING, description="an optional binary data that can be sent to the virtual machine upon a successful deployment. This binary data must be base64 encoded before adding it to the request. Currently only HTTP GET is supported. Using HTTP GET (via querystring), you can send up to 2KB of data after base64 encoding.", length=2048)
+    @Parameter(name=ApiConstants.USER_DATA, type=CommandType.STRING, description="an optional binary data that can be sent to the virtual machine upon a successful deployment. This binary data must be base64 encoded before adding it to the request. Using HTTP GET (via querystring), you can send up to 2KB of data after base64 encoding. Using HTTP POST(via POST body), you can send up to 32K of data after base64 encoding.", length=32768)
     private String userData;
 
     @Parameter(name=ApiConstants.SSH_KEYPAIR, type=CommandType.STRING, description="name of the ssh key pair used to login to the virtual machine")
@@ -172,6 +174,18 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
     @Parameter(name=ApiConstants.START_VM, type=CommandType.BOOLEAN, description="true if network offering supports specifying ip ranges; defaulted to true if not specified")
     private Boolean startVm;
 
+    @ACL
+    @Parameter(name = ApiConstants.AFFINITY_GROUP_IDS, type = CommandType.LIST, collectionType = CommandType.UUID, entityType = AffinityGroupResponse.class, description = "comma separated list of affinity groups id that are going to be applied to the virtual machine."
+            + " Mutually exclusive with affinitygroupnames parameter")
+    private List<Long> affinityGroupIdList;
+
+    @ACL
+    @Parameter(name = ApiConstants.AFFINITY_GROUP_NAMES, type = CommandType.LIST, collectionType = CommandType.STRING, entityType = AffinityGroupResponse.class, description = "comma separated list of affinity groups names that are going to be applied to the virtual machine."
+            + "Mutually exclusive with affinitygroupids parameter")
+    private List<String> affinityGroupNameList;
+
+    @Parameter(name=ApiConstants.DISPLAY_VM, type=CommandType.BOOLEAN, since="4.2", description="an optional field, whether to the display the vm to the end user or not.")
+    private Boolean displayVm;
 
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
@@ -208,6 +222,10 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
         return HypervisorType.getType(hypervisor);
     }
 
+    public Boolean getDisplayVm() {
+        return displayVm;
+    }
+
     public List<Long> getSecurityGroupIdList() {
         if (securityGroupNameList != null && securityGroupIdList != null) {
             throw new InvalidParameterValueException("securitygroupids parameter is mutually exclusive with securitygroupnames parameter");
@@ -219,7 +237,7 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
             for (String groupName : securityGroupNameList) {
                 Long groupId = _responseGenerator.getSecurityGroupId(groupName, getEntityOwnerId());
                 if (groupId == null) {
-                    throw new InvalidParameterValueException("Unable to find group by name " + groupName + " for account " + getEntityOwnerId());
+                    throw new InvalidParameterValueException("Unable to find group by name " + groupName);
                 } else {
                     securityGroupIds.add(groupId);
                 }
@@ -301,13 +319,10 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
                         throw new InvalidParameterValueException("Unable to translate and find entity with networkId: " + ips.get("networkid"));
                     }
                 }
-                String requestedIp = (String) ips.get("ip");
-                String requestedIpv6 = (String) ips.get("ipv6");
+                String requestedIp = ips.get("ip");
+                String requestedIpv6 = ips.get("ipv6");
                 if (requestedIpv6 != null) {
                 	requestedIpv6 = requestedIpv6.toLowerCase();
-                }
-                if (requestedIpv6 != null) {
-                	throw new InvalidParameterValueException("Cannot support specified IPv6 address!");
                 }
                 IpAddresses addrs = new IpAddresses(requestedIp, requestedIpv6);
                 ipToNetworkMap.put(networkId, addrs);
@@ -323,6 +338,29 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
 		}
 		return ip6Address.toLowerCase();
 	}
+
+    public List<Long> getAffinityGroupIdList() {
+        if (affinityGroupNameList != null && affinityGroupIdList != null) {
+            throw new InvalidParameterValueException(
+                    "affinitygroupids parameter is mutually exclusive with affinitygroupnames parameter");
+        }
+
+        // transform group names to ids here
+        if (affinityGroupNameList != null) {
+            List<Long> affinityGroupIds = new ArrayList<Long>();
+            for (String groupName : affinityGroupNameList) {
+                Long groupId = _responseGenerator.getAffinityGroupId(groupName, getEntityOwnerId());
+                if (groupId == null) {
+                    throw new InvalidParameterValueException("Unable to find affinity group by name " + groupName);
+                } else {
+                    affinityGroupIds.add(groupId);
+                }
+            }
+            return affinityGroupIds;
+        } else {
+            return affinityGroupIdList;
+        }
+    }
 
     /////////////////////////////////////////////////////
     /////////////// API Implementation///////////////////
@@ -387,9 +425,15 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
                 s_logger.warn("Exception: ", ex);
                 throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, ex.getMessage());
             } catch (InsufficientCapacityException ex) {
+                StringBuilder message = new StringBuilder(ex.getMessage());
+                if (ex instanceof InsufficientServerCapacityException) {
+                    if(((InsufficientServerCapacityException)ex).isAffinityApplied()){
+                        message.append(", Please check the affinity groups provided, there may not be sufficient capacity to follow them");
+                    }
+                }
                 s_logger.info(ex);
-                s_logger.trace(ex);
-                throw new ServerApiException(ApiErrorCode.INSUFFICIENT_CAPACITY_ERROR, ex.getMessage());
+                s_logger.info(message.toString(), ex);
+                throw new ServerApiException(ApiErrorCode.INSUFFICIENT_CAPACITY_ERROR, message.toString());
             }
         } else {
             result = _userVmService.getUserVm(getEntityId());
@@ -407,10 +451,6 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
     @Override
     public void create() throws ResourceAllocationException{
         try {
-        	if (getIp6Address() != null) {
-        		throw new InvalidParameterValueException("Cannot support specified IPv6 address!");
-        	}
-        	
             //Verify that all objects exist before passing them to the service
             Account owner = _accountService.getActiveAccountById(getEntityOwnerId());
 
@@ -454,18 +494,20 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
                     throw new InvalidParameterValueException("Can't specify network Ids in Basic zone");
                 } else {
                     vm = _userVmService.createBasicSecurityGroupVirtualMachine(zone, serviceOffering, template, getSecurityGroupIdList(), owner, name,
-                                displayName, diskOfferingId, size, group, getHypervisor(), userData, sshKeyPairName, getIpToNetworkMap(), addrs, keyboard);
+                            displayName, diskOfferingId, size, group, getHypervisor(), this.getHttpMethod(), userData, sshKeyPairName, getIpToNetworkMap(), addrs, displayVm, keyboard, getAffinityGroupIdList());
                 }
             } else {
                 if (zone.isSecurityGroupEnabled())  {
                     vm = _userVmService.createAdvancedSecurityGroupVirtualMachine(zone, serviceOffering, template, getNetworkIds(), getSecurityGroupIdList(),
-                                owner, name, displayName, diskOfferingId, size, group, getHypervisor(), userData, sshKeyPairName, getIpToNetworkMap(), addrs, keyboard);
+                            owner, name, displayName, diskOfferingId, size, group, getHypervisor(), this.getHttpMethod(), userData, sshKeyPairName, getIpToNetworkMap(), addrs, displayVm, keyboard, getAffinityGroupIdList());
+
                 } else {
                     if (getSecurityGroupIdList() != null && !getSecurityGroupIdList().isEmpty()) {
                         throw new InvalidParameterValueException("Can't create vm with security groups; security group feature is not enabled per zone");
                     }
                     vm = _userVmService.createAdvancedVirtualMachine(zone, serviceOffering, template, getNetworkIds(), owner, name, displayName,
-                                diskOfferingId, size, group, getHypervisor(), userData, sshKeyPairName, getIpToNetworkMap(), addrs, keyboard);
+                            diskOfferingId, size, group, getHypervisor(), this.getHttpMethod(), userData, sshKeyPairName, getIpToNetworkMap(), addrs, displayVm, keyboard, getAffinityGroupIdList());
+
                 }
             }
 
@@ -477,7 +519,7 @@ public class DeployVMCmd extends BaseAsyncCreateCmd {
             }
         } catch (InsufficientCapacityException ex) {
             s_logger.info(ex);
-            s_logger.trace(ex);
+            s_logger.trace(ex.getMessage(), ex);
             throw new ServerApiException(ApiErrorCode.INSUFFICIENT_CAPACITY_ERROR, ex.getMessage());
         } catch (ResourceUnavailableException ex) {
             s_logger.warn("Exception: ", ex);
