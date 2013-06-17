@@ -26,7 +26,7 @@ public class Storage {
         VHD(true, true, true, "vhd"),
         ISO(false, false, false, "iso"),
         OVA(true, true, true, "ova"),
-        VHDX(true, true, true, "vhdx");
+        VHDX(true, true, true, "vhdx"),
         BAREMETAL(false, false, false, "BAREMETAL"),
         TAR(false, false, false, "tar");
 
