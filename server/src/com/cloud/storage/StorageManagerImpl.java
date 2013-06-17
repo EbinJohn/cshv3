@@ -1512,6 +1512,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
             return HypervisorType.KVM;
         } else if (format == ImageFormat.RAW) {
             return HypervisorType.Ovm;
+        } else if (format == ImageFormat.VHDX) {
+            return HypervisorType.Hyperv;
         } else {
             return HypervisorType.None;
         }
