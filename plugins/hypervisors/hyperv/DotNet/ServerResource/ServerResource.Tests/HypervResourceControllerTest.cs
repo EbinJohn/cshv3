@@ -180,7 +180,7 @@ namespace ServerResource.Tests
 
             // Assert
             JObject ansAsProperty = jsonResult[0];
-            dynamic ans = ansAsProperty.GetValue("storage.PrimaryStorageDownloadAnswer");
+            dynamic ans = ansAsProperty.GetValue(CloudStackTypes.PrimaryStorageDownloadAnswer);
             Assert.IsTrue((bool)ans.result, "PrimaryStorageDownloadCommand did not succeed " + ans.details);
 
             // Test that URL of downloaded template works for file creation.
@@ -188,7 +188,7 @@ namespace ServerResource.Tests
             jsonCreateCmd.templateUrl = ans.installPath;
             dynamic jsonAns2 = rsrcServer.CreateCommand(jsonCreateCmd);
             JObject ansAsProperty2 = jsonAns2[0];
-            dynamic ans2 = ansAsProperty2.GetValue("storage.CreateAnswer");
+            dynamic ans2 = ansAsProperty2.GetValue(CloudStackTypes.CreateAnswer);
 
             Assert.IsTrue((bool)ans2.result, (string)ans2.details);
 
@@ -234,7 +234,7 @@ namespace ServerResource.Tests
 
             // Assert
             JObject ansAsProperty2 = destoryAns[0];
-            dynamic ans = ansAsProperty2.GetValue("storage.DestroyAnswer");
+            dynamic ans = ansAsProperty2.GetValue(CloudStackTypes.Answer);
 
             Assert.IsTrue((bool)ans.result, "DestroyCommand did not succeed " + ans.details);
         }
@@ -261,7 +261,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = rsrcServer.CreateCommand(jsonCreateCmd);
 
             JObject ansAsProperty2 = jsonResult[0];
-            dynamic ans = ansAsProperty2.GetValue("storage.CreateAnswer");
+            dynamic ans = ansAsProperty2.GetValue(CloudStackTypes.CreateAnswer);
             Assert.IsNotNull(ans, "Should be an answer object of type CreateAnswer");
     	    Assert.IsTrue((bool)ans.result, "Failed to CreateCommand due to "  + (string)ans.result);
             Assert.AreEqual(Directory.GetFiles(testLocalStorePath).Length, fileCount + 1);
@@ -397,8 +397,8 @@ namespace ServerResource.Tests
             dynamic dwnldResult = rsrcServer.CopyCommand(jsonDownloadCopyCmd);
 
             // Assert
-            Assert.IsNotNull(dwnldResult[0].CopyCmdAnswer, "CopyCommand should return a StartAnswer in all cases");
-            Assert.IsTrue((bool)dwnldResult[0].CopyCmdAnswer.result, "CopyCommand did not succeed " + dwnldResult[0].CopyCmdAnswer.details);
+            Assert.IsNotNull(dwnldResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
+            Assert.IsTrue((bool)dwnldResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + dwnldResult[0][CloudStackTypes.CopyCmdAnswer].details);
             Assert.IsTrue(File.Exists(dwnldDest), "CopyCommand failed to generate " + dwnldDest);
 
             // Create Volume from Template
@@ -406,8 +406,8 @@ namespace ServerResource.Tests
             dynamic copyResult = rsrcServer.CopyCommand(jsonCloneCopyCmd);
 
             // Assert
-            Assert.IsNotNull(copyResult[0].CopyCmdAnswer, "CopyCommand should return a StartAnswer in all cases");
-            Assert.IsTrue((bool)copyResult[0].CopyCmdAnswer.result, "CopyCommand did not succeed " + copyResult[0].CopyCmdAnswer.details);
+            Assert.IsNotNull(copyResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
+            Assert.IsTrue((bool)copyResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + copyResult[0][CloudStackTypes.CopyCmdAnswer].details);
             Assert.IsTrue(File.Exists(newVolName), "CopyCommand failed to generate " + newVolName);
                     
             File.Delete(dwnldDest);
@@ -448,7 +448,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.ModifyStoragePoolCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].ModifyStoragePoolAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.ModifyStoragePoolAnswer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
 
             // Clean up
@@ -463,7 +463,7 @@ namespace ServerResource.Tests
             dynamic jsonResult2 = controller.DeleteStoragePoolCommand(tok2);
 
             // Assert
-            dynamic ans2 = jsonResult2[0].Answer;
+            dynamic ans2 = jsonResult2[0][CloudStackTypes.Answer];
             Assert.IsTrue((bool)ans2.result, (string)ans2.details);  // always succeeds
         }
 
@@ -478,7 +478,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.CreateStoragePoolCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].Answer;
+            dynamic ans = jsonResult[0][CloudStackTypes.Answer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
         }
 
@@ -494,7 +494,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.SetupCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].SetupAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.SetupAnswer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
         }
 
@@ -518,7 +518,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.GetVmStatsCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].GetVmStatsAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.GetVmStatsAnswer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds, fake VM means no answer for the named VM
         }
 
@@ -541,7 +541,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.GetVmStatsCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].GetVmStatsAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.GetVmStatsAnswer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);
         }
 
@@ -569,7 +569,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.GetStorageStatsCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].GetStorageStatsAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.GetStorageStatsAnswer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);
             Assert.IsTrue((long)ans.used <= (long)ans.capacity);  // TODO: verify that capacity is indeed capacity and not used.
         }
@@ -598,7 +598,7 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.GetHostStatsCommand(tok);
 
             // Assert
-            dynamic ans = jsonResult[0].GetHostStatsAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.GetHostStatsAnswer];
             Assert.IsTrue((bool)ans.result);
             Assert.IsTrue(hostIdVal == (long)ans.hostStats.hostId);
             Assert.IsTrue(0.0 < (double)ans.hostStats.totalMemoryKBs);
@@ -623,12 +623,11 @@ namespace ServerResource.Tests
             dynamic jsonResult = controller.GetHostStatsCommand(tokFail);
 
             // Assert
-            dynamic ans = jsonResult[0].GetHostStatsAnswer;
+            dynamic ans = jsonResult[0][CloudStackTypes.GetHostStatsAnswer];
             Assert.IsFalse((bool)ans.result);
             Assert.IsNull((string)ans.hostStats);
             Assert.IsNotNull(ans.details);
         }
-
 
         [TestMethod]
         public void TestStartupCommand()
@@ -637,7 +636,7 @@ namespace ServerResource.Tests
             HypervResourceController controller = new HypervResourceController();
             string sampleStartupRoutingCommand =
             #region string_literal
-                    "[{\"StartupRoutingCommand\":{" +
+                    "[{\"" + CloudStackTypes.StartupRoutingCommand + "\":{" +
                     "\"cpus\":0," +
                     "\"speed\":0," +
                     "\"memory\":0," +
@@ -672,20 +671,20 @@ namespace ServerResource.Tests
             long availableBytes;
             HypervResourceController.GetCapacityForLocalPath(WmiCalls.GetDefaultVirtualDiskFolder(),
                     out capacityBytes, out availableBytes);
-
+            var DefaultVirtualDiskFolder = JsonConvert.SerializeObject(WmiCalls.GetDefaultVirtualDiskFolder());
             string expected =
                 #region string_literal
-                        String.Format("[{{\"StartupRoutingCommand\":{{" +
-                        "\"cpus\":{0}," +
-                        "\"speed\":{11}," +
-                        "\"memory\":{12}," +
-                        "\"dom0MinMemory\":{13}," +
+                        "[{\"" + CloudStackTypes.StartupRoutingCommand + "\":{" +
+                        "\"cpus\":" + cores + "," +
+                        "\"speed\":" + mhz + "," +
+                        "\"memory\":" + memory_mb + "," +
+                        "\"dom0MinMemory\":" + AgentSettings.Default.dom0MinMemory + "," +
                         "\"poolSync\":false," +
-                        "\"vms\":{{}}," +
+                        "\"vms\":{}," +
                         "\"hypervisorType\":\"Hyperv\"," +
-                        "\"hostDetails\":{{" +
+                        "\"hostDetails\":{" +
                         "\"com.cloud.network.Networks.RouterPrivateIpStrategy\":\"HostLocal\"" +
-                        "}}," +
+                        "}," +
                         "\"type\":\"Routing\"," +
                         "\"dataCenter\":\"1\"," +
                         "\"pod\":\"1\"," +
@@ -693,48 +692,31 @@ namespace ServerResource.Tests
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"name\":\"localhost\"," +
                         "\"version\":\"4.1.0\"," +
-                        "\"privateIpAddress\":{9}," +
-                        "\"storageIpAddress\":{1}," +
-                        "\"contextMap\":{{}}," +
+                        "\"privateIpAddress\":\""+AgentSettings.Default.private_ip_address+"\"," +
+                        "\"storageIpAddress\":\"" + AgentSettings.Default.private_ip_address + "\"," +
+                        "\"contextMap\":{}," +
                         "\"wait\":0," +
-                        "\"privateNetmask\":{2}," +
-                        "\"privateMacAddress\":{3}," +
-                        "\"storageNetmask\":{4}," +
-                        "\"storageMacAddress\":{5}," +
-                        "\"gatewayIpAddress\":{6}" +
-                        "}}}}," +
-                        "{{\"StartupStorageCommand\":{{" +
-                        "\"poolInfo\":{{" +
-                        "\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
-                        "\"host\":{9}," +
-                        "\"localPath\":{7}," +
-                        "\"hostPath\":{8}," +
-                        "\"poolType\":\"Filesystem\"," +
-                        "\"capacityBytes\":{14}," +
-                        "\"availableBytes\":{15}," +
-                        "\"details\":null" +
+                        "\"privateNetmask\":\"" + AgentSettings.Default.private_ip_netmask + "\"," +
+                        "\"privateMacAddress\":\"" + AgentSettings.Default.private_mac_address + "\"," +
+                        "\"storageNetmask\":\"" + AgentSettings.Default.private_ip_netmask + "\"," +
+                        "\"storageMacAddress\":\"" + AgentSettings.Default.private_mac_address + "\"," +
+                        "\"gatewayIpAddress\":\"" + AgentSettings.Default.gateway_ip_address + "\"" +
                         "}}," +
+                        "{\"com.cloud.agent.api.StartupStorageCommand\":{" +
+                        "\"poolInfo\":{\"com.cloud.agent.api.StoragePoolInfo\":{" +
+                            "\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
+                            "\"host\":\""+AgentSettings.Default.private_ip_address+"\"," +
+                            "\"localPath\":" + DefaultVirtualDiskFolder + "," +
+                            "\"hostPath\":" + DefaultVirtualDiskFolder + "," +
+                            "\"poolType\":\"Filesystem\"," +
+                            "\"capacityBytes\":" + capacityBytes + "," +
+                            "\"availableBytes\":" + availableBytes + "," +
+                            "\"details\":null}" +
+                        "}," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"dataCenter\":\"1\"," +
                         "\"resourceType\":\"STORAGE_POOL\"" +
-                        "}}}}]",
-                        JsonConvert.SerializeObject(cores),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_netmask),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_mac_address),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_netmask),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_mac_address),
-                        JsonConvert.SerializeObject(AgentSettings.Default.gateway_ip_address),
-                        JsonConvert.SerializeObject(WmiCalls.GetDefaultVirtualDiskFolder()),
-                        JsonConvert.SerializeObject(WmiCalls.GetDefaultVirtualDiskFolder()),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
-                        JsonConvert.SerializeObject(AgentSettings.Default.private_ip_address),
-                        JsonConvert.SerializeObject(mhz),
-                        JsonConvert.SerializeObject(memory_mb),
-                        JsonConvert.SerializeObject(AgentSettings.Default.dom0MinMemory),
-                        JsonConvert.SerializeObject(capacityBytes),
-                        JsonConvert.SerializeObject(availableBytes)
-                        );
+                        "}}]";
                 #endregion
 
             dynamic jsonArray = JsonConvert.DeserializeObject(sampleStartupRoutingCommand);
@@ -777,8 +759,8 @@ namespace ServerResource.Tests
             dynamic startAns = rsrcServer.StartCommand(jsonStartCmd);
 
             // Assert
-            Assert.IsNotNull(startAns[0].StartAnswer, "StartCommand should return a StartAnswer in all cases");
-            Assert.IsTrue((bool)startAns[0].StartAnswer.result, "StartCommand did not succeed " + startAns[0].StartAnswer.details);
+            Assert.IsNotNull(startAns[0][CloudStackTypes.StartAnswer], "StartCommand should return a StartAnswer in all cases");
+            Assert.IsTrue((bool)startAns[0][CloudStackTypes.StartAnswer].result, "StartCommand did not succeed " + startAns[0][CloudStackTypes.StartAnswer].details);
             string vmCmdName = jsonStartCmd.vm.name.Value;
             var vm = WmiCalls.GetComputerSystem(vmCmdName);
             VirtualSystemSettingData vmSettings = WmiCalls.GetVmSettings(vm);
@@ -826,8 +808,8 @@ namespace ServerResource.Tests
             dynamic stopAns = rsrcServer.StopCommand(jsonStopCmd);
 
             // Assert VM is gone!
-            Assert.IsNotNull(stopAns[0].StopAnswer, "StopCommand should return a StopAnswer in all cases");
-            Assert.IsTrue((bool)stopAns[0].StopAnswer.result, "StopCommand did not succeed " + stopAns[0].StopAnswer.details);
+            Assert.IsNotNull(stopAns[0][CloudStackTypes.StopAnswer], "StopCommand should return a StopAnswer in all cases");
+            Assert.IsTrue((bool)stopAns[0][CloudStackTypes.StopAnswer].result, "StopCommand did not succeed " + stopAns[0][CloudStackTypes.StopAnswer].details);
             var finalVm = WmiCalls.GetComputerSystem(vmName);
             Assert.IsTrue(WmiCalls.GetComputerSystem(vmName) == null);
         }

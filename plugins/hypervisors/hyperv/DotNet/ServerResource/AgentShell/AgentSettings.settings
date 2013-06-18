@@ -47,7 +47,7 @@
     <Setting Name="local_secondary_storage_path" Type="System.String" Scope="User">
       <Value Profile="(Default)">c:\Secondary</Value>
     </Setting>
-    <Setting Name="local_storage_path" Type="System.String" Scope="Application">
+    <Setting Name="local_storage_path" Type="System.String" Scope="User">
       <Value Profile="(Default)">E:\Disks\Disks</Value>
     </Setting>
     <Setting Name="workers" Type="System.Int32" Scope="Application">

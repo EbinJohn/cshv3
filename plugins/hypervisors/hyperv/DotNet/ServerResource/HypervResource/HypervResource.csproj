@@ -54,6 +54,7 @@
     <Compile Include="CloudStackTypes.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="HypervResourceController.cs" />
+    <Compile Include="Utils.cs" />
     <Compile Include="WmiCalls.cs" />
   </ItemGroup>
   <ItemGroup>

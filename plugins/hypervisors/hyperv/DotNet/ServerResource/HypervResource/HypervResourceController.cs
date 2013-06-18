@@ -129,35 +129,27 @@ namespace HypervResource
         /// <returns></returns>
         /// TODO: produce test
         [HttpPost]
-        [ActionName("SetupCommand")]
+        [ActionName(CloudStackTypes.SetupCommand)]
         public JContainer SetupCommand([FromBody]dynamic cmd)
         {
-            string details = "success - NOP";
-            JToken answerTok;
-
-            var answerObj = new
+            object ansContent = new 
             {
-                SetupAnswer = new
-                {
-                    result = true,
-                    details = details,
-                    _reconnect = false
-                }
+                result = true,
+                details = "success - NOP",
+                _reconnect = false
             };
-            answerTok = JToken.FromObject(answerObj);
 
-            JArray answer = new JArray();
-            answer.Add(answerTok);
-            logger.Info("SetupCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.SetupAnswer);
         }
 
 
         // POST api/HypervResource/DestroyCommand
         [HttpPost]
-        [ActionName("DestroyCommand")]
+        [ActionName(CloudStackTypes.DestroyCommand)]
         public JContainer DestroyCommand([FromBody]dynamic cmd)
         {
+            logger.Info(cmd.ToString());
+
             string details = null;
             bool result = false;
 
@@ -191,28 +183,26 @@ namespace HypervResource
                 logger.Error(details, sysEx);
             }
 
-            var answerObj = new
-            {
-                DestroyAnswer = new
+            object ansContent = new
                 {
                     result = result,
                     details = details
-                }
-            };
+                };
 
-            dynamic ansToken = JToken.FromObject(answerObj);
-            JObject vals = ansToken.DestroyAnswer;
-            JProperty ansAsProperty = new JProperty("storage.DestroyAnswer", vals);
-            JArray answer = new JArray();
-            answer.Add(new JObject(ansAsProperty));
-            logger.Info("DestroyCommand result is " + answer.ToString());
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
+        }
+
+        private static JArray ReturnCloudStackTypedJArray(object ansContent, string ansType)
+        {
+            JObject ansObj = Utils.CreateCloudStackObject(ansType, ansContent);
+            JArray answer = new JArray(ansObj);
+            logger.Info(ansObj.ToString());
             return answer;
-
         }
 
         // POST api/HypervResource/CreateCommand
         [HttpPost]
-        [ActionName("CreateCommand")]
+        [ActionName(CloudStackTypes.CreateCommand)]
         public JContainer CreateCommand([FromBody]dynamic cmd)
         {
             string details = null;
@@ -301,34 +291,24 @@ namespace HypervResource
                 details = "CreateCommand failed due to " + sysEx.Message;
                 logger.Error(details, sysEx);
             }
-            var answerObj = new
+            
+            object ansContent = new
             {
-                CreateAnswer = new
-                {
                     result = result,
                     details = details,
                     volume = volume
-                }
             };
-
-            dynamic ansToken = JToken.FromObject(answerObj);
-            JObject vals = ansToken.CreateAnswer;
-            JProperty ansAsProperty = new JProperty("storage.CreateAnswer", vals);
-            JArray answer = new JArray();
-            answer.Add(new JObject(ansAsProperty));
-            logger.Info("CreateCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CreateAnswer);
         }
 
         // POST api/HypervResource/PrimaryStorageDownloadCommand
         [HttpPost]
-        [ActionName("PrimaryStorageDownloadCommand")]
+        [ActionName(CloudStackTypes.PrimaryStorageDownloadCommand)]
         public JContainer PrimaryStorageDownloadCommand([FromBody]dynamic cmd)
         {
             string details = null;
             bool result = false;
             long size = 0;
-
             string newCopyFileName = null;
 
             string poolLocalPath = cmd.localPath;
@@ -375,24 +355,14 @@ namespace HypervResource
                 }
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                primaryStorageDownloadAnswer = new
-                {
-                    result = result,
-                    details = details,
-                    templateSize = size,
-                    installPath = newCopyFileName
-                }
+                result = result,
+                details = details,
+                templateSize = size,
+                installPath = newCopyFileName
             };
-
-            dynamic ansToken = JToken.FromObject(answerObj);
-            JObject vals = ansToken.primaryStorageDownloadAnswer;
-            JProperty ansAsProperty = new JProperty("storage.PrimaryStorageDownloadAnswer", vals);
-            JArray answer = new JArray();
-            answer.Add(new JObject(ansAsProperty));
-            logger.Info("PrimaryStorageDownloadCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.PrimaryStorageDownloadAnswer);
         }
 
         private static bool ValidStoragePool(string poolTypeStr, string poolLocalPath, string poolUuid, ref string details)
@@ -482,11 +452,10 @@ namespace HypervResource
 
         // POST api/HypervResource/CheckVirtualMachineCommand
         [HttpPost]
-        [ActionName("CheckVirtualMachineCommand")]
+        [ActionName(CloudStackTypes.CheckVirtualMachineCommand)]
         public JContainer CheckVirtualMachineCommand([FromBody]dynamic cmd)
         {
             string details = null;
-            JToken answerTok;
             bool result = false;
             string vmName = cmd.vmName;
             string state = null;
@@ -504,42 +473,26 @@ namespace HypervResource
                 result = true;
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                CheckVirtualMachineAnswer = new
-                {
-                    result = result,
-                    details = details,
-                    state = state
-                }
+                result = result,
+                details = details,
+                state = state
             };
-            answerTok = JToken.FromObject(answerObj);
-            JArray answer = new JArray();
-            answer.Add(answerTok);
-            logger.Info("CheckVirtualMachineAnswer result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CheckVirtualMachineAnswer);
         }
 
         // POST api/HypervResource/DeleteStoragePoolCommand
         [HttpPost]
-        [ActionName("DeleteStoragePoolCommand")]
+        [ActionName(CloudStackTypes.DeleteStoragePoolCommand)]
         public JContainer DeleteStoragePoolCommand([FromBody]dynamic cmd)
         {
-            string details = "Current implementation does not delete local path corresponding to storage pool!";
-            JToken answerTok;
-            var answerObj = new
+            object ansContent = new
             {
-                Answer = new
-                {
-                    result = true,
-                    details = details
-                }
+                result = true,
+                details = "Current implementation does not delete local path corresponding to storage pool!"
             };
-            answerTok = JToken.FromObject(answerObj);
-            JArray answer = new JArray();
-            answer.Add(answerTok);
-            logger.Info("DeleteStoragePoolCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
         }
 
         /// <summary>
@@ -549,85 +502,63 @@ namespace HypervResource
         /// <param name="cmd"></param>
         /// <returns></returns>
         [HttpPost]
-        [ActionName("CreateStoragePoolCommand")]
+        [ActionName(CloudStackTypes.CreateStoragePoolCommand)]
         public JContainer CreateStoragePoolCommand([FromBody]dynamic cmd)
         {
-            string details = "success - NOP";
-            JToken answerTok;
-
-            var answerObj = new
+            object ansContent = new
             {
-                Answer = new
-                {
-                    result = true,
-                    details = details
-                }
+                result = true,
+                details = "success - NOP"
             };
-            answerTok = JToken.FromObject(answerObj);
-
-            JArray answer = new JArray();
-            answer.Add(answerTok);
-            logger.Info("CreateStoragePoolCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
         }
 
         // POST api/HypervResource/ModifyStoragePoolCommand
         [HttpPost]
-        [ActionName("ModifyStoragePoolCommand")]
+        [ActionName(CloudStackTypes.ModifyStoragePoolCommand)]
         public JContainer ModifyStoragePoolCommand([FromBody]dynamic cmd)
         {
             string details = null;
             string localPath;
-            JToken answerTok;
+            object ansContent;
 
             bool result = ValidateStoragePoolCommand(cmd, out localPath, ref details);
             if (!result)
             {
-                var answerObj = new
-                {
-                    Answer = new {
-                        result = result,
-                        details = details
-                    }
-                };
-                answerTok = JToken.FromObject(answerObj);
-            }
-            else
-            {
-                var tInfo = new Dictionary<string, string>();
-                long capacityBytes;
-                long availableBytes;
-                GetCapacityForLocalPath(localPath, out capacityBytes, out availableBytes);
-
-               String uuid = null;
-                var poolInfo = new {
-		            uuid = uuid,
-		            host = cmd.pool.host,
-		            localPath = cmd.pool.host,
-		            hostPath = cmd.localPath,
-		            poolType =cmd.pool.type,
-		            capacityBytes = capacityBytes,
-                    // TODO:  double check whether you need 'available' or 'used' bytes?
-		            availableBytes = availableBytes
-                };
-
-                var answerObj = new
-                {
-                    ModifyStoragePoolAnswer = new
+                ansContent = new
                     {
                         result = result,
-                        details = details,
-                        templateInfo = tInfo,
-                        poolInfo = poolInfo
-                    }
-                };
-                answerTok = JToken.FromObject(answerObj);
+                        details = details
+                    };
+                return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
             }
 
-            JArray answer = new JArray();
-            answer.Add(answerTok);
-            logger.Info("ModifyStoragePoolCommand result is " + answer.ToString());
-            return answer;
+            var tInfo = new Dictionary<string, string>();
+            long capacityBytes;
+            long availableBytes;
+            GetCapacityForLocalPath(localPath, out capacityBytes, out availableBytes);
+
+            String uuid = null;
+            var poolInfo = new
+            {
+                uuid = uuid,
+                host = cmd.pool.host,
+                localPath = cmd.pool.host,
+                hostPath = cmd.localPath,
+                poolType = cmd.pool.type,
+                capacityBytes = capacityBytes,
+                // TODO:  double check whether you need 'available' or 'used' bytes?
+                availableBytes = availableBytes
+            };
+
+            ansContent = new
+                {
+                    result = result,
+                    details = details,
+                    templateInfo = tInfo,
+                    poolInfo = poolInfo
+                };
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.ModifyStoragePoolAnswer);
         }
 
         private bool ValidateStoragePoolCommand(dynamic cmd, out string localPath, ref string details)
@@ -654,81 +585,46 @@ namespace HypervResource
 
         // POST api/HypervResource/CleanupNetworkRulesCmd
         [HttpPost]
-        [ActionName("CleanupNetworkRulesCmd")]
+        [ActionName(CloudStackTypes.CleanupNetworkRulesCmd)]
         public JContainer CleanupNetworkRulesCmd([FromBody]dynamic cmd)
         {
-            string details = "nothing to cleanup in our current implementation";
-
-            var answerObj = new
+            object ansContent = new
             {
-                Answer = new
-                {
-                    result = false,
-                    details = details
-                }
+                result = false,
+                details = "nothing to cleanup in our current implementation"
             };
-
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("CleanupNetworkRulesCmd result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
         }
 
         // POST api/HypervResource/CheckNetworkCommand
         [HttpPost]
-        [ActionName("CheckNetworkCommand")]
+        [ActionName(CloudStackTypes.CheckNetworkCommand)]
         public JContainer CheckNetworkCommand([FromBody]dynamic cmd)
         {
-            string details = null;
-            bool result = true;
-
-            logger.Debug("CheckNetworkCommand call using data:" + cmd.ToString());
-
-            // TODO: correctly verify network names, for now, return success.
-
-            var answerObj = new
+            object ansContent = new
             {
-                CheckNetworkAnswer = new
-                {
-                    result = result,
-                    details = details
-                }
+                result = true,
+                details = (string)null
             };
-
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("CheckNetworkAnswer result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CheckNetworkAnswer);
         }
 
         // POST api/HypervResource/ReadyCommand
         [HttpPost]
-        [ActionName("ReadyCommand")]
+        [ActionName(CloudStackTypes.ReadyCommand)]
         public JContainer ReadyCommand([FromBody]dynamic cmd)
         {
-            string details = null;
-
-            var answerObj = new
+            object ansContent = new
             {
-                ReadyAnswer = new
-                {
-                    result = true,
-                    details = details
-                }
+                result = true,
+                details = (string)null
             };
-
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("ReadyCommand result is " + answer.ToString());
-            return answer;
-        }
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.ReadyAnswer);
+       }
 
         // POST api/HypervResource/StartCommand
         [HttpPost]
-        [ActionName("StartCommand")]
+        [ActionName(CloudStackTypes.StartCommand)]
         public JContainer StartCommand([FromBody]dynamic cmd)
         {
             string details = null;
@@ -745,27 +641,18 @@ namespace HypervResource
                 logger.Error(details, wmiEx);
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                StartAnswer = new
-                {
-                    result = result,
-                    details = details,
-                    vm = cmd.vm
-                }
+                result = result,
+                details = details,
+                vm = cmd.vm
             };
-
-
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("StartCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.StartAnswer);
         }
 
         // POST api/HypervResource/StartCommand
         [HttpPost]
-        [ActionName("StopCommand")]
+        [ActionName(CloudStackTypes.StopCommand)]
         public JContainer StopCommand([FromBody]dynamic cmd)
         {
             string details = null;
@@ -782,28 +669,19 @@ namespace HypervResource
                 logger.Error(details, wmiEx);
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                StopAnswer = new
-                {
-                    result = result,
-                    details = details,
-                    vm = cmd.vm
-                }
+                result = result,
+                details = details,
+                vm = cmd.vm
             };
-
-
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("StopCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.StopAnswer);
         }
 
 
         // POST api/HypervResource/GetVmStatsCommand
         [HttpPost]
-        [ActionName("GetVmStatsCommand")]
+        [ActionName(CloudStackTypes.GetVmStatsCommand)]
         public JContainer GetVmStatsCommand([FromBody]dynamic cmd)
         {
             bool result = false;
@@ -811,7 +689,6 @@ namespace HypervResource
             JArray vmNamesJson = cmd.vmNames;
             string[] vmNames = vmNamesJson.ToObject<string[]>();
             Dictionary<string, VmStatsEntry> vmProcessorInfo = new Dictionary<string,VmStatsEntry>(vmNames.Length);
-
 
             var vmsToInspect = new List<System.Management.ManagementPath>();
             foreach (var vmName in vmNames)
@@ -861,27 +738,20 @@ namespace HypervResource
             // Curious about these?  Use perfmon to inspect them, e.g. http://msdn.microsoft.com/en-us/library/xhcx5a20%28v=vs.100%29.aspx
             // Recent post on these counter at http://blogs.technet.com/b/cedward/archive/2011/07/19/hyper-v-networking-optimizations-part-6-of-6-monitoring-hyper-v-network-consumption.aspx
             result = true;
-            var answerObj = new
-            {
-                GetVmStatsAnswer = new
-                {
-                    vmInfos = vmProcessorInfo,
-                    result = result,
-                    details = details,
-                }
-            };
 
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("GetVmStatsCommand result is " + answer.ToString());
-            return answer;
+            object ansContent = new
+            {
+                vmInfos = vmProcessorInfo,
+                result = result,
+                details = details,
+            };
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.GetVmStatsAnswer);
         }
 
         // POST api/HypervResource/StartupCommand
         [HttpPost]
-        [ActionName("CopyCommand")]
-        public dynamic CopyCommand(dynamic jsonCmd)
+        [ActionName(CloudStackTypes.CopyCommand)]
+        public JContainer CopyCommand(dynamic jsonCmd)
         {
             bool result = false;
             string details = null;
@@ -958,21 +828,14 @@ namespace HypervResource
                 logger.Error(details, ex);
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                CopyCmdAnswer = new
-                {
-                    result = result,
-                    details = details,
-                    newData = newData
-                }
+                result = result,
+                details = details,
+                newData = newData
             };
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CopyCmdAnswer);
 
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("CopyCommand result is " + answer.ToString());
-            return answer;
         }
 
         private static void DownloadS3ObjectToFile(string srcObjectKey, S3TO srcS3TO, string destFile)
@@ -1025,7 +888,7 @@ namespace HypervResource
 
         // POST api/HypervResource/GetStorageStatsCommand
         [HttpPost]
-        [ActionName("GetStorageStatsCommand")]
+        [ActionName(CloudStackTypes.GetStorageStatsCommand)]
         public JContainer GetStorageStatsCommand([FromBody]dynamic cmd)
         {
             bool result = false;
@@ -1046,31 +909,24 @@ namespace HypervResource
                 logger.Error(details, ex);
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                GetStorageStatsAnswer = new
-                {
-                    result = result,
-                    details = details,
-                    capacity = capacity,
-                    used = used
-                }
+                result = result,
+                details = details,
+                capacity = capacity,
+                used = used
             };
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("GetStorageStatsCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.GetStorageStatsAnswer);
         }
 
         // POST api/HypervResource/GetHostStatsCommand
         [HttpPost]
-        [ActionName("GetHostStatsCommand")]
+        [ActionName(CloudStackTypes.GetHostStatsCommand)]
         public JContainer GetHostStatsCommand([FromBody]dynamic cmd)
         {
             bool result = false;
             string details = null;
-            dynamic hostStats = null;
+            object hostStats = null;
 
             var entityType = "host";
             ulong totalMemoryKBs;
@@ -1110,30 +966,23 @@ namespace HypervResource
                 logger.Error(details, ex);
             }
 
-            var answerObj = new
+            object ansContent = new
             {
-                GetHostStatsAnswer = new
-                {
-                    result = result,
-                    hostStats = hostStats,
-                    details = details
-                }
+                result = result,
+                hostStats = hostStats,
+                details = details
             };
-            JArray answer = new JArray();
-            JToken answerTok = JToken.FromObject(answerObj);
-            answer.Add(answerTok);
-            logger.Info("GetHostStatsCommand result is " + answer.ToString());
-            return answer;
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.GetHostStatsAnswer);
         }
 
         // POST api/HypervResource/StartupCommand
         [HttpPost]
-        [ActionName("StartupCommand")]
+        [ActionName(CloudStackTypes.StartupCommand)]
         public JContainer StartupCommand([FromBody]dynamic cmdArray)
         {
             // Log agent configuration
             logger.Info("Agent StartupRoutingCommand received " + cmdArray.ToString());
-            dynamic strtRouteCmd = cmdArray[0].StartupRoutingCommand;
+            dynamic strtRouteCmd = cmdArray[0][CloudStackTypes.StartupRoutingCommand];
 
             // Insert networking details
             strtRouteCmd.privateIpAddress = config.PrivateIpAddress;
@@ -1158,7 +1007,6 @@ namespace HypervResource
             // Need 2 Gig for DOM0, see http://technet.microsoft.com/en-us/magazine/hh750394.aspx
             strtRouteCmd.dom0MinMemory = config.ParentPartitionMinMemoryMb;
             
-
             // Insert storage pool details.
             //
             // Read the localStoragePath for virtual disks from the Hyper-V configuration
@@ -1197,20 +1045,15 @@ namespace HypervResource
 
                 // Build StorageStartCommand using an anonymous type
                 // See http://stackoverflow.com/a/6029228/939250
-                var startupStorageCommand = new
-                    {
-                        StartupStorageCommand = new
-                            {
-                                poolInfo = pi,
-                                guid = pi.uuid,
-                                dataCenter = strtRouteCmd.dataCenter,
-                                resourceType = StorageResourceType.STORAGE_POOL.ToString()
-                            }
-                    };
-
-
-                JToken tok = JToken.FromObject(startupStorageCommand);
-                cmdArray.Add(tok);
+                object ansContent = new
+                {
+                    poolInfo = Utils.CreateCloudStackObject(CloudStackTypes.StoragePoolInfo, pi),
+                    guid = pi.uuid,
+                    dataCenter = strtRouteCmd.dataCenter,
+                    resourceType = StorageResourceType.STORAGE_POOL.ToString()  // TODO: check encoding
+                };
+                JObject ansObj = Utils.CreateCloudStackObject(CloudStackTypes.StartupStorageCommand, ansContent);
+                cmdArray.Add(ansObj);
             }
 
             // Convert result to array for type correctness?

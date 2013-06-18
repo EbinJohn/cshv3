@@ -27,8 +27,6 @@ using System.Threading.Tasks;
 // later adoption of C# naming conventions if requried. 
 namespace HypervResource
 {
-
-
     public class PrimaryDataStoreTO
     {
         public string path;
@@ -36,7 +34,7 @@ namespace HypervResource
         public static PrimaryDataStoreTO ParseJson(dynamic json)
         {
             PrimaryDataStoreTO result = null;
-            dynamic primaryDataStoreTOJson = json["org.apache.cloudstack.storage.to.PrimaryDataStoreTO"];
+            dynamic primaryDataStoreTOJson = json[CloudStackTypes.PrimaryDataStoreTO];
             if (primaryDataStoreTOJson != null)
             {
                 result = new PrimaryDataStoreTO()
@@ -63,7 +61,7 @@ namespace HypervResource
         public static VolumeObjectTO ParseJson(dynamic json)
         {
             VolumeObjectTO result = null;
-            dynamic volumeObjectTOJson = json["org.apache.cloudstack.storage.to.VolumeObjectTO"];
+            dynamic volumeObjectTOJson = json[CloudStackTypes.VolumeObjectTO];
             if (volumeObjectTOJson != null)
             {
                 result = new VolumeObjectTO()
@@ -94,7 +92,7 @@ namespace HypervResource
         public static TemplateObjectTO ParseJson(dynamic json)
         {
             TemplateObjectTO result = null;
-            dynamic templateObjectTOJson = json["org.apache.cloudstack.storage.to.TemplateObjectTO"];
+            dynamic templateObjectTOJson = json[CloudStackTypes.TemplateObjectTO];
             if (templateObjectTOJson != null)
             {
                 result = new TemplateObjectTO()
@@ -121,7 +119,7 @@ namespace HypervResource
         public static S3TO ParseJson(dynamic json)
         {
             S3TO result = null;
-            dynamic s3TOJson = json["com.cloud.agent.api.to.S3TO"];
+            dynamic s3TOJson = json[CloudStackTypes.S3TO];
             if (s3TOJson != null)
             {
                 result = new S3TO()
@@ -282,5 +280,211 @@ namespace HypervResource
         public int numCPUs;
         [JsonProperty("entityType")]
         public String entityType;
+    }
+
+    /// <summary>
+    /// Fully qualified named for a number of types used in CloudStack.  Used to specify the intended type for JSON serialised objects. 
+    /// </summary>
+    public class CloudStackTypes
+    {
+        public const string Answer = "com.cloud.agent.api.Answer";
+        public const string AttachIsoCommand = "com.cloud.agent.api.AttachIsoCommand";
+        public const string AttachVolumeAnswer = "com.cloud.agent.api.AttachVolumeAnswer";
+        public const string AttachVolumeCommand = "com.cloud.agent.api.AttachVolumeCommand";
+        public const string AnsBackupSnapshotAnswerwer = "com.cloud.agent.api.BackupSnapshotAnswer";
+        public const string BackupSnapshotCommand = "com.cloud.agent.api.BackupSnapshotCommand";
+        public const string BumpUpPriorityCommand = "com.cloud.agent.api.BumpUpPriorityCommand";
+        public const string CheckHealthAnswer = "com.cloud.agent.api.CheckHealthAnswer";
+        public const string CheckHealthCommand = "com.cloud.agent.api.CheckHealthCommand";
+        public const string CheckNetworkAnswer = "com.cloud.agent.api.CheckNetworkAnswer";
+        public const string CheckNetworkCommand = "com.cloud.agent.api.CheckNetworkCommand";
+        public const string CheckOnHostAnswer = "com.cloud.agent.api.CheckOnHostAnswer";
+        public const string CheckOnHostCommand = "com.cloud.agent.api.CheckOnHostCommand";
+        public const string CheckRouterAnswer = "com.cloud.agent.api.CheckRouterAnswer";
+        public const string CheckRouterCommand = "com.cloud.agent.api.CheckRouterCommand";
+        public const string CheckS2SVpnConnectionsAnswer = "com.cloud.agent.api.CheckS2SVpnConnectionsAnswer";
+        public const string CheckS2SVpnConnectionsCommand = "com.cloud.agent.api.CheckS2SVpnConnectionsCommand";
+        public const string CheckVirtualMachineAnswer = "com.cloud.agent.api.CheckVirtualMachineAnswer";
+        public const string CheckVirtualMachineCommand = "com.cloud.agent.api.CheckVirtualMachineCommand";
+        public const string CleanupNetworkRulesCmd = "com.cloud.agent.api.CleanupNetworkRulesCmd";
+        public const string ClusterSyncAnswer = "com.cloud.agent.api.ClusterSyncAnswer";
+        public const string ClusterSyncCommand = "com.cloud.agent.api.ClusterSyncCommand";
+        public const string Command = "com.cloud.agent.api.Command";
+        public const string CreatePrivateTemplateFromSnapshotCommand = "com.cloud.agent.api.CreatePrivateTemplateFromSnapshotCommand";
+        public const string CreatePrivateTemplateFromVolumeCommand = "com.cloud.agent.api.CreatePrivateTemplateFromVolumeCommand";
+        public const string CreateStoragePoolCommand = "com.cloud.agent.api.CreateStoragePoolCommand";
+        public const string CreateVMSnapshotAnswer = "com.cloud.agent.api.CreateVMSnapshotAnswer";
+        public const string CreateVMSnapshotCommand = "com.cloud.agent.api.CreateVMSnapshotCommand";
+        public const string CreateVolumeFromSnapshotAnswer = "com.cloud.agent.api.CreateVolumeFromSnapshotAnswer";
+        public const string CreateVolumeFromSnapshotCommand = "com.cloud.agent.api.CreateVolumeFromSnapshotCommand";
+        public const string DeleteStoragePoolCommand = "com.cloud.agent.api.DeleteStoragePoolCommand";
+        public const string DeleteVMSnapshotAnswer = "com.cloud.agent.api.DeleteVMSnapshotAnswer";
+        public const string DeleteVMSnapshotCommand = "com.cloud.agent.api.DeleteVMSnapshotCommand";
+        public const string GetDomRVersionAnswer = "com.cloud.agent.api.GetDomRVersionAnswer";
+        public const string GetDomRVersionCmd = "com.cloud.agent.api.GetDomRVersionCmd";
+        public const string GetHostStatsAnswer = "com.cloud.agent.api.GetHostStatsAnswer";
+        public const string GetHostStatsCommand = "com.cloud.agent.api.GetHostStatsCommand";
+        public const string GetStorageStatsAnswer = "com.cloud.agent.api.GetStorageStatsAnswer";
+        public const string GetStorageStatsCommand = "com.cloud.agent.api.GetStorageStatsCommand";
+        public const string GetVmDiskStatsAnswer = "com.cloud.agent.api.GetVmDiskStatsAnswer";
+        public const string GetVmDiskStatsCommand = "com.cloud.agent.api.GetVmDiskStatsCommand";
+        public const string GetVmStatsAnswer = "com.cloud.agent.api.GetVmStatsAnswer";
+        public const string GetVmStatsCommand = "com.cloud.agent.api.GetVmStatsCommand";
+        public const string GetVncPortAnswer = "com.cloud.agent.api.GetVncPortAnswer";
+        public const string GetVncPortCommand = "com.cloud.agent.api.GetVncPortCommand";
+        public const string HostStatsEntry = "com.cloud.agent.api.HostStatsEntry";
+        public const string MaintainAnswer = "com.cloud.agent.api.MaintainAnswer";
+        public const string MaintainCommand = "com.cloud.agent.api.MaintainCommand";
+        public const string ManageSnapshotAnswer = "com.cloud.agent.api.ManageSnapshotAnswer";
+        public const string ManageSnapshotCommand = "com.cloud.agent.api.ManageSnapshotCommand";
+        public const string MigrateAnswer = "com.cloud.agent.api.MigrateAnswer";
+        public const string MigrateCommand = "com.cloud.agent.api.MigrateCommand";
+        public const string ModifySshKeysCommand = "com.cloud.agent.api.ModifySshKeysCommand";
+        public const string ModifyStoragePoolAnswer = "com.cloud.agent.api.ModifyStoragePoolAnswer";
+        public const string ModifyStoragePoolCommand = "com.cloud.agent.api.ModifyStoragePoolCommand";
+        public const string NetworkRulesSystemVmCommand = "com.cloud.agent.api.NetworkRulesSystemVmCommand";
+        public const string NetworkRulesVmSecondaryIpCommand = "com.cloud.agent.api.NetworkRulesVmSecondaryIpCommand";
+        public const string PingCommand = "com.cloud.agent.api.PingCommand";
+        public const string PingRoutingCommand = "com.cloud.agent.api.PingRoutingCommand";
+        public const string PingRoutingWithNwGroupsCommand = "com.cloud.agent.api.PingRoutingWithNwGroupsCommand";
+        public const string PingRoutingWithOvsCommand = "com.cloud.agent.api.PingRoutingWithOvsCommand";
+        public const string PingTestCommand = "com.cloud.agent.api.PingTestCommand";
+        public const string PlugNicAnswer = "com.cloud.agent.api.PlugNicAnswer";
+        public const string PlugNicCommand = "com.cloud.agent.api.PlugNicCommand";
+        public const string PoolEjectCommand = "com.cloud.agent.api.PoolEjectCommand";
+        public const string PrepareForMigrationAnswer = "com.cloud.agent.api.PrepareForMigrationAnswer";
+        public const string PrepareForMigrationCommand = "com.cloud.agent.api.PrepareForMigrationCommand";
+        public const string PvlanSetupCommand = "com.cloud.agent.api.PvlanSetupCommand";
+        public const string ReadyAnswer = "com.cloud.agent.api.ReadyAnswer";
+        public const string ReadyCommand = "com.cloud.agent.api.ReadyCommand";
+        public const string RebootAnswer = "com.cloud.agent.api.RebootAnswer";
+        public const string RebootCommand = "com.cloud.agent.api.RebootCommand";
+        public const string RebootRouterCommand = "com.cloud.agent.api.RebootRouterCommand";
+        public const string RevertToVMSnapshotAnswer = "com.cloud.agent.api.RevertToVMSnapshotAnswer";
+        public const string RevertToVMSnapshotCommand = "com.cloud.agent.api.RevertToVMSnapshotCommand";
+        public const string ScaleVmAnswer = "com.cloud.agent.api.ScaleVmAnswer";
+        public const string ScaleVmCommand = "com.cloud.agent.api.ScaleVmCommand";
+        public const string SecurityGroupRuleAnswer = "com.cloud.agent.api.SecurityGroupRuleAnswer";
+        public const string SecurityGroupRulesCmd = "com.cloud.agent.api.SecurityGroupRulesCmd";
+        public const string SetupAnswer = "com.cloud.agent.api.SetupAnswer";
+        public const string SetupCommand = "com.cloud.agent.api.SetupCommand";
+        public const string SetupGuestNetworkAnswer = "com.cloud.agent.api.SetupGuestNetworkAnswer";
+        public const string SetupGuestNetworkCommand = "com.cloud.agent.api.SetupGuestNetworkCommand";
+        public const string StartAnswer = "com.cloud.agent.api.StartAnswer";
+        public const string StartCommand = "com.cloud.agent.api.StartCommand";
+        public const string StartupCommand = "com.cloud.agent.api.StartupCommand";
+        public const string StartupRoutingCommand = "com.cloud.agent.api.StartupRoutingCommand";
+        public const string StartupStorageCommand = "com.cloud.agent.api.StartupStorageCommand";
+        public const string StopAnswer = "com.cloud.agent.api.StopAnswer";
+        public const string StopCommand = "com.cloud.agent.api.StopCommand";
+        public const string StoragePoolInfo = "com.cloud.agent.api.StoragePoolInfo";
+        public const string UnPlugNicAnswer = "com.cloud.agent.api.UnPlugNicAnswer";
+        public const string UnPlugNicCommand = "com.cloud.agent.api.UnPlugNicCommand";
+        public const string UpdateHostPasswordCommand = "com.cloud.agent.api.UpdateHostPasswordCommand";
+        public const string UpgradeSnapshotCommand = "com.cloud.agent.api.UpgradeSnapshotCommand";
+        public const string VmDiskStatsEntry = "com.cloud.agent.api.VmDiskStatsEntry";
+        public const string VmStatsEntry = "com.cloud.agent.api.VmStatsEntry";
+        public const string CheckSshAnswer = "com.cloud.agent.api.check.CheckSshAnswer";
+        public const string CheckSshCommand = "com.cloud.agent.api.check.CheckSshCommand";
+        public const string CheckConsoleProxyLoadCommand = "com.cloud.agent.api.proxy.CheckConsoleProxyLoadCommand";
+        public const string ConsoleProxyLoadAnswer = "com.cloud.agent.api.proxy.ConsoleProxyLoadAnswer";
+        public const string WatchConsoleProxyLoadCommand = "com.cloud.agent.api.proxy.WatchConsoleProxyLoadCommand";
+        public const string CreateIpAliasCommand = "com.cloud.agent.api.routing.CreateIpAliasCommand";
+        public const string DeleteIpAliasCommand = "com.cloud.agent.api.routing.DeleteIpAliasCommand";
+        public const string DhcpEntryCommand = "com.cloud.agent.api.routing.DhcpEntryCommand";
+        public const string DnsMasqConfigCommand = "com.cloud.agent.api.routing.DnsMasqConfigCommand";
+        public const string IpAliasTO = "com.cloud.agent.api.routing.IpAliasTO";
+        public const string IpAssocAnswer = "com.cloud.agent.api.routing.IpAssocAnswer";
+        public const string IpAssocCommand = "com.cloud.agent.api.routing.IpAssocCommand";
+        public const string IpAssocVpcCommand = "com.cloud.agent.api.routing.IpAssocVpcCommand";
+        public const string LoadBalancerConfigCommand = "com.cloud.agent.api.routing.LoadBalancerConfigCommand";
+        public const string NetworkElementCommand = "com.cloud.agent.api.routing.NetworkElementCommand";
+        public const string RemoteAccessVpnCfgCommand = "com.cloud.agent.api.routing.RemoteAccessVpnCfgCommand";
+        public const string SavePasswordCommand = "com.cloud.agent.api.routing.SavePasswordCommand";
+        public const string SetFirewallRulesAnswer = "com.cloud.agent.api.routing.SetFirewallRulesAnswer";
+        public const string SetFirewallRulesCommand = "com.cloud.agent.api.routing.SetFirewallRulesCommand";
+        public const string SetNetworkACLAnswer = "com.cloud.agent.api.routing.SetNetworkACLAnswer";
+        public const string SetNetworkACLCommand = "com.cloud.agent.api.routing.SetNetworkACLCommand";
+        public const string SetPortForwardingRulesAnswer = "com.cloud.agent.api.routing.SetPortForwardingRulesAnswer";
+        public const string SetPortForwardingRulesCommand = "com.cloud.agent.api.routing.SetPortForwardingRulesCommand";
+        public const string SetPortForwardingRulesVpcCommand = "com.cloud.agent.api.routing.SetPortForwardingRulesVpcCommand";
+        public const string SetSourceNatAnswer = "com.cloud.agent.api.routing.SetSourceNatAnswer";
+        public const string SetSourceNatCommand = "com.cloud.agent.api.routing.SetSourceNatCommand";
+        public const string SetStaticNatRulesAnswer = "com.cloud.agent.api.routing.SetStaticNatRulesAnswer";
+        public const string SetStaticNatRulesCommand = "com.cloud.agent.api.routing.SetStaticNatRulesCommand";
+        public const string SetStaticRouteAnswer = "com.cloud.agent.api.routing.SetStaticRouteAnswer";
+        public const string SetStaticRouteCommand = "com.cloud.agent.api.routing.SetStaticRouteCommand";
+        public const string Site2SiteVpnCfgCommand = "com.cloud.agent.api.routing.Site2SiteVpnCfgCommand";
+        public const string VmDataCommand = "com.cloud.agent.api.routing.VmDataCommand";
+        public const string VpnUsersCfgCommand = "com.cloud.agent.api.routing.VpnUsersCfgCommand";
+        public const string CopyVolumeAnswer = "com.cloud.agent.api.storage.CopyVolumeAnswer";
+        public const string CopyVolumeCommand = "com.cloud.agent.api.storage.CopyVolumeCommand";
+        public const string CreateAnswer = "com.cloud.agent.api.storage.CreateAnswer";
+        public const string CreateCommand = "com.cloud.agent.api.storage.CreateCommand";
+        public const string CreatePrivateTemplateAnswer = "com.cloud.agent.api.storage.CreatePrivateTemplateAnswer";
+        public const string DestroyCommand = "com.cloud.agent.api.storage.DestroyCommand";
+        public const string PrimaryStorageDownloadAnswer = "com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer";
+        public const string PrimaryStorageDownloadCommand = "com.cloud.agent.api.storage.PrimaryStorageDownloadCommand";
+        public const string ResizeVolumeAnswer = "com.cloud.agent.api.storage.ResizeVolumeAnswer";
+        public const string ResizeVolumeCommand = "com.cloud.agent.api.storage.ResizeVolumeCommand";
+        public const string FirewallRuleTO = "com.cloud.agent.api.to.FirewallRuleTO";
+        public const string IpAddressTO = "com.cloud.agent.api.to.IpAddressTO";
+        public const string NicTO = "com.cloud.agent.api.to.NicTO";
+        public const string PortForwardingRuleTO = "com.cloud.agent.api.to.PortForwardingRuleTO";
+        public const string S3TO = "com.cloud.agent.api.to.S3TO";
+        public const string StaticNatRuleTO = "com.cloud.agent.api.to.StaticNatRuleTO";
+        public const string StorageFilerTO = "com.cloud.agent.api.to.StorageFilerTO";
+        public const string SwiftTO = "com.cloud.agent.api.to.SwiftTO";
+        public const string VirtualMachineTO = "com.cloud.agent.api.to.VirtualMachineTO";
+        public const string VolumeTO = "com.cloud.agent.api.to.VolumeTO";
+        public const string InternalErrorException = "com.cloud.exception.InternalErrorException";
+        public const string HostType = "com.cloud.host.Host.Type";
+        public const string HypervisorType = "com.cloud.hypervisor.Hypervisor.HypervisorType";
+        public const string DnsMasqConfigurator = "com.cloud.network.DnsMasqConfigurator";
+        public const string HAProxyConfigurator = "com.cloud.network.HAProxyConfigurator";
+        public const string LoadBalancerConfigurator = "com.cloud.network.LoadBalancerConfigurator";
+        public const string Networks = "com.cloud.network.Networks";
+        public const string BroadcastDomainType = "com.cloud.network.Networks.BroadcastDomainType";
+        public const string IsolationType = "com.cloud.network.Networks.IsolationType";
+        public const string TrafficType = "com.cloud.network.Networks.TrafficType";
+        public const string PhysicalNetworkSetupInfo = "com.cloud.network.PhysicalNetworkSetupInfo";
+        public const string OvsCreateGreTunnelAnswer = "com.cloud.network.ovs.OvsCreateGreTunnelAnswer";
+        public const string OvsCreateGreTunnelCommand = "com.cloud.network.ovs.OvsCreateGreTunnelCommand";
+        public const string OvsCreateTunnelAnswer = "com.cloud.network.ovs.OvsCreateTunnelAnswer";
+        public const string OvsCreateTunnelCommand = "com.cloud.network.ovs.OvsCreateTunnelCommand";
+        public const string OvsDeleteFlowCommand = "com.cloud.network.ovs.OvsDeleteFlowCommand";
+        public const string OvsDestroyBridgeCommand = "com.cloud.network.ovs.OvsDestroyBridgeCommand";
+        public const string OvsDestroyTunnelCommand = "com.cloud.network.ovs.OvsDestroyTunnelCommand";
+        public const string OvsFetchInterfaceAnswer = "com.cloud.network.ovs.OvsFetchInterfaceAnswer";
+        public const string OvsFetchInterfaceCommand = "com.cloud.network.ovs.OvsFetchInterfaceCommand";
+        public const string OvsSetTagAndFlowAnswer = "com.cloud.network.ovs.OvsSetTagAndFlowAnswer";
+        public const string OvsSetTagAndFlowCommand = "com.cloud.network.ovs.OvsSetTagAndFlowCommand";
+        public const string OvsSetupBridgeCommand = "com.cloud.network.ovs.OvsSetupBridgeCommand";
+        public const string FirewallRule = "com.cloud.network.rules.FirewallRule";
+        public const string ServerResource = "com.cloud.resource.ServerResource";
+        public const string HypervisorResource = "com.cloud.resource.hypervisor.HypervisorResource";
+        public const string Storage = "com.cloud.storage.Storage";
+        public const string ImageFormat = "com.cloud.storage.Storage.ImageFormat";
+        public const string StoragePoolType = "com.cloud.storage.Storage.StoragePoolType";
+        public const string Volume = "com.cloud.storage.Volume";
+        public const string VolumeVO = "com.cloud.storage.VolumeVO";
+        public const string StorageSubsystemCommandHandler = "com.cloud.storage.resource.StorageSubsystemCommandHandler";
+        public const string StorageSubsystemCommandHandlerBase = "com.cloud.storage.resource.StorageSubsystemCommandHandlerBase";
+        public const string TemplateProp = "com.cloud.storage.template.TemplateProp";
+        public const string BootloaderType = "com.cloud.template.VirtualMachineTemplate.BootloaderType";
+        public const string VolumeObjectTO = "org.apache.cloudstack.storage.to.VolumeObjectTO";
+        public const string TemplateObjectTO = "org.apache.cloudstack.storage.to.TemplateObjectTO";
+        public const string PrimaryDataStoreTO = "org.apache.cloudstack.storage.to.PrimaryDataStoreTO";
+        public const string AttachAnswer = "org.apache.cloudstack.storage.command.AttachAnswer";
+        public const string AttachCommand = "org.apache.cloudstack.storage.command.AttachCommand";
+        public const string AttachPrimaryDataStoreAnswer = "org.apache.cloudstack.storage.command.AttachPrimaryDataStoreAnswer";
+        public const string AttachPrimaryDataStoreCmd = "org.apache.cloudstack.storage.command.AttachPrimaryDataStoreCmd";
+        public const string CopyCmdAnswer = "org.apache.cloudstack.storage.command.CopyCmdAnswer";
+        public const string CopyCommand = "org.apache.cloudstack.storage.command.CopyCommand";
+        public const string CreateObjectAnswer = "org.apache.cloudstack.storage.command.CreateObjectAnswer";
+        public const string CreateObjectCommand = "org.apache.cloudstack.storage.command.CreateObjectCommand";
+        public const string DeleteCommand = "org.apache.cloudstack.storage.command.DeleteCommand";
+        public const string DettachAnswer = "org.apache.cloudstack.storage.command.DettachAnswer";
+        public const string DettachCommand = "org.apache.cloudstack.storage.command.DettachCommand";
     }
 }

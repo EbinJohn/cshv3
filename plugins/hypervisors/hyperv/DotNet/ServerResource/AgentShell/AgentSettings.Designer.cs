@@ -160,12 +160,15 @@ namespace CloudStack.Plugin.AgentShell {
             }
         }
         
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("E:\\Disks\\Disks")]
         public string local_storage_path {
             get {
                 return ((string)(this["local_storage_path"]));
+            }
+            set {
+                this["local_storage_path"] = value;
             }
         }
         
