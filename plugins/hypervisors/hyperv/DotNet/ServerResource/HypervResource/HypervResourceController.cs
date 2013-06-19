@@ -1047,7 +1047,7 @@ namespace HypervResource
                 // See http://stackoverflow.com/a/6029228/939250
                 object ansContent = new
                 {
-                    poolInfo = Utils.CreateCloudStackObject(CloudStackTypes.StoragePoolInfo, pi),
+                    poolInfo = pi,
                     guid = pi.uuid,
                     dataCenter = strtRouteCmd.dataCenter,
                     resourceType = StorageResourceType.STORAGE_POOL.ToString()  // TODO: check encoding

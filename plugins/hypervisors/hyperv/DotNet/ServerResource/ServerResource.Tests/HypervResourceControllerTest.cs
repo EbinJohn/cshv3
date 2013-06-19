@@ -31,6 +31,8 @@ namespace ServerResource.Tests
     [TestClass]
     public class HypervResourceControllerTest
     {
+        protected static String testPrimaryDataStoreHost = HypervResourceController.config.StorageIpAddress;
+        protected static String testS3TemplateName = AgentSettings.Default.testS3TemplateName;
         protected static String testLocalStoreUUID = "5fe2bad3-d785-394e-9949-89786b8a63d2";
         protected static String testLocalStorePath = Path.Combine(AgentSettings.Default.hyperv_plugin_root, "var", "test", "storagepool");
         protected static String testSecondaryStoreLocalPath = Path.Combine(AgentSettings.Default.hyperv_plugin_root, "var", "test", "secondary");
@@ -280,22 +282,62 @@ namespace ServerResource.Tests
             TestStopCommand(vmName);
         }
 
-                [TestMethod]
+        public static String getSamplePrimaryDataStoreInfo()
+        {
+            String samplePrimaryDataStoreInfo =
+            "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" +
+                "{\"uuid\":\"" + testLocalStoreUUID + "\"," +
+                "\"id\":201," +
+                "\"host\":\"" + testPrimaryDataStoreHost + "\"," +
+                "\"type\":\"Filesystem\"," +  // Not used in PrimaryDataStoreTO
+                "\"poolType\":\"Filesystem\"," +  // Not used in PrimaryDataStoreTO
+                "\"path\":" + testLocalStorePathJSON + "," +
+                "\"port\":0}" +
+            "}";
+            return samplePrimaryDataStoreInfo;
+        }
+
+        public static String getSampleVolumeObjectTO()
+        {
+            String sampleVolumeObjectTO =
+                    "{\"org.apache.cloudstack.storage.to.VolumeObjectTO\":" +
+                        "{\"uuid\":\"19ae8e67-cb2c-4ab4-901e-e0b864272b59\"," +
+                        "\"volumeType\":\"ROOT\"," +
+                        "\"format\":\"VHDX\"," +
+                        "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
+                        "\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                        "\"size\":52428800," +
+                        "\"volumeId\":10," +
+                //                            "\"vmName\":\"i-3-5-VM\"," +  // TODO: do we have to fill in the vmName?
+                        "\"accountId\":3,\"id\":10}" +
+                    "}";  // end of destTO 
+            return sampleVolumeObjectTO;
+        }
+
+        public static String getSampleStartCommand()
+        {
+            String sample = "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+                                "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+                                "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+                                "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+                                "\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+                            ",\"disks\":[" +
+                               "{\"data\":" + getSampleVolumeObjectTO() + ",\"diskSeq\":0,\"type\":\"ROOT\"}," +
+                               "{\"diskSeq\":1,\"type\":\"ISO\"}" +
+                            "]," +
+                            "\"nics\":[" +
+                                    "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," +
+                                    "\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," +
+                                    "\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," +
+                                    "\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                            "]},\"contextMap\":{},\"wait\":0}";
+            return sample;
+        }
+
+        [TestMethod]
         public void TestCopyCommand()
         {
             // Arrange
-            string samplePrimaryDataStoreInfo =
-            #region string_literal
-                "{\"uuid\":\"" + testLocalStoreUUID + "\","+
-                "\"id\":201,"+
-                "\"host\":\"" + HypervResourceController.config.StorageIpAddress + "\"," +
-                "\"type\":\"Filesystem\","+  // Not used in PrimaryDataStoreTO
-                "\"poolType\":\"Filesystem\","+  // Not used in PrimaryDataStoreTO
-                "\"path\":" + testLocalStorePathJSON + ","+
-                "\"port\":0,"+
-                "}";
-            #endregion                
-
             string sampleCopyCommandToCreateVolumeFromTemplate =
             #region string_literal
                 // org.apache.cloudstack.storage.command.CopyCommand
@@ -309,17 +351,15 @@ namespace ServerResource.Tests
                         "\"checksum\":\"046e134e642e6d344b34648223ba4bc1\"," +
                         "\"hvm\":false," +
                         "\"displayText\":\"tiny Linux\"," +
-                        "\"imageDataStore\":" +
-                            "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" + samplePrimaryDataStoreInfo + "}," + // end of imageDataStore
-                        "\"name\":\"" + AgentSettings.Default.testS3TemplateName + "\"}" +
+                        "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "\"," +
+                        "\"name\":\"" + testS3TemplateName + "\"}" +
                     "}," +  // end of srcTO
                 "\"destTO\":" +
                     "{\"org.apache.cloudstack.storage.to.VolumeObjectTO\":" +
                         "{\"uuid\":\"19ae8e67-cb2c-4ab4-901e-e0b864272b59\"," +
                         "\"volumeType\":\"ROOT\"," +
                         "\"format\":\"VHDX\"," +
-                        "\"dataStore\":" +
-                            "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" + samplePrimaryDataStoreInfo + "}," + // end of imageDataStore
+                        "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "\"," +
                         "\"name\":\"ROOT-5\"," +
                         "\"size\":52428800," +
                         "\"volumeId\":10," +
@@ -366,7 +406,7 @@ namespace ServerResource.Tests
                         "\"hvm\":true," +
                         "\"displayText\":\"OS031\"," +
                         "\"imageDataStore\":" +
-                            "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" + samplePrimaryDataStoreInfo + "}," + // end of imageDataStore
+                            "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" + getSamplePrimaryDataStoreInfo() + "}," + // end of imageDataStore
                         "\"name\":\"" + AgentSettings.Default.testS3TemplateName + "\"}" +
                     "}," +// end of destTO
                 "\"wait\":10800}"; // end of CopyCommand
@@ -634,7 +674,7 @@ namespace ServerResource.Tests
         {
             // Arrange
             HypervResourceController controller = new HypervResourceController();
-            string sampleStartupRoutingCommand =
+            String sampleStartupRoutingCommand =
             #region string_literal
                     "[{\"" + CloudStackTypes.StartupRoutingCommand + "\":{" +
                     "\"cpus\":0," +
@@ -653,7 +693,7 @@ namespace ServerResource.Tests
                     "\"cluster\":\"1\"," +
                     "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                     "\"name\":\"localhost\"," +
-                    "\"version\":\"4.1.0\"," +
+                    "\"version\":\"4.2.0\"," +
                     "\"privateIpAddress\":\"1\"," +
                     "\"storageIpAddress\":\"1\"," +
                     "\"contextMap\":{}," +
@@ -691,7 +731,7 @@ namespace ServerResource.Tests
                         "\"cluster\":\"1\"," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"name\":\"localhost\"," +
-                        "\"version\":\"4.1.0\"," +
+                        "\"version\":\"4.2.0\"," +
                         "\"privateIpAddress\":\""+AgentSettings.Default.private_ip_address+"\"," +
                         "\"storageIpAddress\":\"" + AgentSettings.Default.private_ip_address + "\"," +
                         "\"contextMap\":{}," +
@@ -703,7 +743,7 @@ namespace ServerResource.Tests
                         "\"gatewayIpAddress\":\"" + AgentSettings.Default.gateway_ip_address + "\"" +
                         "}}," +
                         "{\"com.cloud.agent.api.StartupStorageCommand\":{" +
-                        "\"poolInfo\":{\"com.cloud.agent.api.StoragePoolInfo\":{" +
+                        "\"poolInfo\":{" +
                             "\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                             "\"host\":\""+AgentSettings.Default.private_ip_address+"\"," +
                             "\"localPath\":" + DefaultVirtualDiskFolder + "," +
@@ -711,7 +751,7 @@ namespace ServerResource.Tests
                             "\"poolType\":\"Filesystem\"," +
                             "\"capacityBytes\":" + capacityBytes + "," +
                             "\"availableBytes\":" + availableBytes + "," +
-                            "\"details\":null}" +
+                            "\"details\":null" +
                         "}," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"dataCenter\":\"1\"," +
@@ -734,26 +774,10 @@ namespace ServerResource.Tests
         {
             // Arrange
             HypervResourceController rsrcServer = new HypervResourceController();
-            String sample = "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
-                "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
-                "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
-                "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
-                "\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
-                ",\"disks\":[" +
-                    "{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
-                        "\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
-                        "\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0," +
-                        "\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\"" + testLocalStoreUUID + "\"" +
-                        ",\"deviceId\":0}," +
-                    "{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," +
-                "\"nics\":[" +
-                    "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," +
-                    "\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," +
-                    "\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," +
-                    "\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
-                                      "]},\"contextMap\":{},\"wait\":0}";
-            dynamic jsonStartCmd = JsonConvert.DeserializeObject(sample);
+            String sample = getSampleStartCommand();
 
+
+            dynamic jsonStartCmd = JsonConvert.DeserializeObject(sample);
 
             // Act
             dynamic startAns = rsrcServer.StartCommand(jsonStartCmd);

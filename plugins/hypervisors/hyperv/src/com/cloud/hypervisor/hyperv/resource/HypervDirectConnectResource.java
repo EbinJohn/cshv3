@@ -110,7 +110,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		defaultStartRoutCmd.setStorageIpAddress(_agentIp);
 
 		// TODO: does version need to be hard coded.
-		defaultStartRoutCmd.setVersion("4.1.0");
+		defaultStartRoutCmd.setVersion("4.2.0");
 
 		// Specifics of the host's resource capacity and network configuration
 		// comes from the host itself. CloudStack sanity checks network
@@ -238,7 +238,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		// http://docs.oracle.com/javase/1.5.0/docs/api/java/net/URI.html
 		URI agentUri = null;
 		try {
-			String cmdName = "StartupCommand";
+			String cmdName = StartupCommand.class.getName();
 			agentUri = new URI("http", null, this._agentIp, 8250,
 					"/api/HypervResource/" + cmdName, null, null);
 		} catch (URISyntaxException e) {
@@ -277,7 +277,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		// http://docs.oracle.com/javase/1.5.0/docs/api/java/net/URI.html
 		URI agentUri = null;
 		try {
-			String cmdName = cmd.getClass().getSimpleName();
+			String cmdName = cmd.getClass().getName();
 			agentUri = new URI("http", null, this._agentIp, 8250,
 					"/api/HypervResource/" + cmdName, null, null);
 		} catch (URISyntaxException e) {

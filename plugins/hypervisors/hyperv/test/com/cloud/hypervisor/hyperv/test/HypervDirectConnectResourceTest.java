@@ -74,6 +74,10 @@ import com.cloud.agent.api.storage.CreateAnswer;
 import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.DestroyAnswer;
 import com.cloud.agent.api.storage.DestroyCommand;
+import com.cloud.agent.api.to.DataStoreTO;
+import com.cloud.agent.api.to.DataTO;
+import com.cloud.agent.api.to.DiskTO;
+import com.cloud.agent.api.to.VirtualMachineTO;
 
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.hyperv.discoverer.HypervServerDiscoverer;
@@ -85,7 +89,12 @@ import com.cloud.network.Networks.RouterPrivateIpStrategy;
 import com.cloud.serializer.GsonHelper;
 import com.cloud.storage.Storage;
 import com.cloud.storage.StoragePool;
+import com.cloud.storage.Volume;
+
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+import org.apache.cloudstack.storage.to.VolumeObjectTO;
+
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.PropertiesUtil;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -98,6 +107,7 @@ import com.google.gson.Gson;
  * mvn exec:java -Dexec.mainClass=com.cloud.agent.TestHyperv
  */
 public class HypervDirectConnectResourceTest {
+
     private static final Logger s_logger = Logger.getLogger(HypervDirectConnectResourceTest.class.getName());
     
     // TODO:  make this a config parameter
@@ -126,7 +136,8 @@ public class HypervDirectConnectResourceTest {
     protected static String testLocalStorePathJSON;
     protected static String s_pythonExec;
     protected static Process s_agentProc;
-    
+    protected static String testPrimaryDataStoreHost;
+
     public HypervDirectConnectResourceTest() {
     }
     
@@ -213,6 +224,7 @@ public class HypervDirectConnectResourceTest {
         			+ " sample template at " + testSampleTemplateURLJSON);
         	
 	        s_pythonExec = (String)params.get("agent.executable");
+	        testPrimaryDataStoreHost = (String) params.get("private.ip.address");
 	        AgentCreation();
     }
 
@@ -272,7 +284,7 @@ public class HypervDirectConnectResourceTest {
 		defaultStartRoutCmd.setCpus(12);
 
 		// TODO: does version need to be hard coded.
-		defaultStartRoutCmd.setVersion("4.1.0");
+		defaultStartRoutCmd.setVersion("4.2.0");
 		
 		StartupCommand scmd = defaultStartRoutCmd;
 
@@ -510,26 +522,10 @@ public class HypervDirectConnectResourceTest {
     @Test
     public void TestStartStopCommand()
     {
-       	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
-              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
-              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
-              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
-              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
-              	",\"disks\":[" +
-                  	"{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
-                  		"\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
-                  		"\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0,"+
-                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
-                  		",\"deviceId\":0}," + 
-                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
-              	"\"nics\":[" +
-                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
-                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
-                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
-                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
-                  "]},\"contextMap\":{},\"wait\":0}";
+       	String sample =  getSampleStartCommand();
        	{
 	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
+			s_logger.info("StartCommand sample " + s_gson.toJson(cmd));
 	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
 	    	Assert.assertTrue(ans.getDetails(), ans.getResult());
        	}
@@ -544,24 +540,8 @@ public class HypervDirectConnectResourceTest {
     @Test
     public void TestStartStartCommand()
     {
-       	String sample =  "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
-              	"\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
-              	"\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
-              	"\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
-              	"\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
-              	",\"disks\":[" +
-                  	"{\"id\":18,\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
-                  		"\"mountPoint\":" + testSampleVolumeWorkingURIJSON + "," +
-                  		"\"path\":" + testSampleVolumeWorkingURIJSON + ",\"size\":0,"+
-                  		"\"type\":\"ROOT\",\"storagePoolType\":\"Filesystem\",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"" +
-                  		",\"deviceId\":0}," + 
-                  	"{\"id\":16,\"name\":\"Hyper-V Sample2\",\"size\":0,\"type\":\"ISO\",\"storagePoolType\":\"ISO\",\"deviceId\":3}]," + 
-              	"\"nics\":[" +
-                  	"{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," + 
-                  	"\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," + 
-                  	"\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," + 
-                  	"\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
-                  "]},\"contextMap\":{},\"wait\":0}";
+        String sample = getSampleStartCommand();
+
        	{
 	       	StartCommand cmd = s_gson.fromJson(sample, StartCommand.class);
 	       	StartAnswer ans = (StartAnswer)s_hypervresource.executeRequest(cmd);
@@ -594,7 +574,7 @@ public class HypervDirectConnectResourceTest {
         		",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"," + 
         		"\"type\":\"ROOT\",\"id\":9,\"size\":0}}";
     	DestroyCommand cmd = s_gson.fromJson(sample2, DestroyCommand.class);
-    	DestroyAnswer ans = (DestroyAnswer)s_hypervresource.executeRequest(cmd);
+    	Answer ans = (Answer)s_hypervresource.executeRequest(cmd);
     	Assert.assertTrue(ans.getDetails(), ans.getResult());
     }
 
@@ -702,7 +682,7 @@ public class HypervDirectConnectResourceTest {
 
     	// TODO:  add test to verify capacity statistics change
     	s_SetTestJsonResultStr =
- String.format("[{\"StartupRoutingCommand\":{" +
+ String.format("[{\"com.cloud.agent.api.StartupRoutingCommand\":{" +
                         "\"cpus\":%s," +
                         "\"speed\":%s," +
                         "\"memory\":%s," +
@@ -719,7 +699,7 @@ public class HypervDirectConnectResourceTest {
                         "\"cluster\":%s," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
                         "\"name\":\"hypervresource\"," +
-                        "\"version\":\"4.1.0\"," +
+                        "\"version\":\"4.2.0\"," +
                         "\"privateIpAddress\":%s," +
                         "\"privateMacAddress\":%s," +
                         "\"privateNetmask\":%s," +
@@ -730,16 +710,16 @@ public class HypervDirectConnectResourceTest {
                         "\"contextMap\":{}," +
                         "\"wait\":0" +
                         "}}," +
-                        "{\"StartupStorageCommand\":{" +
+                        "{\"com.cloud.agent.api.StartupStorageCommand\":{" +
                         "\"totalSize\":0,"+
                         "\"poolInfo\":{" +
-                        "\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
-                        "\"host\":%s," +
-                        "\"localPath\":%s," +
-                        "\"hostPath\":%s," +
-                        "\"poolType\":\"Filesystem\"," +
-                        "\"capacityBytes\":%s," +	// TODO: set the capacity bytes as well
-                        "\"availableBytes\":%s" + 			
+                        	"\"uuid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +
+                        	"\"host\":%s," +
+                        	"\"localPath\":%s," +
+                        	"\"hostPath\":%s," +
+                        	"\"poolType\":\"Filesystem\"," +
+                        	"\"capacityBytes\":%s," +	// TODO: set the capacity bytes as well
+                        	"\"availableBytes\":%s" + 			
                         "}," +
                         "\"resourceType\":\"STORAGE_POOL\"," +
                         "\"hostDetails\":{}," +
@@ -770,5 +750,59 @@ public class HypervDirectConnectResourceTest {
                         s_gson.toJson(usableCapacity)                        
         				);
     }
+    
+    public static String getSamplePrimaryDataStoreInfo()
+    {
+        String samplePrimaryDataStoreInfo =
+        "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" +
+            "{\"uuid\":\"" + testLocalStoreUUID + "\"," +
+            "\"id\":201," +
+            "\"host\":\"" + testPrimaryDataStoreHost + "\"," +
+            "\"type\":\"Filesystem\"," +  // Not used in PrimaryDataStoreTO
+            "\"poolType\":\"Filesystem\"," +  // Not used in PrimaryDataStoreTO
+            "\"path\":" + testLocalStorePathJSON + "," +
+            "\"port\":0}" +
+        "}";
+        return samplePrimaryDataStoreInfo;
+    }
+
+    public static String getSampleVolumeObjectTO()
+    {
+        String sampleVolumeObjectTO =
+                "{\"org.apache.cloudstack.storage.to.VolumeObjectTO\":" +
+                    "{\"uuid\":\"19ae8e67-cb2c-4ab4-901e-e0b864272b59\"," +
+                    "\"volumeType\":\"ROOT\"," +
+                    "\"format\":\"VHDX\"," +
+                    "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
+                    "\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                    "\"size\":52428800," +
+                    "\"volumeId\":10," +
+            //                            "\"vmName\":\"i-3-5-VM\"," +  // TODO: do we have to fill in the vmName?
+                    "\"accountId\":3,\"id\":10}" +
+                "}";  // end of destTO 
+        return sampleVolumeObjectTO;
+    }
+    
+    public static String getSampleStartCommand()
+    {
+        String sample = "{\"vm\":{\"id\":17,\"name\":\"i-2-17-VM\",\"type\":\"User\",\"cpus\":1,\"speed\":500," +
+                            "\"minRam\":536870912,\"maxRam\":536870912,\"arch\":\"x86_64\"," +
+                            "\"os\":\"CentOS 6.0 (64-bit)\",\"bootArgs\":\"\",\"rebootOnCrash\":false," +
+                            "\"enableHA\":false,\"limitCpuUse\":false,\"vncPassword\":\"31f82f29aff646eb\"," +
+                            "\"params\":{},\"uuid\":\"8b030b6a-0243-440a-8cc5-45d08815ca11\"" +
+                        ",\"disks\":[" +
+                           "{\"data\":" + getSampleVolumeObjectTO() + ",\"diskSeq\":0,\"type\":\"ROOT\"}," +
+                           "{\"diskSeq\":1,\"type\":\"ISO\"}" +
+                        "]," +
+                        "\"nics\":[" +
+                                "{\"deviceId\":0,\"networkRateMbps\":100,\"defaultNic\":true,\"uuid\":\"99cb4813-23af-428c-a87a-2d1899be4f4b\"," +
+                                "\"ip\":\"10.1.1.67\",\"netmask\":\"255.255.255.0\",\"gateway\":\"10.1.1.1\"," +
+                                "\"mac\":\"02:00:51:2c:00:0e\",\"dns1\":\"4.4.4.4\",\"broadcastType\":\"Vlan\",\"type\":\"Guest\"," +
+                                "\"broadcastUri\":\"vlan://261\",\"isolationUri\":\"vlan://261\",\"isSecurityGroupEnabled\":false}" +
+                        "]},\"contextMap\":{},\"wait\":0}";
+        return sample;
+    }
+
+
 }
 

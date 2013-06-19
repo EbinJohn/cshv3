@@ -34,6 +34,11 @@ namespace HypervResource
         public static PrimaryDataStoreTO ParseJson(dynamic json)
         {
             PrimaryDataStoreTO result = null;
+
+            if (json == null)
+            {
+                return result;
+            }
             dynamic primaryDataStoreTOJson = json[CloudStackTypes.PrimaryDataStoreTO];
             if (primaryDataStoreTOJson != null)
             {
@@ -61,6 +66,12 @@ namespace HypervResource
         public static VolumeObjectTO ParseJson(dynamic json)
         {
             VolumeObjectTO result = null;
+
+            if (json == null)
+            {
+                return result;
+            }
+
             dynamic volumeObjectTOJson = json[CloudStackTypes.VolumeObjectTO];
             if (volumeObjectTOJson != null)
             {

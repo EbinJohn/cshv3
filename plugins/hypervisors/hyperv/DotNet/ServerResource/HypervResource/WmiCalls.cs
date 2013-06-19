@@ -199,12 +199,51 @@ namespace HypervResource
 
             // disks
             var diskDrives = vmInfo.disks;
+
             foreach (var diskDrive in diskDrives)
             {
-                string vhdFile = diskDrive.path;
+                string vhdFile = null;
+                string diskName = null;
+
+                VolumeObjectTO volInfo = VolumeObjectTO.ParseJson(diskDrive.data);
+                if (volInfo != null)
+                {
+                    // assert
+                    string errMsg = vmName + ": volume missing datastore for disk " + diskDrive.ToString();
+                    if (volInfo.dataStore == null)
+                    {
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
+                    }
+
+                    diskName = volInfo.name;
+                    PrimaryDataStoreTO storeTO = PrimaryDataStoreTO.ParseJson(volInfo.dataStore);
+
+                    // assert
+                    errMsg = vmName + ": can't deal with DataStore type for disk " + diskDrive.ToString();
+                    if (storeTO == null)
+                    {
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
+                    }
+                    errMsg = vmName + ": Malformed PrimaryDataStore for disk " + diskDrive.ToString();
+                    if (String.IsNullOrEmpty(storeTO.path))
+                    {
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
+                    }
+                    vhdFile = System.IO.Path.Combine(storeTO.path, diskName);
+                    errMsg = vmName + ": non-existent volume, missing " + vhdFile + " for drive " + diskDrive.ToString();
+                    if (!System.IO.File.Exists(vhdFile))
+                    {
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
+                    }
+                    logger.Debug("Going to create " + vmName + " with attached voluem " + diskName + " at " + vhdFile);
+                }
+
                 string driveType = diskDrive.type;
-                string foo = diskDrive.foo;
-                string diskName = diskDrive.name;
+
                 string ideCtrllr = "0";
                 string driveResourceType = null;
                 switch (driveType) {
@@ -218,13 +257,15 @@ namespace HypervResource
                         break;
                     default: 
                         // TODO: double check exception type
-                        var errMsg = string.Format("Unknown disk type {0} for disk {1}, vm named {2}", string.IsNullOrEmpty(driveType) ? "NULL" : driveType, diskName, vmName);
+                        var errMsg = string.Format("Unknown disk type {0} for disk {1}, vm named {2}", 
+                                string.IsNullOrEmpty(driveType) ? "NULL" : driveType,
+                                string.IsNullOrEmpty(diskName) ? "NULL" : diskName, vmName);
                         var ex = new WmiException(errMsg);
                         logger.Error(errMsg, ex);
                         throw ex;
                 }
-                logger.DebugFormat("Create disk drive {0}, type {1} on vm {2}{3}", diskName, driveResourceType, vmName, 
-                                        string.IsNullOrEmpty(vhdFile) ? " not disk to insert" : ", inserting disk" +vhdFile );
+                logger.DebugFormat("Create disk type {1} (Named: {0}), on vm {2} {3}", diskName, driveResourceType, vmName, 
+                                        string.IsNullOrEmpty(vhdFile) ? " no disk to insert" : ", inserting disk" +vhdFile );
                 AddDiskDriveToVm(newVm, vhdFile, ideCtrllr, driveResourceType);
             }
 
