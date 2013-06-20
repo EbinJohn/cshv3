@@ -1321,6 +1321,13 @@
                         }
                       },
 
+                      preFilter: function(args) { //Shared networks is only supported in Basic zone and Advanced zone with SG
+                          if(selectedZoneObj.networktype == "Advanced" && selectedZoneObj.securitygroupsenabled != true)
+                              return false;
+                          else
+                              return true;
+                      },
+
                       createForm: {
                         title: 'label.add.guest.network',  //Add guest network in advanced zone
 
@@ -4019,6 +4026,332 @@
             }
           },
 
+          //Baremetal DHCP provider detail view
+          BaremetalDhcpProvider: {
+            type: 'detailView',
+            id: 'BaremetalDhcpProvider',
+            label: 'Baremetal DHCP Provider',
+            viewAll: { label: 'label.devices', path: '_zone.BaremetalDhcpDevices' },
+            tabs: {
+              details: {
+                title: 'label.details',
+                fields: [
+                  {
+                    name: { label: 'label.name' }
+                  },
+                  {
+                    state: { label: 'label.state' }
+                  }
+                ],
+                dataProvider: function(args) {
+                  refreshNspData("BaremetalDhcpProvider");
+                  var providerObj;
+                  $(nspHardcodingArray).each(function(){
+                    if(this.id == "BaremetalDhcpProvider") {
+                      providerObj = this;
+                      return false; //break each loop
+                    }
+                  });
+                  args.response.success({
+                    data: providerObj,
+                    actionFilter: networkProviderActionFilter('BaremetalDhcpProvider')
+                  });
+                }
+              }
+            },
+            actions: {
+              add: {
+                label: 'Add Baremetal DHCP Device',
+                createForm: {
+                  title: 'Add Baremetal DHCP Device',
+                  fields: {
+                    url: {
+                      label: 'label.url',
+                      validation: { required: true }
+                    },
+                    username: {
+                      label: 'label.username',
+                      validation: { required: true }
+                    },
+                    password: {
+                      label: 'label.password',
+                      isPassword: true,
+                      validation: { required: true }
+                    }           
+                  }
+                },
+                action: function(args) {
+                  addBaremetalDhcpDeviceFn(args);
+                },
+                messages: {
+                  notification: function(args) {
+                    return 'Add Baremetal DHCP Device';
+                  }
+                },
+                notification: {
+                  poll: pollAsyncJobResult
+                }
+              },
+              enable: {
+                label: 'label.enable.provider',
+                action: function(args) {
+                  $.ajax({
+                    url: createURL("updateNetworkServiceProvider&id=" + nspMap["BaremetalDhcpProvider"].id + "&state=Enabled"),
+                    dataType: "json",
+                    success: function(json) {
+                      var jid = json.updatenetworkserviceproviderresponse.jobid;
+                      args.response.success(
+                        {_custom:
+                          {
+                            jobId: jid,
+                            getUpdatedItem: function(json) {
+                              $(window).trigger('cloudStack.fullRefresh');
+                            }
+                          }
+                        }
+                      );
+                    }
+                  });
+                },
+                messages: {
+                  confirm: function(args) {
+                    return 'message.confirm.enable.provider';
+                  },
+                  notification: function() {
+                    return 'label.enable.provider';
+                  }
+                },
+                notification: { poll: pollAsyncJobResult }
+              },
+              disable: {
+                label: 'label.disable.provider',
+                action: function(args) {
+                  $.ajax({
+                    url: createURL("updateNetworkServiceProvider&id=" + nspMap["BaremetalDhcpProvider"].id + "&state=Disabled"),
+                    dataType: "json",
+                    success: function(json) {
+                      var jid = json.updatenetworkserviceproviderresponse.jobid;
+                      args.response.success(
+                        {_custom:
+                          {
+                            jobId: jid,
+                            getUpdatedItem: function(json) {
+                              $(window).trigger('cloudStack.fullRefresh');
+                            }
+                          }
+                        }
+                      );
+                    }
+                  });
+                },
+                messages: {
+                  confirm: function(args) {
+                    return 'message.confirm.disable.provider';
+                  },
+                  notification: function() {
+                    return 'label.disable.provider';
+                  }
+                },
+                notification: { poll: pollAsyncJobResult }
+              },
+              destroy: {
+                label: 'label.shutdown.provider',
+                action: function(args) {
+                  $.ajax({
+                    url: createURL("deleteNetworkServiceProvider&id=" + nspMap["BaremetalDhcpProvider"].id),
+                    dataType: "json",
+                    success: function(json) {
+                      var jid = json.deletenetworkserviceproviderresponse.jobid;
+                      args.response.success(
+                        {_custom:
+                         {
+                           jobId: jid
+                         }
+                        }
+                      );
+
+                      $(window).trigger('cloudStack.fullRefresh');
+                    }
+                  });
+                },
+                messages: {
+                  confirm: function(args) {
+                    return 'message.confirm.shutdown.provider';
+                  },
+                notification: function(args) {
+                    return 'label.shutdown.provider';
+                  }
+                },
+                notification: { poll: pollAsyncJobResult }
+              }
+            }
+          },
+          
+          //Baremetal PXE provider detail view
+          BaremetalPxeProvider: {
+            type: 'detailView',
+            id: 'BaremetalPxeProvider',
+            label: 'Baremetal PXE Provider',
+            viewAll: { label: 'label.devices', path: '_zone.BaremetalPxeDevices' },
+            tabs: {
+              details: {
+                title: 'label.details',
+                fields: [
+                  {
+                    name: { label: 'label.name' }
+                  },
+                  {
+                    state: { label: 'label.state' }
+                  }
+                ],
+                dataProvider: function(args) {
+                  refreshNspData("BaremetalPxeProvider");
+                  var providerObj;
+                  $(nspHardcodingArray).each(function(){
+                    if(this.id == "BaremetalPxeProvider") {
+                      providerObj = this;
+                      return false; //break each loop
+                    }
+                  });
+                  args.response.success({
+                    data: providerObj,
+                    actionFilter: networkProviderActionFilter('BaremetalPxeProvider')
+                  });
+                }
+              }
+            },
+            actions: {
+              add: {
+                label: 'Add Baremetal PXE Device',
+                createForm: {
+                  title: 'Add Baremetal PXE Device',
+                  fields: {
+                    url: {
+                      label: 'label.url',
+                      validation: { required: true }
+                    },
+                    username: {
+                      label: 'label.username',
+                      validation: { required: true }
+                    },
+                    password: {
+                      label: 'label.password',
+                      isPassword: true,
+                      validation: { required: true }
+                    },
+                    tftpdir: {
+                      label: 'Tftp root directory',
+                      validation: { required: true }
+                    } 
+                  }
+                },
+                action: function(args) {
+                  addBaremetalPxeDeviceFn(args);
+                },
+                messages: {
+                  notification: function(args) {
+                    return 'Add Baremetal PXE Device';
+                  }
+                },
+                notification: {
+                  poll: pollAsyncJobResult
+                }
+              },
+              enable: {
+                label: 'label.enable.provider',
+                action: function(args) {
+                  $.ajax({
+                    url: createURL("updateNetworkServiceProvider&id=" + nspMap["BaremetalPxeProvider"].id + "&state=Enabled"),
+                    dataType: "json",
+                    success: function(json) {
+                      var jid = json.updatenetworkserviceproviderresponse.jobid;
+                      args.response.success(
+                        {_custom:
+                          {
+                            jobId: jid,
+                            getUpdatedItem: function(json) {
+                              $(window).trigger('cloudStack.fullRefresh');
+                            }
+                          }
+                        }
+                      );
+                    }
+                  });
+                },
+                messages: {
+                  confirm: function(args) {
+                    return 'message.confirm.enable.provider';
+                  },
+                  notification: function() {
+                    return 'label.enable.provider';
+                  }
+                },
+                notification: { poll: pollAsyncJobResult }
+              },
+              disable: {
+                label: 'label.disable.provider',
+                action: function(args) {
+                  $.ajax({
+                    url: createURL("updateNetworkServiceProvider&id=" + nspMap["BaremetalPxeProvider"].id + "&state=Disabled"),
+                    dataType: "json",
+                    success: function(json) {
+                      var jid = json.updatenetworkserviceproviderresponse.jobid;
+                      args.response.success(
+                        {_custom:
+                          {
+                            jobId: jid,
+                            getUpdatedItem: function(json) {
+                              $(window).trigger('cloudStack.fullRefresh');
+                            }
+                          }
+                        }
+                      );
+                    }
+                  });
+                },
+                messages: {
+                  confirm: function(args) {
+                    return 'message.confirm.disable.provider';
+                  },
+                  notification: function() {
+                    return 'label.disable.provider';
+                  }
+                },
+                notification: { poll: pollAsyncJobResult }
+              },
+              destroy: {
+                label: 'label.shutdown.provider',
+                action: function(args) {
+                  $.ajax({
+                    url: createURL("deleteNetworkServiceProvider&id=" + nspMap["BaremetalPxeProvider"].id),
+                    dataType: "json",
+                    success: function(json) {
+                      var jid = json.deletenetworkserviceproviderresponse.jobid;
+                      args.response.success(
+                        {_custom:
+                         {
+                           jobId: jid
+                         }
+                        }
+                      );
+
+                      $(window).trigger('cloudStack.fullRefresh');
+                    }
+                  });
+                },
+                messages: {
+                  confirm: function(args) {
+                    return 'message.confirm.shutdown.provider';
+                  },
+                notification: function(args) {
+                    return 'label.shutdown.provider';
+                  }
+                },
+                notification: { poll: pollAsyncJobResult }
+              }
+            }
+          },
+          
 		      //f5 provider detail view
           f5: {
             type: 'detailView',
@@ -6517,51 +6850,55 @@
               return listView;
             },
             secondaryStorage: function() {
-              var listView = $.extend(true, {}, cloudStack.sections.system.subsections['secondary-storage'].listView, {
-                dataProvider: function (args) {
-                  var searchByArgs = args.filterBy.search.value.length ?
-                    '&name=' + args.filterBy.search.value : '';
+              var listView = $.extend(
+                true, {},
+                cloudStack.sections.system.subsections['secondary-storage'].sections.secondaryStorage, {
+                  listView: {
+                    dataProvider: function (args) {
+                      var searchByArgs = args.filterBy.search.value.length ?
+                        '&name=' + args.filterBy.search.value : '';
 
-                  var data = { 
-                    type: 'SecondaryStorage', 
-                    page: args.page, 
-                    pageSize: pageSize, 
-                    listAll: true 
-                  };                  
+                      var data = {
+                        type: 'SecondaryStorage',
+                        page: args.page,
+                        pageSize: pageSize,
+                        listAll: true
+                      };
 
-                  $.ajax({
-                    url: createURL('listImageStores' + searchByArgs),
-                    data: data,
-                    success: function (json) {
-                      args.response.success({ data: json.listimagestoreresponse.imagestore });
+                      $.ajax({
+                        url: createURL('listImageStores' + searchByArgs),
+                        data: data,
+                        success: function (json) {
+                          args.response.success({ data: json.listimagestoreresponse.imagestore });
+                        },
+                        error: function (json) {
+                          args.response.error(parseXMLHttpResponse(json));
+                        }
+                      });
                     },
-                    error: function (json) {
-                      args.response.error(parseXMLHttpResponse(json));
-                    }
-                  });
-                },
+                    detailView: {
+                      updateContext: function (args) {
+                        var zone;
 
-                detailView: {
-                  updateContext: function (args) {
-                    var zone;
+                        $.ajax({
+                          url: createURL('listZones'),
+                          data: { id: args.context.secondarystorages[0].zoneid },
+                          async: false,
+                          success: function (json) {
+                            zone = json.listzonesresponse.zone[0];
+                          }
+                        });
 
-                    $.ajax({
-                      url: createURL('listZones'),
-                      data: { id: args.context.secondarystorages[0].zoneid },
-                      async: false,
-                      success: function (json) {
-                        zone = json.listzonesresponse.zone[0];
+                        selectedZoneObj = zone;
+
+                        return {
+                          zones: [zone]
+                        };
                       }
-                    });
-
-                    selectedZoneObj = zone;
-
-                    return {
-                      zones: [zone]
-                    };
+                    }
                   }
                 }
-              });
+              );
 
               return listView;
             },
@@ -7925,6 +8262,134 @@
         }
       },
 
+      // Baremetal DHCP devices listView
+      BaremetalDhcpDevices: {
+        id: 'BaremetalDhcpDevices',
+        title: 'Baremetal DHCP Devices',
+        listView: {
+          id: 'BaremetalDhcpDevices',
+          fields: {
+            url: { label: 'label.url' }            
+          },
+          actions: {           
+            add: {
+              label: 'Add Baremetal DHCP Device',
+              createForm: {
+                title: 'Add Baremetal DHCP Device',
+                fields: {
+                  url: {
+                    label: 'label.url',
+                    validation: { required: true }
+                  },
+                  username: {
+                    label: 'label.username',
+                    validation: { required: true }
+                  },
+                  password: {
+                    label: 'label.password',
+                    isPassword: true,
+                    validation: { required: true }
+                  }           
+                }
+              },
+              action: function(args) {
+                addBaremetalDhcpDeviceFn(args);
+              },
+              messages: {
+                notification: function(args) {
+                  return 'Add Baremetal DHCP Device';
+                }
+              },
+              notification: {
+                poll: pollAsyncJobResult
+              }
+            },           
+          },
+          dataProvider: function(args) {
+            $.ajax({
+              url: createURL('listBaremetalDhcp'),
+              data: { 
+                physicalnetworkid: selectedPhysicalNetworkObj.id,
+                page: args.page, 
+                pageSize: pageSize 
+              },
+              dataType: "json",
+              async: false,
+              success: function(json) {
+                var items = json.listexternaldhcpresponse.baremetaldhcp;
+                args.response.success({data: items});
+              }
+            });
+          }
+        }
+      },
+      
+      // Baremetal PXE devices listView
+      BaremetalPxeDevices: {
+        id: 'BaremetalPxeDevices',
+        title: 'Baremetal PXE Devices',
+        listView: {
+          id: 'BaremetalPxeDevices',
+          fields: {
+            url: { label: 'label.url' }            
+          },
+          actions: {           
+            add: {
+              label: 'Add Baremetal PXE Device',
+              createForm: {
+                title: 'Add Baremetal PXE Device',
+                fields: {
+                  url: {
+                    label: 'label.url',
+                    validation: { required: true }
+                  },
+                  username: {
+                    label: 'label.username',
+                    validation: { required: true }
+                  },
+                  password: {
+                    label: 'label.password',
+                    isPassword: true,
+                    validation: { required: true }
+                  },
+                  tftpdir: {
+                    label: 'Tftp root directory',
+                    validation: { required: true }
+                  }           
+                }
+              },
+              action: function(args) {
+                addBaremetalPxeDeviceFn(args);
+              },
+              messages: {
+                notification: function(args) {
+                  return 'Add Baremetal PXE Device';
+                }
+              },
+              notification: {
+                poll: pollAsyncJobResult
+              }
+            },           
+          },
+          dataProvider: function(args) {
+            $.ajax({
+              url: createURL('listBaremetalPxePingServer'),
+              data: { 
+                physicalnetworkid: selectedPhysicalNetworkObj.id,
+                page: args.page, 
+                pageSize: pageSize 
+              },
+              dataType: "json",
+              async: false,
+              success: function(json) {
+                var items = json.listpingpxeserverresponse.pingpxeserver;
+                args.response.success({data: items});
+              }
+            });
+          }
+        }
+      },
+      
 			// F5 devices listView
       f5Devices: {
         id: 'f5Devices',
@@ -12356,549 +12821,1108 @@
       'secondary-storage': {
         title: 'label.secondary.storage',
         id: 'secondarystorages',
-        listView: {
-          id: 'secondarystorages',
-          section: 'seconary-storage',
-          fields: {
-            name: { label: 'label.name' },
-            url: { label: 'label.url' },
-            providername: { label: 'Provider' }      
-          },
+        sectionSelect: {
+          label: 'label.select.view'
+        },
+        sections: {
+          secondaryStorage: {
+            type: 'select',
+            title: 'label.secondary.storage',
+            listView: {
+              id: 'secondarystorages',
+              section: 'seconary-storage',
+              fields: {
+                name: { label: 'label.name' },
+                url: { label: 'label.url' },
+                providername: { label: 'Provider' }
+              },
 
-          dataProvider: function(args) {
-            var array1 = [];
-						if(args.filterBy != null) {
-							if(args.filterBy.search != null && args.filterBy.search.by != null && args.filterBy.search.value != null) {
-								switch(args.filterBy.search.by) {
-								case "name":
-									if(args.filterBy.search.value.length > 0)
-										array1.push("&keyword=" + args.filterBy.search.value);
-									break;
-								}
-							}
-						}
-            array1.push("&zoneid=" + args.context.zones[0].id);
+              dataProvider: function(args) {
+                var array1 = [];
+                if(args.filterBy != null) {
+                  if(args.filterBy.search != null && args.filterBy.search.by != null && args.filterBy.search.value != null) {
+                    switch(args.filterBy.search.by) {
+                      case "name":
+                        if(args.filterBy.search.value.length > 0)
+                          array1.push("&keyword=" + args.filterBy.search.value);
+                        break;
+                    }
+                  }
+                }
+                array1.push("&zoneid=" + args.context.zones[0].id);
 
-            $.ajax({
-              url: createURL("listImageStores&page=" + args.page + "&pagesize=" + pageSize + array1.join("")),
-              dataType: "json",
-              async: true,
-              success: function(json) {
-                var items = json.listimagestoreresponse.imagestore;
-                args.response.success({
-                  actionFilter: secondarystorageActionfilter,
-                  data:items
+                $.ajax({
+                  url: createURL("listImageStores&page=" + args.page + "&pagesize=" + pageSize + array1.join("")),
+                  dataType: "json",
+                  async: true,
+                  success: function(json) {
+                    var items = json.listimagestoreresponse.imagestore;
+                    args.response.success({
+                      actionFilter: secondarystorageActionfilter,
+                      data:items
+                    });
+                  }
                 });
-              }
-            });
-          },
+              },
 
-          actions: {
-            add: {
-              label: 'label.add.secondary.storage',
+              actions: {
+                add: {
+                  label: 'label.add.secondary.storage',
 
-              createForm: {
-                title: 'label.add.secondary.storage',
-                               
-                fields: {   
-                  name: { label: 'label.name' },
-                  provider: {
-                    label: 'Provider',
-                    select: function(args){                  
-                      $.ajax({
-                        url: createURL('listStorageProviders'),
-                        data: {
-                          type: 'image'
-                        },
-                        success: function(json){                  
-                          var objs = json.liststorageprovidersresponse.dataStoreProvider;                  
-                          var items = [];
-                          if(objs != null) {
-                            for(var i = 0; i < objs.length; i++){
-                              if(objs[i].name == 'NFS')
-                                items.unshift({id: objs[i].name, description: objs[i].name}); 
-                              else
-                                items.push({id: objs[i].name, description: objs[i].name}); 
-                            }                    
-                          }                  
-                          args.response.success({
-                            data: items            
+                  createForm: {
+                    title: 'label.add.secondary.storage',
+
+                    fields: {
+                      name: { label: 'label.name' },
+                      provider: {
+                        label: 'Provider',
+                        select: function(args){
+                          $.ajax({
+                            url: createURL('listStorageProviders'),
+                            data: {
+                              type: 'image'
+                            },
+                            success: function(json){
+                              var objs = json.liststorageprovidersresponse.dataStoreProvider;
+                              var items = [];
+                              if(objs != null) {
+                                for(var i = 0; i < objs.length; i++){
+                                  if(objs[i].name == 'NFS')
+                                    items.unshift({id: objs[i].name, description: objs[i].name});
+                                  else
+                                    items.push({id: objs[i].name, description: objs[i].name});
+                                }
+                              }
+                              args.response.success({
+                                data: items
+                              });
+
+                              args.$select.change(function() {
+                                var $form = $(this).closest('form');
+                                if($(this).val() == "NFS") {
+                                  //NFS
+                                  $form.find('.form-item[rel=zoneid]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsServer]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=path]').css('display', 'inline-block');
+
+                                  //S3
+                                  $form.find('.form-item[rel=accesskey]').hide();
+                                  $form.find('.form-item[rel=secretkey]').hide();
+                                  $form.find('.form-item[rel=bucket]').hide();
+                                  $form.find('.form-item[rel=endpoint]').hide();
+                                  $form.find('.form-item[rel=usehttps]').hide();
+                                  $form.find('.form-item[rel=connectiontimeout]').hide();
+                                  $form.find('.form-item[rel=maxerrorretry]').hide();
+                                  $form.find('.form-item[rel=sockettimeout]').hide();
+
+                                  $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
+                                  $form.find('.form-item[rel=createNfsCache]').hide();
+                                  $form.find('.form-item[rel=nfsCacheZoneid]').hide();
+                                  $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
+                                  $form.find('.form-item[rel=nfsCachePath]').hide();
+
+                                  //Swift
+                                  $form.find('.form-item[rel=url]').hide();
+                                  $form.find('.form-item[rel=account]').hide();
+                                  $form.find('.form-item[rel=username]').hide();
+                                  $form.find('.form-item[rel=key]').hide();
+                                }
+                                else if ($(this).val() == "S3") {
+                                  //NFS
+                                  $form.find('.form-item[rel=zoneid]').hide();
+                                  $form.find('.form-item[rel=nfsServer]').hide();
+                                  $form.find('.form-item[rel=path]').hide();
+
+                                  //S3
+                                  $form.find('.form-item[rel=accesskey]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=secretkey]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=bucket]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=endpoint]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=usehttps]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=connectiontimeout]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=maxerrorretry]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=sockettimeout]').css('display', 'inline-block');
+
+                                  $form.find('.form-item[rel=createNfsCache]').find('input').attr('checked','checked');
+                                  $form.find('.form-item[rel=createNfsCache]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsCacheZoneid]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsCacheNfsServer]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsCachePath]').css('display', 'inline-block');
+
+
+                                  //Swift
+                                  $form.find('.form-item[rel=url]').hide();
+                                  $form.find('.form-item[rel=account]').hide();
+                                  $form.find('.form-item[rel=username]').hide();
+                                  $form.find('.form-item[rel=key]').hide();
+                                }
+                                else if($(this).val() == "Swift") {
+                                  //NFS
+                                  $form.find('.form-item[rel=zoneid]').hide();
+                                  $form.find('.form-item[rel=nfsServer]').hide();
+                                  $form.find('.form-item[rel=path]').hide();
+
+                                  //S3
+                                  $form.find('.form-item[rel=accesskey]').hide();
+                                  $form.find('.form-item[rel=secretkey]').hide();
+                                  $form.find('.form-item[rel=bucket]').hide();
+                                  $form.find('.form-item[rel=endpoint]').hide();
+                                  $form.find('.form-item[rel=usehttps]').hide();
+                                  $form.find('.form-item[rel=connectiontimeout]').hide();
+                                  $form.find('.form-item[rel=maxerrorretry]').hide();
+                                  $form.find('.form-item[rel=sockettimeout]').hide();
+
+                                  $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
+                                  $form.find('.form-item[rel=createNfsCache]').hide();
+                                  $form.find('.form-item[rel=nfsCacheZoneid]').hide();
+                                  $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
+                                  $form.find('.form-item[rel=nfsCachePath]').hide();
+
+                                  //Swift
+                                  $form.find('.form-item[rel=url]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=account]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=username]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=key]').css('display', 'inline-block');
+                                }
+                              });
+
+                              args.$select.change();
+                            }
                           });
-                                            
-                          args.$select.change(function() {                           
-                            var $form = $(this).closest('form');
-                            if($(this).val() == "NFS") {
-                              //NFS
-                              $form.find('.form-item[rel=zoneid]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=nfsServer]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=path]').css('display', 'inline-block');
-
-                              //S3
-                              $form.find('.form-item[rel=accesskey]').hide();
-                              $form.find('.form-item[rel=secretkey]').hide();
-                              $form.find('.form-item[rel=bucket]').hide();
-                              $form.find('.form-item[rel=endpoint]').hide();
-                              $form.find('.form-item[rel=usehttps]').hide();
-                              $form.find('.form-item[rel=connectiontimeout]').hide();
-                              $form.find('.form-item[rel=maxerrorretry]').hide();
-                              $form.find('.form-item[rel=sockettimeout]').hide();
-                              
-                              $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
-                              $form.find('.form-item[rel=createNfsCache]').hide();
-                              $form.find('.form-item[rel=nfsCacheZoneid]').hide();
-                              $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
-                              $form.find('.form-item[rel=nfsCachePath]').hide();
-                              
-                              //Swift
-                              $form.find('.form-item[rel=url]').hide();
-                              $form.find('.form-item[rel=account]').hide();
-                              $form.find('.form-item[rel=username]').hide();
-                              $form.find('.form-item[rel=key]').hide();
-                            }
-                            else if ($(this).val() == "S3") {
-                              //NFS
-                              $form.find('.form-item[rel=zoneid]').hide();
-                              $form.find('.form-item[rel=nfsServer]').hide();
-                              $form.find('.form-item[rel=path]').hide();
-
-                              //S3
-                              $form.find('.form-item[rel=accesskey]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=secretkey]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=bucket]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=endpoint]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=usehttps]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=connectiontimeout]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=maxerrorretry]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=sockettimeout]').css('display', 'inline-block');                              
-                             
-                              $form.find('.form-item[rel=createNfsCache]').find('input').attr('checked','checked');
-                              $form.find('.form-item[rel=createNfsCache]').css('display', 'inline-block');                         
-                              $form.find('.form-item[rel=nfsCacheZoneid]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=nfsCacheNfsServer]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=nfsCachePath]').css('display', 'inline-block');
-                          
-
-                              //Swift
-                              $form.find('.form-item[rel=url]').hide();
-                              $form.find('.form-item[rel=account]').hide();
-                              $form.find('.form-item[rel=username]').hide();
-                              $form.find('.form-item[rel=key]').hide();
-                            }
-                            else if($(this).val() == "Swift") {
-                              //NFS
-                              $form.find('.form-item[rel=zoneid]').hide();
-                              $form.find('.form-item[rel=nfsServer]').hide();
-                              $form.find('.form-item[rel=path]').hide();
-
-                              //S3
-                              $form.find('.form-item[rel=accesskey]').hide();
-                              $form.find('.form-item[rel=secretkey]').hide();
-                              $form.find('.form-item[rel=bucket]').hide();
-                              $form.find('.form-item[rel=endpoint]').hide();
-                              $form.find('.form-item[rel=usehttps]').hide();
-                              $form.find('.form-item[rel=connectiontimeout]').hide();
-                              $form.find('.form-item[rel=maxerrorretry]').hide();
-                              $form.find('.form-item[rel=sockettimeout]').hide();
-                              
-                              $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
-                              $form.find('.form-item[rel=createNfsCache]').hide();
-                              $form.find('.form-item[rel=nfsCacheZoneid]').hide();
-                              $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
-                              $form.find('.form-item[rel=nfsCachePath]').hide();
-                              
-                              //Swift
-                              $form.find('.form-item[rel=url]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=account]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=username]').css('display', 'inline-block');
-                              $form.find('.form-item[rel=key]').css('display', 'inline-block');
-                            }                    
-                          });     
-                          
-                          args.$select.change();
                         }
-                      });             
-                    }            
-                  },
-                  
-                  
-                  //NFS (begin)
-                  zoneid: {
-                    label: 'Zone',
-                    docID: 'helpSecondaryStorageZone',
-                    validation: { required: true },
-                    select: function(args) {                      
-                      $.ajax({
-                        url: createURL('listZones'),
-                        data: { 
-                          listAll: true 
-                        },
-                        success: function(json) {
-                          var zones = json.listzonesresponse.zone ? json.listzonesresponse.zone : [];
-
-                          if(zones != null){ //$.map(items, fn) - items can not be null
-                            args.response.success({
-                              data: $.map(zones, function(zone) {
-                                return {
-                                  id: zone.id,
-                                  description: zone.name
-                                };
-                              })
-                            });
-                          }
-                          else {
-                            args.response.success({data: null});
-                          }                          
-                        }
-                      });
-                    }
-                  },
-                  nfsServer: {
-                    label: 'label.nfs.server',
-                    docID: 'helpSecondaryStorageNFSServer',
-                    validation: { required: true }
-                  },
-                  path: {
-                    label: 'label.path',
-                    docID: 'helpSecondaryStoragePath',
-                    validation: { required: true }
-                  },
-                  //NFS (end)
-                  
-                  
-                  //S3 (begin)
-                  accesskey: { label: 'label.s3.access_key', validation: { required: true } },
-                  secretkey: { label: 'label.s3.secret_key', validation: { required: true} },
-                  bucket: { label: 'label.s3.bucket', validation: { required: true} },
-                  endpoint: { label: 'label.s3.endpoint' },
-                  usehttps: { 
-                    label: 'label.s3.use_https', 
-                    isEditable: true,
-                    isBoolean: true,
-                    isChecked: true,
-                    converter:cloudStack.converters.toBooleanText 
-                  },
-                  connectiontimeout: { label: 'label.s3.connection_timeout' },
-                  maxerrorretry: { label: 'label.s3.max_error_retry' },
-                  sockettimeout: { label: 'label.s3.socket_timeout' },
-                  
-                  createNfsCache: {
-                    label: 'Create NFS Cache Storage',
-                    isBoolean: true,                    
-                    isChecked: true                    
-                  },                  
-                  nfsCacheZoneid: {
-                    dependsOn: 'createNfsCache',
-                    label: 'Zone',                    
-                    validation: { required: true },
-                    select: function(args) {                      
-                      $.ajax({
-                        url: createURL('listZones'),
-                        data: { 
-                          listAll: true 
-                        },
-                        success: function(json) {
-                          var zones = json.listzonesresponse.zone;
-
-                          if(zones != null){ //$.map(items, fn) - items can not be null
-                            args.response.success({
-                              data: $.map(zones, function(zone) {
-                                return {
-                                  id: zone.id,
-                                  description: zone.name
-                                };
-                              })
-                            });
-                          }
-                          else {
-                            args.response.success({data: null});
-                          }                          
-                        }
-                      });
-                    }
-                  },
-                  nfsCacheNfsServer: {
-                    dependsOn: 'createNfsCache',
-                    label: 'label.nfs.server',                    
-                    validation: { required: true }
-                  },
-                  nfsCachePath: {
-                    dependsOn: 'createNfsCache',
-                    label: 'label.path',                    
-                    validation: { required: true }
-                  },                  
-                  //S3 (end)
-                  
-                  
-                  //Swift (begin)
-                  url: { label: 'label.url', validation: { required: true } },
-                  account: { label: 'label.account' },
-                  username: { label: 'label.username' },
-                  key: { label: 'label.key' }
-                  //Swift (end)          
-                }
-              },
-
-              action: function(args) {
-                var data = {};
-                if(args.data.name != null && args.data.name.length > 0) {
-                  $.extend(data, {
-                    name: args.data.name
-                  });
-                }
-                
-                if(args.data.provider == 'NFS') {
-                  var zoneid = args.data.zoneid;
-                  var nfs_server = args.data.nfsServer;
-                  var path = args.data.path;
-                  var url = nfsURL(nfs_server, path);
-                  
-                  $.extend(data, {
-                    provider: args.data.provider,
-                    zoneid: zoneid,
-                    url: url                    
-                  });                                    
-                    
-                  $.ajax({
-                    url: createURL('addImageStore'),
-                    data: data,
-                    success: function(json) {
-                      var item = json.addimagestoreresponse.secondarystorage;
-                      args.response.success({
-                        data:item
-                      });
-                    },
-                    error: function(XMLHttpResponse) {
-                      var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
-                      args.response.error(errorMsg);
-                    }
-                  });
-                }
-                else if(args.data.provider == 'S3') {                  
-                  $.extend(data, {
-                    provider: args.data.provider,                                           
-                    'details[0].key': 'accesskey',
-                    'details[0].value': args.data.accesskey,                                            
-                    'details[1].key': 'secretkey',
-                    'details[1].value': args.data.secretkey,                                            
-                    'details[2].key': 'bucket',
-                    'details[2].value': args.data.bucket,
-                    'details[3].key': 'usehttps',
-                    'details[3].value': (args.data.usehttps != null && args.data.usehttps == 'on' ? 'true' : 'false')
-                  });
-                                              
-                  var index = 4;
-                  if(args.data.endpoint != null && args.data.endpoint.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'endpoint';
-                    data['details[' + index.toString() + '].value'] = args.data.endpoint;                    
-                    index++;
-                  }
-                  if(args.data.connectiontimeout != null && args.data.connectiontimeout.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'connectiontimeout';
-                    data['details[' + index.toString() + '].value'] = args.data.connectiontimeout;                        
-                    index++;
-                  }
-                  if(args.data.maxerrorretry != null && args.data.maxerrorretry.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'maxerrorretry';
-                    data['details[' + index.toString() + '].value'] = args.data.maxerrorretry;   
-                    index++;
-                  }
-                  if(args.data.sockettimeout != null && args.data.sockettimeout.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'sockettimeout';
-                    data['details[' + index.toString() + '].value'] = args.data.sockettimeout;   
-                    index++;
-                  }
-                  
-                  $.ajax({
-                    url: createURL('addImageStore'),
-                    data: data,
-                    success: function(json) {
-                      havingS3 = true;
-                      var item = json.addimagestoreresponse.secondarystorage;
-                      args.response.success({
-                        data:item
-                      });
-                    },
-                    error: function(json) {
-                      args.response.error(parseXMLHttpResponse(json));
-                    }
-                  });
-                              
-                  if(args.data.createNfsCache == 'on') {
-                    var zoneid = args.data.nfsCacheZoneid;
-                    var nfs_server = args.data.nfsCacheNfsServer;
-                    var path = args.data.nfsCachePath;
-                    var url = nfsURL(nfs_server, path);
-                    
-                    var nfsCacheData = {
-                      provider: 'NFS',
-                      zoneid: zoneid,
-                      url: url                    
-                    };        
-                    
-                    $.ajax({
-                      url: createURL('createCacheStore'),
-                      data: nfsCacheData,
-                      success: function(json) {
-                        //do nothing                        
                       },
-                      error: function(json) {
-                        args.response.error(parseXMLHttpResponse(json));
+
+
+                      //NFS (begin)
+                      zoneid: {
+                        label: 'Zone',
+                        docID: 'helpSecondaryStorageZone',
+                        validation: { required: true },
+                        select: function(args) {
+                          $.ajax({
+                            url: createURL('listZones'),
+                            data: {
+                              listAll: true
+                            },
+                            success: function(json) {
+                              var zones = json.listzonesresponse.zone ? json.listzonesresponse.zone : [];
+
+                              if(zones != null){ //$.map(items, fn) - items can not be null
+                                args.response.success({
+                                  data: $.map(zones, function(zone) {
+                                    return {
+                                      id: zone.id,
+                                      description: zone.name
+                                    };
+                                  })
+                                });
+                              }
+                              else {
+                                args.response.success({data: null});
+                              }
+                            }
+                          });
+                        }
+                      },
+                      nfsServer: {
+                        label: 'label.nfs.server',
+                        docID: 'helpSecondaryStorageNFSServer',
+                        validation: { required: true }
+                      },
+                      path: {
+                        label: 'label.path',
+                        docID: 'helpSecondaryStoragePath',
+                        validation: { required: true }
+                      },
+                      //NFS (end)
+
+
+                      //S3 (begin)
+                      accesskey: { label: 'label.s3.access_key', validation: { required: true } },
+                      secretkey: { label: 'label.s3.secret_key', validation: { required: true} },
+                      bucket: { label: 'label.s3.bucket', validation: { required: true} },
+                      endpoint: { label: 'label.s3.endpoint' },
+                      usehttps: {
+                        label: 'label.s3.use_https',
+                        isEditable: true,
+                        isBoolean: true,
+                        isChecked: true,
+                        converter:cloudStack.converters.toBooleanText
+                      },
+                      connectiontimeout: { label: 'label.s3.connection_timeout' },
+                      maxerrorretry: { label: 'label.s3.max_error_retry' },
+                      sockettimeout: { label: 'label.s3.socket_timeout' },
+
+                      createNfsCache: {
+                        label: 'Create NFS Cache Storage',
+                        isBoolean: true,
+                        isChecked: true
+                      },
+                      nfsCacheZoneid: {
+                        dependsOn: 'createNfsCache',
+                        label: 'Zone',
+                        validation: { required: true },
+                        select: function(args) {
+                          $.ajax({
+                            url: createURL('listZones'),
+                            data: {
+                              listAll: true
+                            },
+                            success: function(json) {
+                              var zones = json.listzonesresponse.zone;
+
+                              if(zones != null){ //$.map(items, fn) - items can not be null
+                                args.response.success({
+                                  data: $.map(zones, function(zone) {
+                                    return {
+                                      id: zone.id,
+                                      description: zone.name
+                                    };
+                                  })
+                                });
+                              }
+                              else {
+                                args.response.success({data: null});
+                              }
+                            }
+                          });
+                        }
+                      },
+                      nfsCacheNfsServer: {
+                        dependsOn: 'createNfsCache',
+                        label: 'label.nfs.server',
+                        validation: { required: true }
+                      },
+                      nfsCachePath: {
+                        dependsOn: 'createNfsCache',
+                        label: 'label.path',
+                        validation: { required: true }
+                      },
+                      //S3 (end)
+
+
+                      //Swift (begin)
+                      url: { label: 'label.url', validation: { required: true } },
+                      account: { label: 'label.account' },
+                      username: { label: 'label.username' },
+                      key: { label: 'label.key' }
+                      //Swift (end)
+                    }
+                  },
+
+                  action: function(args) {
+                    var data = {};
+                    if(args.data.name != null && args.data.name.length > 0) {
+                      $.extend(data, {
+                        name: args.data.name
+                      });
+                    }
+
+                    if(args.data.provider == 'NFS') {
+                      var zoneid = args.data.zoneid;
+                      var nfs_server = args.data.nfsServer;
+                      var path = args.data.path;
+                      var url = nfsURL(nfs_server, path);
+
+                      $.extend(data, {
+                        provider: args.data.provider,
+                        zoneid: zoneid,
+                        url: url
+                      });
+
+                      $.ajax({
+                        url: createURL('addImageStore'),
+                        data: data,
+                        success: function(json) {
+                          var item = json.addimagestoreresponse.secondarystorage;
+                          args.response.success({
+                            data:item
+                          });
+                        },
+                        error: function(XMLHttpResponse) {
+                          var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                          args.response.error(errorMsg);
+                        }
+                      });
+                    }
+                    else if(args.data.provider == 'S3') {
+                      $.extend(data, {
+                        provider: args.data.provider,
+                        'details[0].key': 'accesskey',
+                        'details[0].value': args.data.accesskey,
+                        'details[1].key': 'secretkey',
+                        'details[1].value': args.data.secretkey,
+                        'details[2].key': 'bucket',
+                        'details[2].value': args.data.bucket,
+                        'details[3].key': 'usehttps',
+                        'details[3].value': (args.data.usehttps != null && args.data.usehttps == 'on' ? 'true' : 'false')
+                      });
+
+                      var index = 4;
+                      if(args.data.endpoint != null && args.data.endpoint.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'endpoint';
+                        data['details[' + index.toString() + '].value'] = args.data.endpoint;
+                        index++;
                       }
-                    }); 
-                  }   
+                      if(args.data.connectiontimeout != null && args.data.connectiontimeout.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'connectiontimeout';
+                        data['details[' + index.toString() + '].value'] = args.data.connectiontimeout;
+                        index++;
+                      }
+                      if(args.data.maxerrorretry != null && args.data.maxerrorretry.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'maxerrorretry';
+                        data['details[' + index.toString() + '].value'] = args.data.maxerrorretry;
+                        index++;
+                      }
+                      if(args.data.sockettimeout != null && args.data.sockettimeout.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'sockettimeout';
+                        data['details[' + index.toString() + '].value'] = args.data.sockettimeout;
+                        index++;
+                      }
+
+                      $.ajax({
+                        url: createURL('addImageStore'),
+                        data: data,
+                        success: function(json) {
+                          havingS3 = true;
+                          var item = json.addimagestoreresponse.secondarystorage;
+                          args.response.success({
+                            data:item
+                          });
+                        },
+                        error: function(json) {
+                          args.response.error(parseXMLHttpResponse(json));
+                        }
+                      });
+
+                      if(args.data.createNfsCache == 'on') {
+                        var zoneid = args.data.nfsCacheZoneid;
+                        var nfs_server = args.data.nfsCacheNfsServer;
+                        var path = args.data.nfsCachePath;
+                        var url = nfsURL(nfs_server, path);
+
+                        var nfsCacheData = {
+                          provider: 'NFS',
+                          zoneid: zoneid,
+                          url: url
+                        };
+
+                        $.ajax({
+                          url: createURL('createCacheStore'),
+                          data: nfsCacheData,
+                          success: function(json) {
+                            //do nothing
+                          },
+                          error: function(json) {
+                            args.response.error(parseXMLHttpResponse(json));
+                          }
+                        });
+                      }
+                    }
+                    else if(args.data.provider == 'Swift') {
+                      $.extend(data, {
+                        provider: args.data.provider,
+                        url: args.data.url
+                      });
+
+                      var index = 0;
+                      if(args.data.account != null && args.data.account.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'account';
+                        data['details[' + index.toString() + '].value'] = args.data.account;
+                        index++;
+                      }
+                      if(args.data.username != null && args.data.username.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'username';
+                        data['details[' + index.toString() + '].value'] = args.data.username;
+                        index++;
+                      }
+                      if(args.data.key != null && args.data.key.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'key';
+                        data['details[' + index.toString() + '].value'] = args.data.key;
+                        index++;
+                      }
+                      $.ajax({
+                        url: createURL('addImageStore'),
+                        data: data,
+                        success: function(json) {
+                          havingSwift = true;
+                          var item = json.addimagestoreresponse.secondarystorage;
+                          args.response.success({
+                            data:item
+                          });
+                        },
+                        error: function(json) {
+                          args.response.error(parseXMLHttpResponse(json));
+                        }
+                      });
+                    }
+                  },
+
+                  notification: {
+                    poll: function(args) {
+                      args.complete({
+                        actionFilter: secondarystorageActionfilter
+                      });
+                    }
+                  },
+
+                  messages: {
+                    notification: function(args) {
+                      return 'label.add.secondary.storage';
+                    }
+                  }
                 }
-                else if(args.data.provider == 'Swift') {
-                  $.extend(data, {
-                    provider: args.data.provider,
-                    url: args.data.url
-                  });
-                                               
-                  var index = 0;
-                  if(args.data.account != null && args.data.account.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'account';
-                    data['details[' + index.toString() + '].value'] = args.data.account;                    
-                    index++;
-                  }
-                  if(args.data.username != null && args.data.username.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'username';
-                    data['details[' + index.toString() + '].value'] = args.data.username;                    
-                    index++;
-                  }
-                  if(args.data.key != null && args.data.key.length > 0){
-                    data['details[' + index.toString() + '].key'] = 'key';
-                    data['details[' + index.toString() + '].value'] = args.data.key;                    
-                    index++;
-                  }                 
-                  $.ajax({
-                    url: createURL('addImageStore'),
-                    data: data,
-                    success: function(json) {
-                      havingSwift = true;
-                      var item = json.addimagestoreresponse.secondarystorage;
-                      args.response.success({
-                        data:item
+              },
+
+              detailView: {
+                name: 'Secondary storage details',
+                isMaximized: true,
+                actions: {
+                  remove: {
+                    label: 'label.action.delete.secondary.storage' ,
+                    messages: {
+                      confirm: function(args) {
+                        return 'message.action.delete.secondary.storage';
+                      },
+                      notification: function(args) {
+                        return 'label.action.delete.secondary.storage';
+                      }
+                    },
+                    action: function(args) {
+                      $.ajax({
+                        url: createURL("deleteImageStore&id=" + args.context.secondarystorages[0].id),
+                        dataType: "json",
+                        async: true,
+                        success: function(json) {
+                          args.response.success();
+                        }
                       });
                     },
-                    error: function(json) {
-                      args.response.error(parseXMLHttpResponse(json));
+                    notification: {
+                      poll: function(args) { args.complete({ data: { resourcestate: 'Destroyed' } }); }
                     }
-                  });
-                }                 
-              },
+                  }
 
-              notification: {
-                poll: function(args) {
-                  args.complete({
-                    actionFilter: secondarystorageActionfilter
-                  });
-                }
-              },
+                },
+                tabs: {
+                  details: {
+                    title: 'label.details',
+                    fields: [
+                      {
+                        name: { label: 'label.name' }
+                      },
+                      {
+                        url: { label: 'label.url' },
+                        providername: { label: 'Provider' },
+                        scope: { label: 'label.scope' },
+                        zonename: { label: 'label.zone' },
+                        details: {
+                          label: 'label.details',
+                          converter: function(array1) {
+                            var string1 = '';
+                            if(array1 != null) {
+                              for(var i = 0; i < array1.length; i++) {
+                                if(i > 0)
+                                  string1 += ', ';
 
-              messages: {
-                notification: function(args) {
-                  return 'label.add.secondary.storage';
+                                string1 += array1[i].name + ': ' + array1[i].value;
+                              }
+                            }
+                            return string1;
+                          }
+                        },
+                        id: { label: 'label.id' }
+                      }
+                    ],
+
+                    dataProvider: function(args) {
+                      $.ajax({
+                        url: createURL("listImageStores&id=" + args.context.secondarystorages[0].id),
+                        dataType: "json",
+                        async: true,
+                        success: function(json) {
+                          var item = json.listimagestoreresponse.imagestore[0];
+                          args.response.success({
+                            actionFilter: secondarystorageActionfilter,
+                            data:item
+                          });
+                        }
+                      });
+                    }
+                  }
+
+                  // Granular settings for storage pool for secondary storage is not required
+                  /*  settings: {
+                   title: 'label.menu.global.settings',
+                   custom: cloudStack.uiCustom.granularSettings({
+                   dataProvider: function(args) {
+                   args.response.success({
+                   data: [
+                   { name: 'config.param.1', value: 1 },
+                   { name: 'config.param.2', value: 2 }
+                   ]
+                   });
+                   },
+                   actions: {
+                   edit: function(args) {
+                   // call updateStorageLevelParameters
+                   args.response.success();
+                   }
+                   }
+                   })
+                   } */
                 }
               }
             }
           },
+          imageStores: {
+            type: 'select',
+            title: 'Image stores',
+            listView: {
+              id: 'secondarystorages',
+              section: 'seconary-storage',
+              fields: {
+                name: { label: 'label.name' },
+                url: { label: 'label.url' },
+                providername: { label: 'Provider' }
+              },
 
-          detailView: {
-            name: 'Secondary storage details',
-            isMaximized: true,
-            actions: {
-              remove: {
-                label: 'label.action.delete.secondary.storage' ,
-                messages: {
-                  confirm: function(args) {
-                    return 'message.action.delete.secondary.storage';
-                  },
-                  notification: function(args) {
-                    return 'label.action.delete.secondary.storage';
-                  }
-                },
-                action: function(args) {
-                  $.ajax({
-                    url: createURL("deleteImageStore&id=" + args.context.secondarystorages[0].id),
-                    dataType: "json",
-                    async: true,
-                    success: function(json) {
-                      args.response.success();
+              dataProvider: function(args) {
+                var array1 = [];
+                if(args.filterBy != null) {
+                  if(args.filterBy.search != null && args.filterBy.search.by != null && args.filterBy.search.value != null) {
+                    switch(args.filterBy.search.by) {
+                      case "name":
+                        if(args.filterBy.search.value.length > 0)
+                          array1.push("&keyword=" + args.filterBy.search.value);
+                        break;
                     }
-                  });
-                },
-                notification: {
-                  poll: function(args) { args.complete({ data: { resourcestate: 'Destroyed' } }); }
-                }
-              }
-
-            },
-            tabs: {
-              details: {
-                title: 'label.details',
-                fields: [
-                  {
-                    name: { label: 'label.name' }
-                  },
-                  {                    
-                    url: { label: 'label.url' },
-                    providername: { label: 'Provider' },   
-                    scope: { label: 'label.scope' },
-                    zonename: { label: 'label.zone' },
-                    details: { 
-                      label: 'label.details',
-                      converter: function(array1) {                        
-                        var string1 = '';                        
-                        if(array1 != null) {
-                          for(var i = 0; i < array1.length; i++) {
-                            if(i > 0)
-                              string1 += ', ';
-                            
-                            string1 += array1[i].name + ': ' + array1[i].value;                           
-                          }
-                        }                        
-                        return string1;                        
-                      }
-                    },                    
-                    id: { label: 'label.id' }
                   }
-                ],
-
-                dataProvider: function(args) {								  
-									$.ajax({
-										url: createURL("listImageStores&id=" + args.context.secondarystorages[0].id),
-										dataType: "json",
-										async: true,
-										success: function(json) {										  
-										  var item = json.listimagestoreresponse.imagestore[0];
-											args.response.success({
-												actionFilter: secondarystorageActionfilter,
-												data:item
-											});
-										}
-									});										
                 }
-              }
-                                             
-              // Granular settings for storage pool for secondary storage is not required
-            /*  settings: {
-                title: 'label.menu.global.settings',
-                custom: cloudStack.uiCustom.granularSettings({
-                  dataProvider: function(args) {
+                array1.push("&zoneid=" + args.context.zones[0].id);
+
+                $.ajax({
+                  url: createURL("listImageStores&page=" + args.page + "&pagesize=" + pageSize + array1.join("")),
+                  dataType: "json",
+                  async: true,
+                  success: function(json) {
+                    var items = json.listimagestoreresponse.imagestore;
                     args.response.success({
-                      data: [
-                        { name: 'config.param.1', value: 1 },
-                        { name: 'config.param.2', value: 2 }
-                      ]
+                      actionFilter: secondarystorageActionfilter,
+                      data:items
                     });
+                  }
+                });
+              },
+
+              actions: {
+                add: {
+                  label: 'label.add.secondary.storage',
+
+                  createForm: {
+                    title: 'label.add.secondary.storage',
+
+                    fields: {
+                      name: { label: 'label.name' },
+                      provider: {
+                        label: 'Provider',
+                        select: function(args){
+                          $.ajax({
+                            url: createURL('listStorageProviders'),
+                            data: {
+                              type: 'image'
+                            },
+                            success: function(json){
+                              var objs = json.liststorageprovidersresponse.dataStoreProvider;
+                              var items = [];
+                              if(objs != null) {
+                                for(var i = 0; i < objs.length; i++){
+                                  if(objs[i].name == 'NFS')
+                                    items.unshift({id: objs[i].name, description: objs[i].name});
+                                  else
+                                    items.push({id: objs[i].name, description: objs[i].name});
+                                }
+                              }
+                              args.response.success({
+                                data: items
+                              });
+
+                              args.$select.change(function() {
+                                var $form = $(this).closest('form');
+                                if($(this).val() == "NFS") {
+                                  //NFS
+                                  $form.find('.form-item[rel=zoneid]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsServer]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=path]').css('display', 'inline-block');
+
+                                  //S3
+                                  $form.find('.form-item[rel=accesskey]').hide();
+                                  $form.find('.form-item[rel=secretkey]').hide();
+                                  $form.find('.form-item[rel=bucket]').hide();
+                                  $form.find('.form-item[rel=endpoint]').hide();
+                                  $form.find('.form-item[rel=usehttps]').hide();
+                                  $form.find('.form-item[rel=connectiontimeout]').hide();
+                                  $form.find('.form-item[rel=maxerrorretry]').hide();
+                                  $form.find('.form-item[rel=sockettimeout]').hide();
+
+                                  $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
+                                  $form.find('.form-item[rel=createNfsCache]').hide();
+                                  $form.find('.form-item[rel=nfsCacheZoneid]').hide();
+                                  $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
+                                  $form.find('.form-item[rel=nfsCachePath]').hide();
+
+                                  //Swift
+                                  $form.find('.form-item[rel=url]').hide();
+                                  $form.find('.form-item[rel=account]').hide();
+                                  $form.find('.form-item[rel=username]').hide();
+                                  $form.find('.form-item[rel=key]').hide();
+                                }
+                                else if ($(this).val() == "S3") {
+                                  //NFS
+                                  $form.find('.form-item[rel=zoneid]').hide();
+                                  $form.find('.form-item[rel=nfsServer]').hide();
+                                  $form.find('.form-item[rel=path]').hide();
+
+                                  //S3
+                                  $form.find('.form-item[rel=accesskey]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=secretkey]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=bucket]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=endpoint]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=usehttps]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=connectiontimeout]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=maxerrorretry]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=sockettimeout]').css('display', 'inline-block');
+
+                                  $form.find('.form-item[rel=createNfsCache]').find('input').attr('checked','checked');
+                                  $form.find('.form-item[rel=createNfsCache]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsCacheZoneid]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsCacheNfsServer]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=nfsCachePath]').css('display', 'inline-block');
+
+
+                                  //Swift
+                                  $form.find('.form-item[rel=url]').hide();
+                                  $form.find('.form-item[rel=account]').hide();
+                                  $form.find('.form-item[rel=username]').hide();
+                                  $form.find('.form-item[rel=key]').hide();
+                                }
+                                else if($(this).val() == "Swift") {
+                                  //NFS
+                                  $form.find('.form-item[rel=zoneid]').hide();
+                                  $form.find('.form-item[rel=nfsServer]').hide();
+                                  $form.find('.form-item[rel=path]').hide();
+
+                                  //S3
+                                  $form.find('.form-item[rel=accesskey]').hide();
+                                  $form.find('.form-item[rel=secretkey]').hide();
+                                  $form.find('.form-item[rel=bucket]').hide();
+                                  $form.find('.form-item[rel=endpoint]').hide();
+                                  $form.find('.form-item[rel=usehttps]').hide();
+                                  $form.find('.form-item[rel=connectiontimeout]').hide();
+                                  $form.find('.form-item[rel=maxerrorretry]').hide();
+                                  $form.find('.form-item[rel=sockettimeout]').hide();
+
+                                  $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
+                                  $form.find('.form-item[rel=createNfsCache]').hide();
+                                  $form.find('.form-item[rel=nfsCacheZoneid]').hide();
+                                  $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
+                                  $form.find('.form-item[rel=nfsCachePath]').hide();
+
+                                  //Swift
+                                  $form.find('.form-item[rel=url]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=account]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=username]').css('display', 'inline-block');
+                                  $form.find('.form-item[rel=key]').css('display', 'inline-block');
+                                }
+                              });
+
+                              args.$select.change();
+                            }
+                          });
+                        }
+                      },
+
+
+                      //NFS (begin)
+                      zoneid: {
+                        label: 'Zone',
+                        docID: 'helpSecondaryStorageZone',
+                        validation: { required: true },
+                        select: function(args) {
+                          $.ajax({
+                            url: createURL('listZones'),
+                            data: {
+                              listAll: true
+                            },
+                            success: function(json) {
+                              var zones = json.listzonesresponse.zone ? json.listzonesresponse.zone : [];
+
+                              if(zones != null){ //$.map(items, fn) - items can not be null
+                                args.response.success({
+                                  data: $.map(zones, function(zone) {
+                                    return {
+                                      id: zone.id,
+                                      description: zone.name
+                                    };
+                                  })
+                                });
+                              }
+                              else {
+                                args.response.success({data: null});
+                              }
+                            }
+                          });
+                        }
+                      },
+                      nfsServer: {
+                        label: 'label.nfs.server',
+                        docID: 'helpSecondaryStorageNFSServer',
+                        validation: { required: true }
+                      },
+                      path: {
+                        label: 'label.path',
+                        docID: 'helpSecondaryStoragePath',
+                        validation: { required: true }
+                      },
+                      //NFS (end)
+
+
+                      //S3 (begin)
+                      accesskey: { label: 'label.s3.access_key', validation: { required: true } },
+                      secretkey: { label: 'label.s3.secret_key', validation: { required: true} },
+                      bucket: { label: 'label.s3.bucket', validation: { required: true} },
+                      endpoint: { label: 'label.s3.endpoint' },
+                      usehttps: {
+                        label: 'label.s3.use_https',
+                        isEditable: true,
+                        isBoolean: true,
+                        isChecked: true,
+                        converter:cloudStack.converters.toBooleanText
+                      },
+                      connectiontimeout: { label: 'label.s3.connection_timeout' },
+                      maxerrorretry: { label: 'label.s3.max_error_retry' },
+                      sockettimeout: { label: 'label.s3.socket_timeout' },
+
+                      createNfsCache: {
+                        label: 'Create NFS Cache Storage',
+                        isBoolean: true,
+                        isChecked: true
+                      },
+                      nfsCacheZoneid: {
+                        dependsOn: 'createNfsCache',
+                        label: 'Zone',
+                        validation: { required: true },
+                        select: function(args) {
+                          $.ajax({
+                            url: createURL('listZones'),
+                            data: {
+                              listAll: true
+                            },
+                            success: function(json) {
+                              var zones = json.listzonesresponse.zone;
+
+                              if(zones != null){ //$.map(items, fn) - items can not be null
+                                args.response.success({
+                                  data: $.map(zones, function(zone) {
+                                    return {
+                                      id: zone.id,
+                                      description: zone.name
+                                    };
+                                  })
+                                });
+                              }
+                              else {
+                                args.response.success({data: null});
+                              }
+                            }
+                          });
+                        }
+                      },
+                      nfsCacheNfsServer: {
+                        dependsOn: 'createNfsCache',
+                        label: 'label.nfs.server',
+                        validation: { required: true }
+                      },
+                      nfsCachePath: {
+                        dependsOn: 'createNfsCache',
+                        label: 'label.path',
+                        validation: { required: true }
+                      },
+                      //S3 (end)
+
+
+                      //Swift (begin)
+                      url: { label: 'label.url', validation: { required: true } },
+                      account: { label: 'label.account' },
+                      username: { label: 'label.username' },
+                      key: { label: 'label.key' }
+                      //Swift (end)
+                    }
                   },
-                  actions: {
-                    edit: function(args) {
-                      // call updateStorageLevelParameters
-                      args.response.success();
+
+                  action: function(args) {
+                    var data = {};
+                    if(args.data.name != null && args.data.name.length > 0) {
+                      $.extend(data, {
+                        name: args.data.name
+                      });
+                    }
+
+                    if(args.data.provider == 'NFS') {
+                      var zoneid = args.data.zoneid;
+                      var nfs_server = args.data.nfsServer;
+                      var path = args.data.path;
+                      var url = nfsURL(nfs_server, path);
+
+                      $.extend(data, {
+                        provider: args.data.provider,
+                        zoneid: zoneid,
+                        url: url
+                      });
+
+                      $.ajax({
+                        url: createURL('addImageStore'),
+                        data: data,
+                        success: function(json) {
+                          var item = json.addimagestoreresponse.secondarystorage;
+                          args.response.success({
+                            data:item
+                          });
+                        },
+                        error: function(XMLHttpResponse) {
+                          var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
+                          args.response.error(errorMsg);
+                        }
+                      });
+                    }
+                    else if(args.data.provider == 'S3') {
+                      $.extend(data, {
+                        provider: args.data.provider,
+                        'details[0].key': 'accesskey',
+                        'details[0].value': args.data.accesskey,
+                        'details[1].key': 'secretkey',
+                        'details[1].value': args.data.secretkey,
+                        'details[2].key': 'bucket',
+                        'details[2].value': args.data.bucket,
+                        'details[3].key': 'usehttps',
+                        'details[3].value': (args.data.usehttps != null && args.data.usehttps == 'on' ? 'true' : 'false')
+                      });
+
+                      var index = 4;
+                      if(args.data.endpoint != null && args.data.endpoint.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'endpoint';
+                        data['details[' + index.toString() + '].value'] = args.data.endpoint;
+                        index++;
+                      }
+                      if(args.data.connectiontimeout != null && args.data.connectiontimeout.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'connectiontimeout';
+                        data['details[' + index.toString() + '].value'] = args.data.connectiontimeout;
+                        index++;
+                      }
+                      if(args.data.maxerrorretry != null && args.data.maxerrorretry.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'maxerrorretry';
+                        data['details[' + index.toString() + '].value'] = args.data.maxerrorretry;
+                        index++;
+                      }
+                      if(args.data.sockettimeout != null && args.data.sockettimeout.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'sockettimeout';
+                        data['details[' + index.toString() + '].value'] = args.data.sockettimeout;
+                        index++;
+                      }
+
+                      $.ajax({
+                        url: createURL('addImageStore'),
+                        data: data,
+                        success: function(json) {
+                          havingS3 = true;
+                          var item = json.addimagestoreresponse.secondarystorage;
+                          args.response.success({
+                            data:item
+                          });
+                        },
+                        error: function(json) {
+                          args.response.error(parseXMLHttpResponse(json));
+                        }
+                      });
+
+                      if(args.data.createNfsCache == 'on') {
+                        var zoneid = args.data.nfsCacheZoneid;
+                        var nfs_server = args.data.nfsCacheNfsServer;
+                        var path = args.data.nfsCachePath;
+                        var url = nfsURL(nfs_server, path);
+
+                        var nfsCacheData = {
+                          provider: 'NFS',
+                          zoneid: zoneid,
+                          url: url
+                        };
+
+                        $.ajax({
+                          url: createURL('createCacheStore'),
+                          data: nfsCacheData,
+                          success: function(json) {
+                            //do nothing
+                          },
+                          error: function(json) {
+                            args.response.error(parseXMLHttpResponse(json));
+                          }
+                        });
+                      }
+                    }
+                    else if(args.data.provider == 'Swift') {
+                      $.extend(data, {
+                        provider: args.data.provider,
+                        url: args.data.url
+                      });
+
+                      var index = 0;
+                      if(args.data.account != null && args.data.account.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'account';
+                        data['details[' + index.toString() + '].value'] = args.data.account;
+                        index++;
+                      }
+                      if(args.data.username != null && args.data.username.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'username';
+                        data['details[' + index.toString() + '].value'] = args.data.username;
+                        index++;
+                      }
+                      if(args.data.key != null && args.data.key.length > 0){
+                        data['details[' + index.toString() + '].key'] = 'key';
+                        data['details[' + index.toString() + '].value'] = args.data.key;
+                        index++;
+                      }
+                      $.ajax({
+                        url: createURL('addImageStore'),
+                        data: data,
+                        success: function(json) {
+                          havingSwift = true;
+                          var item = json.addimagestoreresponse.secondarystorage;
+                          args.response.success({
+                            data:item
+                          });
+                        },
+                        error: function(json) {
+                          args.response.error(parseXMLHttpResponse(json));
+                        }
+                      });
+                    }
+                  },
+
+                  notification: {
+                    poll: function(args) {
+                      args.complete({
+                        actionFilter: secondarystorageActionfilter
+                      });
+                    }
+                  },
+
+                  messages: {
+                    notification: function(args) {
+                      return 'label.add.secondary.storage';
                     }
                   }
-                })
-              } */
+                }
+              },
+
+              detailView: {
+                name: 'Secondary storage details',
+                isMaximized: true,
+                actions: {
+                  remove: {
+                    label: 'label.action.delete.secondary.storage' ,
+                    messages: {
+                      confirm: function(args) {
+                        return 'message.action.delete.secondary.storage';
+                      },
+                      notification: function(args) {
+                        return 'label.action.delete.secondary.storage';
+                      }
+                    },
+                    action: function(args) {
+                      $.ajax({
+                        url: createURL("deleteImageStore&id=" + args.context.secondarystorages[0].id),
+                        dataType: "json",
+                        async: true,
+                        success: function(json) {
+                          args.response.success();
+                        }
+                      });
+                    },
+                    notification: {
+                      poll: function(args) { args.complete({ data: { resourcestate: 'Destroyed' } }); }
+                    }
+                  }
+
+                },
+                tabs: {
+                  details: {
+                    title: 'label.details',
+                    fields: [
+                      {
+                        name: { label: 'label.name' }
+                      },
+                      {
+                        url: { label: 'label.url' },
+                        providername: { label: 'Provider' },
+                        scope: { label: 'label.scope' },
+                        zonename: { label: 'label.zone' },
+                        details: {
+                          label: 'label.details',
+                          converter: function(array1) {
+                            var string1 = '';
+                            if(array1 != null) {
+                              for(var i = 0; i < array1.length; i++) {
+                                if(i > 0)
+                                  string1 += ', ';
+
+                                string1 += array1[i].name + ': ' + array1[i].value;
+                              }
+                            }
+                            return string1;
+                          }
+                        },
+                        id: { label: 'label.id' }
+                      }
+                    ],
+
+                    dataProvider: function(args) {
+                      $.ajax({
+                        url: createURL("listImageStores&id=" + args.context.secondarystorages[0].id),
+                        dataType: "json",
+                        async: true,
+                        success: function(json) {
+                          var item = json.listimagestoreresponse.imagestore[0];
+                          args.response.success({
+                            actionFilter: secondarystorageActionfilter,
+                            data:item
+                          });
+                        }
+                      });
+                    }
+                  }
+
+                  // Granular settings for storage pool for secondary storage is not required
+                  /*  settings: {
+                   title: 'label.menu.global.settings',
+                   custom: cloudStack.uiCustom.granularSettings({
+                   dataProvider: function(args) {
+                   args.response.success({
+                   data: [
+                   { name: 'config.param.1', value: 1 },
+                   { name: 'config.param.2', value: 2 }
+                   ]
+                   });
+                   },
+                   actions: {
+                   edit: function(args) {
+                   // call updateStorageLevelParameters
+                   args.response.success();
+                   }
+                   }
+                   })
+                   } */
+                }
+              }
             }
           }
         }
@@ -13010,6 +14034,184 @@
     }
   };
 
+  function addBaremetalDhcpDeviceFn(args) {  
+    if(nspMap["BaremetalDhcpProvider"] == null) {
+      $.ajax({
+        url: createURL("addNetworkServiceProvider&name=BaremetalDhcpProvider&physicalnetworkid=" + selectedPhysicalNetworkObj.id),
+        dataType: "json",
+        async: true,
+        success: function(json) {
+          var jobId = json.addnetworkserviceproviderresponse.jobid;                        
+          var addBaremetalDhcpProviderIntervalID = setInterval(function() {   
+            $.ajax({
+              url: createURL("queryAsyncJobResult&jobId="+jobId),
+              dataType: "json",
+              success: function(json) {
+                var result = json.queryasyncjobresultresponse;
+                if (result.jobstatus == 0) {
+                  return; //Job has not completed
+                }
+                else {
+                  clearInterval(addBaremetalDhcpProviderIntervalID); 
+                  if (result.jobstatus == 1) {
+                    nspMap["BaremetalDhcpProvider"] = json.queryasyncjobresultresponse.jobresult.networkserviceprovider;
+                                         
+                    $.ajax({
+                      url: createURL('addBaremetalDhcp'),
+                      data: {
+                        physicalnetworkid: selectedPhysicalNetworkObj.id,
+                        dhcpservertype: 'DHCPD',
+                        url: args.data.url,
+                        username: args.data.username,
+                        password: args.data.password
+                      },
+                      success: function(json) {
+                        var jid = json.addexternaldhcpresponse.jobid;
+                        args.response.success(
+                          {_custom:
+                            {
+                              jobId: jid,
+                              getUpdatedItem: function(json) {
+                                var item = json.queryasyncjobresultresponse.jobresult.baremetaldhcp;
+                                return item;
+                              }
+                            }
+                          }
+                        );
+                      }
+                    });                          
+                  }
+                  else if (result.jobstatus == 2) {
+                    alert(_s(result.jobresult.errortext));
+                  }
+                }
+              },
+              error: function(XMLHttpResponse) {                             
+                alert(parseXMLHttpResponse(XMLHttpResponse));
+              }
+            });
+          }, g_queryAsyncJobResultInterval);    
+        }
+      });
+    }
+    else {     
+      $.ajax({
+        url: createURL('addBaremetalDhcp'),
+        data: {
+          physicalnetworkid: selectedPhysicalNetworkObj.id,
+          dhcpservertype: 'DHCPD',
+          url: args.data.url,
+          username: args.data.username,
+          password: args.data.password
+        },
+        success: function(json) {
+          var jid = json.addexternaldhcpresponse.jobid;
+          args.response.success(
+            {_custom:
+              {
+                jobId: jid,
+                getUpdatedItem: function(json) {
+                  var item = json.queryasyncjobresultresponse.jobresult.baremetaldhcp;
+                  return item;
+                }
+              }
+            }
+          );
+        }
+      });            
+    }
+  }
+  
+  function addBaremetalPxeDeviceFn(args) {  
+    if(nspMap["BaremetalPxeProvider"] == null) {
+      $.ajax({
+        url: createURL("addNetworkServiceProvider&name=BaremetalPxeProvider&physicalnetworkid=" + selectedPhysicalNetworkObj.id),
+        dataType: "json",
+        async: true,
+        success: function(json) {
+          var jobId = json.addnetworkserviceproviderresponse.jobid;                        
+          var addBaremetalPxeProviderIntervalID = setInterval(function() {   
+            $.ajax({
+              url: createURL("queryAsyncJobResult&jobId="+jobId),
+              dataType: "json",
+              success: function(json) {
+                var result = json.queryasyncjobresultresponse;
+                if (result.jobstatus == 0) {
+                  return; //Job has not completed
+                }
+                else {
+                  clearInterval(addBaremetalPxeProviderIntervalID); 
+                  if (result.jobstatus == 1) {
+                    nspMap["BaremetalPxeProvider"] = json.queryasyncjobresultresponse.jobresult.networkserviceprovider;
+                                         
+                    $.ajax({
+                      url: createURL('addBaremetalPxeKickStartServer'),
+                      data: {
+                        physicalnetworkid: selectedPhysicalNetworkObj.id,
+                        pxeservertype: 'KICK_START',
+                        url: args.data.url,
+                        username: args.data.username,
+                        password: args.data.password,
+                        tftpdir: args.data.tftpdir
+                      },
+                      success: function(json) {
+                        var jid = json.addexternalpxeresponse.jobid;
+                        args.response.success(
+                          {_custom:
+                            {
+                              jobId: jid,
+                              getUpdatedItem: function(json) {
+                                var item = json.queryasyncjobresultresponse.jobresult.externalpxe;
+                                return item;
+                              }
+                            }
+                          }
+                        );
+                      }
+                    });                          
+                  }
+                  else if (result.jobstatus == 2) {
+                    alert(_s(result.jobresult.errortext));
+                  }
+                }
+              },
+              error: function(XMLHttpResponse) {                             
+                alert(parseXMLHttpResponse(XMLHttpResponse));
+              }
+            });
+          }, g_queryAsyncJobResultInterval);    
+        }
+      });
+    }
+    else {     
+      $.ajax({
+        url: createURL('addBaremetalPxeKickStartServer'),
+        data: {
+          physicalnetworkid: selectedPhysicalNetworkObj.id,
+          pxeservertype: 'KICK_START',
+          url: args.data.url,
+          username: args.data.username,
+          password: args.data.password,
+          tftpdir: args.data.tftpdir
+        },
+        success: function(json) {
+          var jid = json.addexternalpxeresponse.jobid;
+          args.response.success(
+            {_custom:
+              {
+                jobId: jid,
+                getUpdatedItem: function(json) {
+                  var item = json.queryasyncjobresultresponse.jobresult.externalpxe;
+                  return item;
+                }
+             }
+            }
+          );
+        }
+      });    
+    }
+  }
+  
   function addExternalLoadBalancer(args, physicalNetworkObj, apiCmd, apiCmdRes, apiCmdObj) {
     var array1 = [];
     array1.push("&physicalnetworkid=" + physicalNetworkObj.id);
@@ -13961,6 +15163,12 @@
                             case "MidoNet":
                                 nspMap["midoNet"] = items[i];
                                 break;
+              case "BaremetalDhcpProvider":
+                nspMap["BaremetalDhcpProvider"] = items[i];
+                break;
+              case "BaremetalPxeProvider":
+                nspMap["BaremetalPxeProvider"] = items[i];
+                break;
 							case "F5BigIp":
 								nspMap["f5"] = items[i];
 								break;
@@ -14002,7 +15210,17 @@
                                 id: 'bigswitchVns',
                                 name: 'BigSwitch Vns',
                                 state: nspMap.bigswitchVns ? nspMap.bigswitchVns.state : 'Disabled'
-                        }
+                        },
+      {
+        id: 'BaremetalDhcpProvider',
+        name: 'Baremetal DHCP',
+        state: nspMap.BaremetalDhcpProvider ? nspMap.BaremetalDhcpProvider.state : 'Disabled'
+      },
+      {
+        id: 'BaremetalPxeProvider',
+        name: 'Baremetal PXE',
+        state: nspMap.BaremetalPxeProvider ? nspMap.BaremetalPxeProvider.state : 'Disabled'
+      }
 		];
 
     $(window).trigger('cloudStack.system.serviceProviders.makeHarcodedArray', {

@@ -311,7 +311,6 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
         super.configure(name, params);
-    	_resourceMgr.registerResourceStateAdapter(this.getClass().getSimpleName(), this);
     	
     	// TODO: we may want to configure the timeout on HTTPRequests and pass the value through this configure call
     	// TODO: we may want to add an ISO containing the Hyper-V Integration services

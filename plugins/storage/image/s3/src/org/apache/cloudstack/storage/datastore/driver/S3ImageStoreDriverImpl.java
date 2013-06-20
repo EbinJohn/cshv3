@@ -18,6 +18,8 @@
  */
 package org.apache.cloudstack.storage.datastore.driver;
 
+import java.net.URL;
+import java.util.Date;
 import java.util.Map;
 import javax.inject.Inject;
 
@@ -28,18 +30,21 @@ import org.apache.cloudstack.storage.image.BaseImageStoreDriverImpl;
 import org.apache.cloudstack.storage.image.store.ImageStoreImpl;
 import org.apache.log4j.Logger;
 
-import com.amazonaws.services.s3.model.CannedAccessControlList;
 import com.cloud.agent.api.to.DataStoreTO;
 import com.cloud.agent.api.to.S3TO;
+import com.cloud.configuration.Config;
+import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.utils.S3Utils;
-import com.cloud.utils.exception.CloudRuntimeException;
 
 public class S3ImageStoreDriverImpl extends  BaseImageStoreDriverImpl {
     private static final Logger s_logger = Logger.getLogger(S3ImageStoreDriverImpl.class);
 
     @Inject
     ImageStoreDetailsDao _imageStoreDetailsDao;
+
+    @Inject
+    ConfigurationDao _configDao;
 
 
     @Override
@@ -55,7 +60,9 @@ public class S3ImageStoreDriverImpl extends  BaseImageStoreDriverImpl {
                 details.get(ApiConstants.S3_MAX_ERROR_RETRY) == null ? null : Integer.valueOf(details
                         .get(ApiConstants.S3_MAX_ERROR_RETRY)),
                 details.get(ApiConstants.S3_SOCKET_TIMEOUT) == null ? null : Integer.valueOf(details
-                        .get(ApiConstants.S3_SOCKET_TIMEOUT)), imgStore.getCreated());
+                        .get(ApiConstants.S3_SOCKET_TIMEOUT)), imgStore.getCreated(),
+                _configDao.getValue(Config.S3EnableRRS.toString()) == null ? false : Boolean.parseBoolean(_configDao
+                        .getValue(Config.S3EnableRRS.toString())));
 
     }
 
@@ -67,20 +74,17 @@ public class S3ImageStoreDriverImpl extends  BaseImageStoreDriverImpl {
         // make the url accessible
         S3TO s3 = (S3TO)getStoreTO(store);
         String key = installPath;
-        try {
-            S3Utils.setObjectAcl(s3, s3.getBucketName(), key, CannedAccessControlList.PublicRead);
-        } catch (Exception ex) {
-            s_logger.error("Failed to set ACL on S3 object " + key + " to PUBLIC_READ", ex);
-            throw new CloudRuntimeException("Failed to set ACL on S3 object " + key + " to PUBLIC_READ");
-        }
-        // construct the url from s3
-        StringBuffer s3url = new StringBuffer();
-        s3url.append(s3.isHttps() ? "https://" : "http://");
-        s3url.append(s3.getEndPoint());
-        s3url.append("/");
-        s3url.append(s3.getBucketName());
-        s3url.append("/");
-        s3url.append(key);
+
+        s_logger.info("Generating pre-signed s3 entity extraction URL.");
+        Date expiration = new Date();
+        long milliSeconds = expiration.getTime();
+        milliSeconds += 1000 * 60 * 60; // expired after one hour.
+        expiration.setTime(milliSeconds);
+
+        URL s3url = S3Utils.generatePresignedUrl(s3, s3.getBucketName(), key, expiration);
+
+        s_logger.info("Pre-Signed URL = " + s3url.toString());
+
         return s3url.toString();
     }
 
