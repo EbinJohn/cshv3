@@ -209,6 +209,13 @@ public class S3TemplateDownloader implements TemplateDownloader {
                 remoteSize = maxTemplateSizeInByte;
             }
 
+            // get content type
+            String contentType = null;
+            Header contentTypeHeader = request.getResponseHeader("Content-Type");
+            if ( contentTypeHeader != null ){
+                contentType = contentTypeHeader.getValue();
+            }
+
             InputStream in = !chunked ? new BufferedInputStream(request.getResponseBodyAsStream())
                     : new ChunkedInputStream(request.getResponseBodyAsStream());
 
@@ -225,8 +232,14 @@ public class S3TemplateDownloader implements TemplateDownloader {
             // download using S3 API
             ObjectMetadata metadata = new ObjectMetadata();
             metadata.setContentLength(remoteSize);
-            PutObjectRequest putObjectRequest = new PutObjectRequest(s3.getBucketName(), s3Key, in, metadata)
-                    .withStorageClass(StorageClass.ReducedRedundancy);
+            if ( contentType != null ){
+                metadata.setContentType(contentType);
+            }
+            PutObjectRequest putObjectRequest = new PutObjectRequest(s3.getBucketName(), s3Key, in, metadata);
+            // check if RRS is enabled
+            if (s3.getEnableRRS()){
+                putObjectRequest = putObjectRequest.withStorageClass(StorageClass.ReducedRedundancy);
+            }
             // register progress listenser
             putObjectRequest.setProgressListener(new ProgressListener() {
                 @Override
