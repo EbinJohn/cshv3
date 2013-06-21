@@ -116,6 +116,7 @@
           <ref bean="SecondaryStorageDiscoverer"/>
           <ref bean="KvmServerDiscoverer"/>
           <ref bean="LxcServerDiscoverer"/>
+          <ref bean="HypervServerDiscoverer"/>
 
   <!--
           <ref bean="BareMetalDiscoverer"/>

@@ -86,6 +86,7 @@
       <list>
         <ref bean="SimulatorDiscoverer"/>
         <ref bean="SimulatorSecondaryDiscoverer"/>
+        <ref bean="HypervServerDiscoverer"/>
         <ref bean="XcpServerDiscoverer"/>
         <ref bean="SecondaryStorageDiscoverer"/>
         <ref bean="KvmServerDiscoverer"/>
