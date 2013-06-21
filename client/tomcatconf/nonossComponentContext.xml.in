@@ -212,6 +212,7 @@
   <bean id="resourceDiscoverers" class="com.cloud.utils.component.AdapterList">
     <property name="Adapters">
       <list>
+          <ref bean="HypervServerDiscoverer"/>
           <ref bean="XcpServerDiscoverer"/>
           <ref bean="SecondaryStorageDiscoverer"/>
           <ref bean="KvmServerDiscoverer"/>
