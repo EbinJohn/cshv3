@@ -127,18 +127,15 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
             return;
         }
         
-        // TODO:  not clear why we need to fetch, this code comes from XcpServerDiscover.processConnect
         long agentId = agent.getId();
         HostVO host = _hostDao.findById(agentId);
-        
+
+        // Our Hyper-V machines are not participating in pools, and the pool id we provide them  is not persisted.
+        // This means the pool id can vary.
         ClusterVO cluster = _clusterDao.findById(host.getClusterId());
         if ( cluster.getGuid() == null) {
             cluster.setGuid(startup.getPool());
             _clusterDao.update(cluster.getId(), cluster);
-        } else if (! cluster.getGuid().equals(startup.getPool()) ) {
-            String msg = "pool uuid for cluster " + cluster.getId() + " changed from " + cluster.getGuid() + " to " + cmd.getPod();
-            s_logger.warn(msg);
-            throw new CloudRuntimeException(msg);
         }
 
         if (s_logger.isDebugEnabled()) {
@@ -244,8 +241,19 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     			return null;
     		}
         	
-    		s_logger.info("Creating HypervDummyResourceBase for zone/pod/cluster " +dcId + "/"+podId + "/"+ clusterId);
-	
+    		s_logger.info("Creating" +  HypervDirectConnectResource.class.getName() + " HypervDummyResourceBase for zone/pod/cluster " +dcId + "/"+podId + "/"+ clusterId);
+
+    		
+			// Some Hypervisors organise themselves in pools.
+    		// The startup command tells us what pool they are using.
+    		// In the meantime, we have to place a GUID corresponding to the pool in the database
+    		// This GUID may change.
+			if (cluster.getGuid() == null) {
+			    cluster.setGuid(UUID.nameUUIDFromBytes(String.valueOf(clusterId).getBytes()).toString());
+			    _clusterDao.update(clusterId, cluster);
+			}
+		
+
 		    Map<String, String> details = new HashMap<String, String>();
 	        details.put("url", uri.getHost());
 	        details.put("username", username);
@@ -257,6 +265,7 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 	        params.put("zone", Long.toString(dcId));
 	        params.put("pod", Long.toString(podId));
 	        params.put("cluster", Long.toString(clusterId));
+	        params.put("cluster.guid", cluster.getGuid());
 			params.put("guid", guidWithTail);
 			params.put("agentIp", agentIp);
 						
@@ -266,21 +275,16 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
             // Assert 
             // TODO:  test by using bogus URL and bogus virtual path in URL
             ReadyCommand ping = new ReadyCommand();
-            if (resource.executeRequest(ping) != null)
+            Answer pingAns = resource.executeRequest(ping);
+            if (pingAns == null || pingAns.getResult()==false)
             {
-                String errMsg = "Agent not running, or new route to agent on at " + uri;
+                String errMsg = "Agent not running, or no route to agent on at " + uri;
                 s_logger.debug(errMsg);
                 throw new DiscoveryException(errMsg);
             }
             
 			Map<HypervDirectConnectResource, Map<String, String>> resources = new HashMap<HypervDirectConnectResource, Map<String, String>>();
 			resources.put(resource, details);
-			
-			 // place a place holder guid derived from cluster ID
-			if (cluster.getGuid() == null) {
-			    cluster.setGuid(UUID.nameUUIDFromBytes(String.valueOf(clusterId).getBytes()).toString());
-			    _clusterDao.update(clusterId, cluster);
-			}
 			
 			// TODO: does the resource have to create a connection?
             return resources;
