@@ -449,6 +449,19 @@ namespace HypervResource
             return true;
         }
 
+        // POST api/HypervResource/CheckHealthCommand
+        // TODO: create test
+        [HttpPost]
+        [ActionName(CloudStackTypes.CheckHealthCommand)]
+        public JContainer CheckHealthCommand([FromBody]dynamic cmd)
+        {
+            object ansContent = new
+            {
+                result = true,
+                details = "resource is alive"
+            };
+            return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CheckHealthAnswer);
+        }
 
         // POST api/HypervResource/CheckVirtualMachineCommand
         [HttpPost]
@@ -824,7 +837,7 @@ namespace HypervResource
             catch (Exception ex)
             {
                 // Test by providing wrong key
-                details = "GetStorageStatsCommand failed on exception, " + ex.Message;
+                details = "CopyCommand failed on exception, " + ex.Message;
                 logger.Error(details, ex);
             }
 
@@ -894,11 +907,11 @@ namespace HypervResource
             bool result = false;
             string details = null;
             long capacity = 0;
+            long available = 0;
             long used = 0;
             try
             {
                 string localPath = (string)cmd.localPath;
-                long available;
                 GetCapacityForLocalPath(localPath, out capacity, out available);
                 used = capacity - available;
                 result = true;
