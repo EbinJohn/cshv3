@@ -85,6 +85,8 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 	private String _guid;
 	private String _agentIp;
 
+	private String _clusterGuid;
+
 	@Override
 	public Type getType() {
 		// TODO Auto-generated method stub
@@ -108,6 +110,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		defaultStartRoutCmd.setName(_name);
 		defaultStartRoutCmd.setPrivateIpAddress(_agentIp);
 		defaultStartRoutCmd.setStorageIpAddress(_agentIp);
+		defaultStartRoutCmd.setPool(_clusterGuid);
 
 		// TODO: does version need to be hard coded.
 		defaultStartRoutCmd.setVersion("4.2.0");
@@ -329,7 +332,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 			HttpResponse response = httpClient.execute(request);
 
 			// Unsupported commands will not route.
-			if (response.getStatusLine().getStatusCode() == 405) {
+			if (response.getStatusLine().getStatusCode() == 404) {
 				String errMsg = "Failed to send : HTTP error code : "
 						+ response.getStatusLine().getStatusCode();
 				s_logger.error(errMsg);
@@ -339,7 +342,8 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 			}
 			// Look for status errors
 			else if (response.getStatusLine().getStatusCode() != 200) {
-				String errMsg = "Failed to send : HTTP error code : "
+				String errMsg = "Failed send to " + agentUri.toString() 
+						+ " : HTTP error code : "
 						+ response.getStatusLine().getStatusCode();
 				s_logger.error(errMsg);
 				return null;
@@ -377,6 +381,8 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		this._guid = (String) params.get("guid");
 		this._agentIp = (String) params.get("agentIp");
 		this._name = name;	
+        this._clusterGuid = (String)params.get("cluster.guid");
+
 		return true;
 	}
 

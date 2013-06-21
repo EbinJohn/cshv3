@@ -457,8 +457,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
         Discoverer discoverer = getMatchingDiscover(hypervisorType);
         if (discoverer == null) {
-
-            throw new InvalidParameterValueException("Could not find corresponding resource manager for " + cmd.getHypervisor());
+        	String errMsg = "Could not find corresponding resource manager for " + cmd.getHypervisor() + " (hypervisorType = " + hypervisorType + ")";
+            throw new InvalidParameterValueException(errMsg);
         }
 
         if (hypervisorType == HypervisorType.VMware) {
@@ -567,6 +567,9 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
         for (Discoverer discoverer : _discoverers) {
             if (discoverer.getHypervisorType() == hypervisorType)
                 return discoverer;
+            String dbgMsg = "Discoverer " + discoverer.getClass().getName() + " does not support hypervisor type " + hypervisorType;
+            s_logger.debug(dbgMsg);
+            
         }
         return null;
     }
