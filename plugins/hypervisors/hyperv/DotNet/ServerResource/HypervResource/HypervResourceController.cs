@@ -1015,10 +1015,10 @@ namespace HypervResource
             ulong memoryKBs;
             ulong freeMemoryKBs;
             WmiCalls.GetMemoryResources(out memoryKBs, out freeMemoryKBs);
-            strtRouteCmd.memory = memoryKBs/1024;
+            strtRouteCmd.memory = memoryKBs * 1024;   // Convert to bytes
 
             // Need 2 Gig for DOM0, see http://technet.microsoft.com/en-us/magazine/hh750394.aspx
-            strtRouteCmd.dom0MinMemory = config.ParentPartitionMinMemoryMb;
+            strtRouteCmd.dom0MinMemory = config.ParentPartitionMinMemoryMb * 1024 * 1024;  // Convert to bytes
             
             // Insert storage pool details.
             //
