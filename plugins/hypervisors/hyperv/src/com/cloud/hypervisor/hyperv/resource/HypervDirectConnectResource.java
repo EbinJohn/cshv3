@@ -55,6 +55,7 @@ import com.cloud.agent.api.UnsupportedAnswer;
 import com.cloud.agent.api.StartupRoutingCommand.VmState;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadCommand;
 import com.cloud.host.Host;
+import com.cloud.host.HostVO;
 import com.cloud.host.Host.Type;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
@@ -86,6 +87,11 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 	private String _agentIp;
 
 	private String _clusterGuid;
+	private boolean configureCalled = false; // Used by initialize to assert object configured before initialize called.
+
+	private String _username;
+
+	private String _password;
 
 	@Override
 	public Type getType() {
@@ -95,6 +101,13 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 
 	//@Override
 	public StartupCommand[] initialize() {
+		// assert
+		if (!configureCalled)
+		{
+			String errMsg = this.getClass().getName() + " requires configure() be called before initialize()";
+			s_logger.error(errMsg);
+		}
+		
 		// Create default StartupRoutingCommand, then customise
 		StartupRoutingCommand defaultStartRoutCmd = new StartupRoutingCommand(
 				0, 0, 0, 0, null, Hypervisor.HypervisorType.Hyperv,
@@ -111,6 +124,8 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		defaultStartRoutCmd.setPrivateIpAddress(_agentIp);
 		defaultStartRoutCmd.setStorageIpAddress(_agentIp);
 		defaultStartRoutCmd.setPool(_clusterGuid);
+
+		s_logger.debug("Generated StartupRoutingCommand for _agentIp \"" + _agentIp + "\"");
 
 		// TODO: does version need to be hard coded.
 		defaultStartRoutCmd.setVersion("4.2.0");
@@ -370,19 +385,30 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 		return null;
 	}
 
-	// configure, and not initialize, is called after a ServerResource is created
+	// NB: 'params' can come from one of two places.
+	// For a new host, HypervServerDiscoverer.find().  
+	// For an existing host, DiscovererBase.reloadResource().
+	// In the later case, the params Map is populated with predefined keys
+	// and custom keys from the database that were passed out by the find() call.
+	// the custom keys go by the variable name 'details'.  
+	// Thus, in find(), you see that 'details' are added to the params Map.
 	@Override
 	public boolean configure(final String name, final Map<String, Object> params)
 			throws ConfigurationException {
 		/* todo: update, make consistent with the xen server equivalent. */
+		this._guid = (String) params.get("guid");
 		this._zoneId = (String) params.get("zone");
 		this._podId = (String) params.get("pod");
 		this._clusterId = (String) params.get("cluster");
-		this._guid = (String) params.get("guid");
-		this._agentIp = (String) params.get("agentIp");
-		this._name = name;	
-        this._clusterGuid = (String)params.get("cluster.guid");
+		this._agentIp = (String) params.get("ipaddress"); // was agentIp
+		this._name = name;
 
+		this._clusterGuid = (String)params.get("cluster.guid");
+        this._username = (String)params.get("url");
+        this._password = (String)params.get("password");
+        this._username = (String)params.get("username");
+        
+        configureCalled = true; 
 		return true;
 	}
 

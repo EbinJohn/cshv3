@@ -258,19 +258,19 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
 	        details.put("url", uri.getHost());
 	        details.put("username", username);
 	        details.put("password", password);
-			details.put("guid", guidWithTail);
+			details.put("cluster.guid", cluster.getGuid());
 
 	        // TODO: what parameters are required to satisfy the resource.configure call?
 	        Map<String, Object> params = new HashMap<String, Object>();
 	        params.put("zone", Long.toString(dcId));
 	        params.put("pod", Long.toString(podId));
 	        params.put("cluster", Long.toString(clusterId));
-	        params.put("cluster.guid", cluster.getGuid());
 			params.put("guid", guidWithTail);
-			params.put("agentIp", agentIp);
+			params.put("ipaddress", agentIp);
+			params.putAll(details);
 						
 			HypervDirectConnectResource resource = new HypervDirectConnectResource(); 
-            resource.configure("Hyper-V agent", params);
+            resource.configure(agentIp, params);
             
             // Assert 
             // TODO:  test by using bogus URL and bogus virtual path in URL
