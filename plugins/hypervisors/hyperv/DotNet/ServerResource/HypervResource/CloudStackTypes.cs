@@ -252,6 +252,8 @@ namespace HypervResource
         string poolType;
         [JsonProperty("capacityBytes")]
         long capacityBytes;
+
+        // Management server copies this field to the 'used_byptes' in the database table 'storage_pool'.
         [JsonProperty("availableBytes")]
         long availableBytes;
         [JsonProperty("details")]
@@ -267,7 +269,8 @@ namespace HypervResource
             this.hostPath = hostPath;
             this.poolType = poolType;
             this.capacityBytes = capacityBytes;
-            this.availableBytes = availableBytes;
+            // Management server availableBytes field to the 'used_byptes' in the database table 'storage_pool'.
+            this.availableBytes = capacityBytes - availableBytes;
             details = null;
         }
 
