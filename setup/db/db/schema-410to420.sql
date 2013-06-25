@@ -1656,7 +1656,8 @@ CREATE VIEW `cloud`.`user_vm_view` AS
         affinity_group.id affinity_group_id,
         affinity_group.uuid affinity_group_uuid,
         affinity_group.name affinity_group_name,
-        affinity_group.description affinity_group_description
+        affinity_group.description affinity_group_description,
+        vm_details.value dynamically_scalable
 
     from
         `cloud`.`user_vm`
@@ -1717,10 +1718,13 @@ CREATE VIEW `cloud`.`user_vm_view` AS
         `cloud`.`async_job` ON async_job.instance_id = vm_instance.id
             and async_job.instance_type = 'VirtualMachine'
             and async_job.job_status = 0
-	left join 
-	`cloud`.`affinity_group_vm_map` ON vm_instance.id = affinity_group_vm_map.instance_id
-	left join 
-	`cloud`.`affinity_group` ON affinity_group_vm_map.affinity_group_id = affinity_group.id;
+            left join
+        `cloud`.`affinity_group_vm_map` ON vm_instance.id = affinity_group_vm_map.instance_id
+            left join
+        `cloud`.`affinity_group` ON affinity_group_vm_map.affinity_group_id = affinity_group.id
+            left join
+        `cloud`.`user_vm_details` vm_details ON vm_details.vm_id = vm_instance.id
+            and vm_details.name = 'enable.dynamic.scaling';
 
 DROP VIEW IF EXISTS `cloud`.`volume_view`;
 CREATE VIEW `cloud`.`volume_view` AS
@@ -2126,3 +2130,43 @@ INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'manag
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'execute.in.sequence.hypervisor.commands', 'false', 'If set to true, StartCommand, StopCommand, CopyVolumeCommand, CreateCommand will be synchronized on the agent side. If set to false, these commands become asynchronous. Default value is false.');
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'execute.in.sequence.network.element.commands', 'false', 'If set to true, DhcpEntryCommand, SavePasswordCommand, UserDataCommand, VmDataCommand will be synchronized on the agent side. If set to false, these commands become asynchronous. Default value is false.');
 
+ALTER TABLE `cloud`.`vm_template` ADD COLUMN `dynamically_scalable` tinyint(1) unsigned NOT NULL DEFAULT 0  COMMENT 'true if template contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory';
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'external.baremetal.system.url', null, 'url of external baremetal system that CloudStack will talk to');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'external.baremetal.resource.classname', null, 'class name for handling external baremetal resource');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'enable.baremetal.securitygroup.agent.echo', 'false', 'After starting provision process, periodcially echo security agent installed in the template. Treat provisioning as success only if echo successfully');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'interval.baremetal.securitygroup.agent.echo', 10, 'Interval to echo baremetal security group agent, in seconds');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'timeout.baremetal.securitygroup.agent.echo', 3600, 'Timeout to echo baremetal security group agent, in seconds, the provisioning process will be treated as a failure');
+
+ALTER TABLE `cloud`.`baremetal_dhcp_devices` ADD CONSTRAINT `fk_external_dhcp_devices_nsp_id` FOREIGN KEY (`nsp_id`) REFERENCES `physical_network_service_providers` (`id`) ON DELETE CASCADE;
+ALTER TABLE `cloud`.`baremetal_dhcp_devices` ADD CONSTRAINT `fk_external_dhcp_devices_host_id` FOREIGN KEY (`host_id`) REFERENCES `host`(`id`) ON DELETE CASCADE;
+ALTER TABLE `cloud`.`baremetal_dhcp_devices` ADD CONSTRAINT `fk_external_dhcp_devices_pod_id` FOREIGN KEY (`pod_id`) REFERENCES `host_pod_ref`(`id`) ON DELETE CASCADE;
+ALTER TABLE `cloud`.`baremetal_dhcp_devices` ADD CONSTRAINT `fk_external_dhcp_devices_physical_network_id` FOREIGN KEY (`physical_network_id`) REFERENCES `physical_network`(`id`) ON DELETE CASCADE;
+
+ALTER TABLE `cloud`.`baremetal_pxe_devices` ADD CONSTRAINT `fk_external_pxe_devices_nsp_id` FOREIGN KEY (`nsp_id`) REFERENCES `physical_network_service_providers` (`id`) ON DELETE CASCADE;
+ALTER TABLE `cloud`.`baremetal_pxe_devices` ADD CONSTRAINT `fk_external_pxe_devices_host_id` FOREIGN KEY (`host_id`) REFERENCES `host`(`id`) ON DELETE CASCADE;
+ALTER TABLE `cloud`.`baremetal_pxe_devices` ADD CONSTRAINT `fk_external_pxe_devices_physical_network_id` FOREIGN KEY (`physical_network_id`) REFERENCES `physical_network`(`id`) ON DELETE CASCADE;
+
+alter table `cloud`.`network_offerings` add column egress_default_policy boolean default false;
+
+-- Add stratospher ssp tables
+CREATE TABLE `cloud`.`external_stratosphere_ssp_uuids` (
+  `id` bigint(20) UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `uuid` varchar(255) NOT NULL COMMENT "uuid provided by SSP",
+  `obj_class` varchar(255) NOT NULL,
+  `obj_id` bigint(20) NOT NULL,
+  `reservation_id` varchar(255)
+) Engine=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `cloud`.`external_stratosphere_ssp_tenants` (
+  `id` bigint(20) UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `uuid` varchar(255) NOT NULL COMMENT "SSP tenant uuid",
+  `zone_id` bigint(20) NOT NULL COMMENT "cloudstack zone_id"
+) Engine=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `cloud`.`external_stratosphere_ssp_credentials` (
+  `id` bigint(20) UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  `data_center_id` bigint(20) unsigned NOT NULL,
+  `username` varchar(255) NOT NULL,
+  `password` varchar(255) NOT NULL
+) Engine=InnoDB DEFAULT CHARSET=utf8;

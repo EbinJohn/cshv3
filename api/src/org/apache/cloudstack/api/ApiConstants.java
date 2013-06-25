@@ -121,6 +121,7 @@ public class ApiConstants {
     public static final String IS_PORTABLE = "isportable";
     public static final String IS_PUBLIC = "ispublic";
     public static final String IS_PERSISTENT = "ispersistent";
+    public static final String EGRESS_DEFAULT_POLICY = "egressdefaultpolicy";
     public static final String IS_READY = "isready";
     public static final String IS_RECURSIVE = "isrecursive";
     public static final String ISO_FILTER = "isofilter";
@@ -509,6 +510,7 @@ public class ApiConstants {
     public static final String DEPLOYMENT_PLANNER = "deploymentplanner";
     public static final String ACL_ID = "aclid";
     public static final String NUMBER = "number";
+    public static final String IS_DYNAMICALLY_SCALABLE = "isdynamicallyscalable";
 
     public enum HostDetails {
         all, capacity, events, stats, min;

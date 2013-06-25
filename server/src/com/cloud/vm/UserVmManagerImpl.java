@@ -1160,9 +1160,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
         int currentMemory = currentServiceOffering.getRamSize();
         int currentSpeed = currentServiceOffering.getSpeed();
 
-        if(newSpeed     <= currentSpeed
-           && newMemory <= currentMemory
-           && newCpu    <= currentCpu){
+        // Don't allow to scale when (Any of the new values less than current values) OR (All current and new values are same)
+        if( (newSpeed < currentSpeed || newMemory < currentMemory || newCpu < currentCpu)
+                ||  ( newSpeed == currentSpeed && newMemory == currentMemory && newCpu == currentCpu)){
             throw new InvalidParameterValueException("Only scaling up the vm is supported, new service offering should have both cpu and memory greater than the old values");
         }
 
@@ -1708,6 +1708,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
         Long id = cmd.getId();
         Long osTypeId = cmd.getOsTypeId();
         String userData = cmd.getUserData();
+        Boolean isDynamicallyScalable = cmd.isDynamicallyScalable();
         Account caller = UserContext.current().getCaller();
 
         // Input validation
@@ -1792,6 +1793,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
         if (group != null) {
             if (addInstanceToGroup(id, group)) {
                 description += "Added to group: " + group + ".";
+            }
+        }
+
+        if (isDynamicallyScalable != null) {
+            UserVmDetailVO vmDetailVO = _vmDetailsDao.findDetail(vm.getId(), VirtualMachine.IsDynamicScalingEnabled);
+            if (vmDetailVO == null) {
+                vmDetailVO = new UserVmDetailVO(vm.getId(), VirtualMachine.IsDynamicScalingEnabled, isDynamicallyScalable.toString());
+                _vmDetailsDao.persist(vmDetailVO);
+            } else {
+                vmDetailVO.setValue(isDynamicallyScalable.toString());
+                _vmDetailsDao.update(vmDetailVO.getId(), vmDetailVO);
             }
         }
 
@@ -2438,7 +2450,12 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
 
         // check if account/domain is with in resource limits to create a new vm
         boolean isIso = Storage.ImageFormat.ISO == template.getFormat();
-        long size = _templateDao.findById(template.getId()).getSize();
+        // For baremetal, size can be null
+        Long tmp = _templateDao.findById(template.getId()).getSize();
+        long size = 0;
+        if (tmp != null) {
+        	size = tmp;
+        }
         if (diskOfferingId != null) {
             size += _diskOfferingDao.findById(diskOfferingId).getDiskSize();
         }
@@ -2683,6 +2700,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
                 owner.getDomainId(), owner.getId(), offering.getId(), userData,
                 hostName, diskOfferingId);
         vm.setUuid(uuidName);
+        vm.setDetail(VirtualMachine.IsDynamicScalingEnabled, template.isDynamicallyScalable().toString());
 
         if (sshPublicKey != null) {
             vm.setDetail("SSH.PublicKey", sshPublicKey);

@@ -143,6 +143,9 @@ public class VMTemplateVO implements VirtualMachineTemplate {
     @Transient
     Map details;
 
+    @Column(name = "dynamically_scalable")
+    protected boolean dynamicallyScalable;
+
     @Override
     public String getUniqueName() {
         return uniqueName;
@@ -179,6 +182,7 @@ public class VMTemplateVO implements VirtualMachineTemplate {
         this.uuid = UUID.randomUUID().toString();
         this.enableSshKey = sshKeyEnabled;
     }
+
 
     public static VMTemplateVO createPreHostIso(Long id, String uniqueName, String name, ImageFormat format,
             boolean isPublic, boolean featured, TemplateType type, String url, Date created, boolean requiresHvm,
@@ -506,6 +510,14 @@ public class VMTemplateVO implements VirtualMachineTemplate {
     public int getSortKey() {
         return sortKey;
     }
+
+        public void setDynamicallyScalable(boolean dynamicallyScalable) {
+            this.dynamicallyScalable = dynamicallyScalable;
+        }
+
+        public Boolean isDynamicallyScalable() {
+            return this.dynamicallyScalable;
+        }
 
     @Override
     public boolean getEnableSshKey() {

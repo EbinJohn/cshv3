@@ -164,6 +164,7 @@ import com.cloud.network.rules.dao.PortForwardingRulesDao;
 import com.cloud.network.vpn.Site2SiteVpnManager;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.ServiceOffering;
+import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.resource.ResourceManager;
 import com.cloud.server.ConfigurationServer;
@@ -1585,11 +1586,6 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             Long vpcId, List<Pair<NetworkVO, NicProfile>> networks, boolean startRouter, List<HypervisorType> supportedHypervisors) throws ConcurrentOperationException,
             InsufficientAddressCapacityException, InsufficientServerCapacityException, InsufficientCapacityException,
             StorageUnavailableException, ResourceUnavailableException {
-        
-        long id = _routerDao.getNextInSequence(Long.class, "id");
-        if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Creating the router " + id + " in datacenter "  + dest.getDataCenter());
-        }
 
         ServiceOfferingVO routerOffering = _serviceOfferingDao.findById(svcOffId);
 
@@ -1603,7 +1599,11 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         for (Iterator<HypervisorType> iter = hypervisors.iterator(); iter.hasNext();) {
             HypervisorType hType = iter.next();
             try {
-                s_logger.debug("Allocating the domR with the hypervisor type " + hType);
+                long id = _routerDao.getNextInSequence(Long.class, "id");
+                if (s_logger.isDebugEnabled()) {
+                    s_logger.debug("Allocating the VR i="+ id + " in datacenter "  + dest.getDataCenter() + "with the hypervisor type " + hType);
+                }
+                
                 String templateName = null;
                 switch (hType) {
                     case XenServer:
@@ -2772,7 +2772,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         //Asuming we have only one router per network For Now.
         DomainRouterVO router = routers.get(0);
         if (router.getState() != State.Running) {
-            s_logger.warn("Failed to add/remove VPN users: router not in running state");
+            s_logger.warn("Failed to configure dhcp: router not in running state");
             throw new ResourceUnavailableException("Unable to assign ip addresses, domR is not in right state " +
                     router.getState(), DataCenter.class, network.getDataCenterId());
         }
@@ -2882,6 +2882,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
             if (result) {
                 for (NicIpAliasVO revokedAliasVO : revokedIpAliasVOs) {
                     _nicIpAliasDao.expunge(revokedAliasVO.getId());
+                    return true;
                 }
             }
         }
@@ -3435,7 +3436,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
 
     private void configDnsMasq(VirtualRouter router, Network network, Commands cmds) {
         DataCenterVO dcVo = _dcDao.findById(router.getDataCenterId());
-        List<NicIpAliasVO> ipAliasVOList = _nicIpAliasDao.getAliasIpForVm(router.getId());
+        List<NicIpAliasVO> ipAliasVOList = _nicIpAliasDao.listByNetworkIdAndState(network.getId(), NicIpAlias.state.active);
         List<DnsmasqTO> ipList = new ArrayList<DnsmasqTO>();
 
         NicVO router_guest_nic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), router.getId());
@@ -3449,6 +3450,7 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
         for (NicIpAliasVO ipAliasVO : ipAliasVOList) {
              DnsmasqTO dnsmasqTO = new DnsmasqTO(ipAliasVO.getIp4Address(), ipAliasVO.getGateway(), ipAliasVO.getNetmask(), ipAliasVO.getStartIpOfSubnet());
              ipList.add(dnsmasqTO);
+             ipAliasVO.setVmId(router.getId());
         }
         DataCenterVO dcvo = _dcDao.findById(router.getDataCenterId());
         DnsMasqConfigCommand dnsMasqConfigCmd = new DnsMasqConfigCommand(network.getNetworkDomain(),ipList, dcvo.getDns1(), dcvo.getDns2(), dcvo.getInternalDns1(), dcvo.getInternalDns2());
@@ -3684,29 +3686,44 @@ public class VirtualNetworkApplianceManagerImpl extends ManagerBase implements V
 
     private void createFirewallRulesCommands(List<? extends FirewallRule> rules, VirtualRouter router, Commands cmds, long guestNetworkId) {
         List<FirewallRuleTO> rulesTO = null;
+        String systemRule = null;
         if (rules != null) {
+            if (rules.size() > 0) {
+                if (rules.get(0).getTrafficType() == FirewallRule.TrafficType.Egress && rules.get(0).getType() == FirewallRule.FirewallRuleType.System) {
+                    systemRule = String.valueOf(FirewallRule.FirewallRuleType.System);
+                }
+            }
             rulesTO = new ArrayList<FirewallRuleTO>();
             for (FirewallRule rule : rules) {
                 FirewallRule.TrafficType traffictype = rule.getTrafficType();
                 if(traffictype == FirewallRule.TrafficType.Ingress){
-                IpAddress sourceIp = _networkModel.getIp(rule.getSourceIpAddressId());
-                        FirewallRuleTO ruleTO = new FirewallRuleTO(rule, null, sourceIp.getAddress().addr(),Purpose.Firewall,traffictype);
-                rulesTO.add(ruleTO);
-            }
-                else if (rule.getTrafficType() == FirewallRule.TrafficType.Egress){
-                        assert (rule.getSourceIpAddressId()==null) : "ipAddressId should be null for egress firewall rule. ";
-                        FirewallRuleTO ruleTO = new FirewallRuleTO(rule, null,"",Purpose.Firewall,traffictype);
-                        rulesTO.add(ruleTO);
+                    IpAddress sourceIp = _networkModel.getIp(rule.getSourceIpAddressId());
+                    FirewallRuleTO ruleTO = new FirewallRuleTO(rule, null, sourceIp.getAddress().addr(),Purpose.Firewall,traffictype);
+                    rulesTO.add(ruleTO);
+                } else if (rule.getTrafficType() == FirewallRule.TrafficType.Egress){
+                    assert (rule.getSourceIpAddressId()==null) : "ipAddressId should be null for egress firewall rule. ";
+                    FirewallRuleTO ruleTO = new FirewallRuleTO(rule, null,"",Purpose.Firewall, traffictype);
+                    rulesTO.add(ruleTO);
                 }
             }
         }
 
+
+        NetworkVO network = _networkDao.findById(guestNetworkId);
+        NetworkOfferingVO offering = _networkOfferingDao.findById(network.getNetworkOfferingId());
+        Boolean defaultEgressPolicy = offering.getEgressDefaultPolicy();
         SetFirewallRulesCommand cmd = new SetFirewallRulesCommand(rulesTO);
         cmd.setAccessDetail(NetworkElementCommand.ROUTER_IP, getRouterControlIp(router.getId()));
         cmd.setAccessDetail(NetworkElementCommand.ROUTER_GUEST_IP, getRouterIpInNetwork(guestNetworkId, router.getId()));
         cmd.setAccessDetail(NetworkElementCommand.ROUTER_NAME, router.getInstanceName());
         DataCenterVO dcVo = _dcDao.findById(router.getDataCenterId());
         cmd.setAccessDetail(NetworkElementCommand.ZONE_NETWORK_TYPE, dcVo.getNetworkType().toString());
+        if (systemRule != null) {
+            cmd.setAccessDetail(NetworkElementCommand.FIREWALL_EGRESS_DEFAULT, systemRule);
+        } else {
+            cmd.setAccessDetail(NetworkElementCommand.FIREWALL_EGRESS_DEFAULT, String.valueOf(defaultEgressPolicy));
+        }
+
         cmds.addCommand(cmd);
     }
 

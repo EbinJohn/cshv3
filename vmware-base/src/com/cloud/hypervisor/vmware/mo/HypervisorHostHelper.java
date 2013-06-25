@@ -438,6 +438,9 @@ public class HypervisorHostHelper {
         String dvSwitchName = null;
         boolean bWaitPortGroupReady = false;
         boolean createGCTag = false;
+        String vcApiVersion;
+        String minVcApiVersionSupportingAutoExpand;
+        boolean autoExpandSupported;
         String networkName;
         Integer vid = null;
         Integer spvlanid = null;  // secondary pvlan id
@@ -458,10 +461,13 @@ public class HypervisorHostHelper {
             VmwareDistributedVirtualSwitchPvlanSpec pvlanSpec = null;
             //VMwareDVSPvlanConfigSpec pvlanSpec = null;
             DVSSecurityPolicy secPolicy;
-            VMwareDVSPortSetting dvsPortSetting;
+            VMwareDVSPortSetting dvsPortSetting = null;
             DVPortgroupConfigSpec dvPortGroupSpec;
             DVPortgroupConfigInfo dvPortgroupInfo;
             //DVSConfigInfo dvsInfo;
+            vcApiVersion = getVcenterApiVersion(context);
+            minVcApiVersionSupportingAutoExpand = "5.0";
+            autoExpandSupported = isFeatureSupportedInVcenterApiVersion(vcApiVersion, minVcApiVersionSupportingAutoExpand);
 
             dvSwitchName = physicalNetwork;
             // TODO(sateesh): Remove this after ensuring proper default value for vSwitchName throughout traffic types
@@ -545,33 +551,24 @@ public class HypervisorHostHelper {
             }
 
             // Next, create the port group. For this, we need to create a VLAN spec.
-            if (vid == null) {
-                vlanSpec = createDVPortVlanSpec();
-            } else {
-                if (spvlanid == null) {
-                    // Create vlan spec.
-                    vlanSpec = createDVPortVlanIdSpec(vid);
-                } else {
-                    // Create a pvlan spec. The pvlan spec is different from the pvlan config spec
-                    // that we created earlier. The pvlan config spec is used to configure the switch
-                    // with a <primary vlanId, secondary vlanId> tuple. The pvlan spec is used
-                    // to configure a port group (i.e., a network) with a secondary vlan id. We don't
-                    // need to mention more than the secondary vlan id because one secondary vlan id
-                    // can be associated with only one primary vlan id. Give vCenter the secondary vlan id,
-                    // and it will find out the associated primary vlan id and do the rest of the
-                    // port group configuration.
-                    pvlanSpec = createDVPortPvlanIdSpec(spvlanid);
-            }
-            }
-
             // NOTE - VmwareDistributedVirtualSwitchPvlanSpec extends VmwareDistributedVirtualSwitchVlanSpec.
-            if (pvlanSpec != null) {
+            if (vid == null || spvlanid == null) {
+                vlanSpec = createDVPortVlanIdSpec(vid);
+                dvsPortSetting = createVmwareDVPortSettingSpec(shapingPolicy, secPolicy, vlanSpec);
+            } else if (spvlanid != null) {
+                // Create a pvlan spec. The pvlan spec is different from the pvlan config spec
+                // that we created earlier. The pvlan config spec is used to configure the switch
+                // with a <primary vlanId, secondary vlanId> tuple. The pvlan spec is used
+                // to configure a port group (i.e., a network) with a secondary vlan id. We don't
+                // need to mention more than the secondary vlan id because one secondary vlan id
+                // can be associated with only one primary vlan id. Give vCenter the secondary vlan id,
+                // and it will find out the associated primary vlan id and do the rest of the
+                // port group configuration.
+                pvlanSpec = createDVPortPvlanIdSpec(spvlanid);
                 dvsPortSetting = createVmwareDVPortSettingSpec(shapingPolicy, secPolicy, pvlanSpec);
-            } else {
-            dvsPortSetting = createVmwareDVPortSettingSpec(shapingPolicy, secPolicy, vlanSpec);
             }
 
-            dvPortGroupSpec = createDvPortGroupSpec(networkName, dvsPortSetting, numPorts);
+            dvPortGroupSpec = createDvPortGroupSpec(networkName, dvsPortSetting, numPorts, autoExpandSupported);
 
             if (!dataCenterMo.hasDvPortGroup(networkName)) {
                 s_logger.info("Distributed Virtual Port group " + networkName + " not found.");
@@ -656,6 +653,18 @@ public class HypervisorHostHelper {
         return new Pair<ManagedObjectReference, String>(morNetwork, networkName);
     }
 
+    public static String getVcenterApiVersion(VmwareContext serviceContext) throws Exception {
+        String vcApiVersion = null;
+        if (serviceContext != null) {
+            vcApiVersion = serviceContext.getServiceContent().getAbout().getApiVersion();
+        }
+        return vcApiVersion;
+    }
+
+    public static boolean isFeatureSupportedInVcenterApiVersion(String vCenterApiVersion, String minVcenterApiVersionForFeature) {
+        return vCenterApiVersion.compareTo(minVcenterApiVersionForFeature) >= 0 ? true : false;
+    }
+
     public static ManagedObjectReference waitForDvPortGroupReady(
 			DatacenterMO dataCenterMo, String dvPortGroupName, long timeOutMs) throws Exception {
 		ManagedObjectReference morDvPortGroup = null;
@@ -710,16 +719,14 @@ public class HypervisorHostHelper {
 		return true;
 	}
 
-    public static DVPortgroupConfigSpec createDvPortGroupSpec(String dvPortGroupName, DVPortSetting portSetting, int numPorts) {
+    public static DVPortgroupConfigSpec createDvPortGroupSpec(String dvPortGroupName, DVPortSetting portSetting, int numPorts, boolean autoExpandSupported) {
         DVPortgroupConfigSpec spec = new DVPortgroupConfigSpec();
         spec.setName(dvPortGroupName);
         spec.setDefaultPortConfig(portSetting);
         spec.setPortNameFormat("vnic<portIndex>");
         spec.setType("earlyBinding");
         spec.setNumPorts(numPorts);
-        // TODO(sateesh): Get vSphere API version and
-        // if >= 5.0 set autoExpand property of dvPortGroup config spec to true.
-        // spec.setAutoExpand(true);
+        spec.setAutoExpand(autoExpandSupported);
         return spec;
     }
 
@@ -788,15 +795,11 @@ public class HypervisorHostHelper {
         pvlanConfigSpec.setOperation(operation.toString());
         return pvlanConfigSpec;
     }
-    public static VmwareDistributedVirtualSwitchVlanIdSpec createDVPortVlanIdSpec(int vlanId) {
-        VmwareDistributedVirtualSwitchVlanIdSpec vlanIdSpec = new VmwareDistributedVirtualSwitchVlanIdSpec();
-        vlanIdSpec.setVlanId(vlanId);
-        return vlanIdSpec;
-    }
 
-    public static VmwareDistributedVirtualSwitchVlanSpec createDVPortVlanSpec() {
-        VmwareDistributedVirtualSwitchVlanSpec vlanSpec = new VmwareDistributedVirtualSwitchVlanSpec();
-        return vlanSpec;
+    public static VmwareDistributedVirtualSwitchVlanIdSpec createDVPortVlanIdSpec(Integer vlanId) {
+        VmwareDistributedVirtualSwitchVlanIdSpec vlanIdSpec = new VmwareDistributedVirtualSwitchVlanIdSpec();
+        vlanIdSpec.setVlanId(vlanId == null ? 0 : vlanId.intValue());
+        return vlanIdSpec;
     }
 
     public static DVSSecurityPolicy createDVSSecurityPolicy() {

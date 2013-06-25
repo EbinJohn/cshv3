@@ -1321,13 +1321,6 @@
                         }
                       },
 
-                      preFilter: function(args) { //Shared networks is only supported in Basic zone and Advanced zone with SG
-                          if(selectedZoneObj.networktype == "Advanced" && selectedZoneObj.securitygroupsenabled != true)
-                              return false;
-                          else
-                              return true;
-                      },
-
                       createForm: {
                         title: 'label.add.guest.network',  //Add guest network in advanced zone
 
@@ -5718,7 +5711,7 @@
                       title: 'Add VMware datacenter',
                       fields: {
                         name: { 
-                          label: 'label.name',
+                          label: 'DC Name',
                           validation: { required: true }
                         },
                         vcenter: { 
@@ -5727,12 +5720,12 @@
                         },
                         username: {
                           label: 'label.username',
-                          validation: { required: false }
+                          validation: { required: true }
                         },
                         password: {
                           label: 'label.password',
                           isPassword: true,
-                          validation: { required: false }
+                          validation: { required: true }
                         },
                       }
                     },                    
@@ -6852,49 +6845,82 @@
             secondaryStorage: function() {
               var listView = $.extend(
                 true, {},
-                cloudStack.sections.system.subsections['secondary-storage'].sections.secondaryStorage, {
-                  listView: {
-                    dataProvider: function (args) {
-                      var searchByArgs = args.filterBy.search.value.length ?
-                        '&name=' + args.filterBy.search.value : '';
+                cloudStack.sections.system.subsections['secondary-storage'], {
+                  sections: {
+                    secondaryStorage: {
+                      listView: {
+                        dataProvider: function (args) {                         
+                          var searchByArgs = args.filterBy.search.value.length ?
+                            '&name=' + args.filterBy.search.value : '';
 
-                      var data = {
-                        type: 'SecondaryStorage',
-                        page: args.page,
-                        pageSize: pageSize,
-                        listAll: true
-                      };
+                          var data = {
+                            type: 'SecondaryStorage',
+                            page: args.page,
+                            pageSize: pageSize,
+                            listAll: true
+                          };
 
-                      $.ajax({
-                        url: createURL('listImageStores' + searchByArgs),
-                        data: data,
-                        success: function (json) {
-                          args.response.success({ data: json.listimagestoreresponse.imagestore });
-                        },
-                        error: function (json) {
-                          args.response.error(parseXMLHttpResponse(json));
+                          $.ajax({
+                            url: createURL('listImageStores' + searchByArgs),
+                            data: data,
+                            success: function (json) {
+                              args.response.success({ data: json.listimagestoreresponse.imagestore });
+                            },
+                            error: function (json) {
+                              args.response.error(parseXMLHttpResponse(json));
+                            }
+                          });
                         }
-                      });
-                    },
-                    detailView: {
-                      updateContext: function (args) {
-                        var zone;
-
-                        $.ajax({
-                          url: createURL('listZones'),
-                          data: { id: args.context.secondarystorages[0].zoneid },
-                          async: false,
-                          success: function (json) {
-                            zone = json.listzonesresponse.zone[0];
+                
+                        /*
+                        ,
+                        detailView: {
+                          updateContext: function (args) {                            
+                            return {
+                              zones: [{}]
+                            };
+                            
                           }
-                        });
+                        }
+                        */
+                
+                      }                      
+                    },
+                    cacheStorage: {
+                      listView: {
+                        dataProvider: function (args) {                        
+                          var searchByArgs = args.filterBy.search.value.length ?
+                            '&name=' + args.filterBy.search.value : '';
 
-                        selectedZoneObj = zone;
+                          var data = {                            
+                            page: args.page,
+                            pageSize: pageSize
+                          };
 
-                        return {
-                          zones: [zone]
-                        };
-                      }
+                          $.ajax({
+                            url: createURL('listCacheStores' + searchByArgs),
+                            data: data,
+                            success: function (json) {
+                              args.response.success({ data: json.listcachestoreresponse.imagestore });
+                            },
+                            error: function (json) {
+                              args.response.error(parseXMLHttpResponse(json));
+                            }
+                          });
+                        }
+                    
+                        /*
+                        ,
+                        detailView: {
+                          updateContext: function (args) {                            
+                            return {
+                              zones: [{}]
+                            };
+                          }
+                        }
+                        */
+                    
+                      }                      
                     }
                   }
                 }
@@ -9627,18 +9653,14 @@
 
                 dataProvider: function(args) {								  
                 
-									$.ajax({
-										url: createURL("listPods&id=" + args.context.pods[0].id),
-										dataType: "json",
-                                                                                async: false,
-										success: function(json) {										  
-											var item = json.listpodsresponse.pod[0];
+                                                                        $.ajax({
+                                                                                url: createURL("listPods&id=" + args.context.pods[0].id),
+                                                                                success: function(json) {
+                                                                                     var  item = json.listpodsresponse.pod[0];
 
 
                                                                                        $.ajax({
                                                     url:createURL("listDedicatedPods&podid=" +args.context.pods[0].id),
-                                                    dataType:"json",
-                                                    async:false,
                                                     success:function(json){
                                                          if(json.listdedicatedpodsresponse.dedicatedpod != undefined){
                                                             var podItem = json.listdedicatedpodsresponse.dedicatedpod[0];
@@ -9647,17 +9669,22 @@
                                                         }
                                                     }
                                                       else
-                                                         $.extend(item ,{ isdedicated: 'No' })
+                                                         $.extend(item ,{ isdedicated: 'No' });
+
+                                                    args.response.success({
+                                                      actionFilter: podActionfilter,
+                                                      data: item
+                                                    });
                                                  },
                                                  error:function(json){
                                                      args.response.error(parseXMLHttpResponse(XMLHttpResponse));
 
                                                  }
                                            });
-                                             args.response.success({
-                                                actionFilter: podActionfilter,
-                                                data: item
-                                            });
+                                            //  args.response.success({
+                                            //     actionFilter: podActionfilter,
+                                            //     data: item
+                                            // });
 
                                          }
                                                                         });
@@ -10231,44 +10258,43 @@
                     var item = json.addclusterresponse.cluster[0];
                     clusterId= json.addclusterresponse.cluster[0].id;
                   
-                  //EXPLICIT DEDICATION
-                if(args.$form.find('.form-item[rel=isDedicated]').find('input[type=checkbox]').is(':Checked')== true){
-                      var array2 = [];
+                    //EXPLICIT DEDICATION
+                    var array2 = [];
+                    if(args.$form.find('.form-item[rel=isDedicated]').find('input[type=checkbox]').is(':Checked')== true){
                       if(args.data.accountId != "")
                         array2.push("&account=" +todb(args.data.accountId));
-                    }
+                    
 
                     if(clusterId != null){
                       $.ajax({
-                         url:createURL("dedicateCluster&clusterId=" +clusterId +"&domainId=" +args.data.domainId + array2.join("")),
-                         dataType:"json",
-                         success:function(json){
-                             var jid = json.dedicateclusterresponse.jobid;
-                    args.response.success({
-                                 _custom:
-                                   {      jobId: jid
-                                    },
-                                  notification: {
-                                    poll: pollAsyncJobResult
-                                    },
+                        url:createURL("dedicateCluster&clusterId=" +clusterId +"&domainId=" +args.data.domainId + array2.join("")),
+                        dataType:"json",
+                        success:function(json){
+                          var jid = json.dedicateclusterresponse.jobid;
+                          args.response.success({
+                            _custom:
+                            {      jobId: jid
+                            },
+                            notification: {
+                              poll: pollAsyncJobResult
+                            },
 
-                                  data:$.extend(item, {state:'Enabled'})
-										});
+                            data:$.extend(item, {state:'Enabled'})
+										      });
 
-                         },
+                        },
 
-                         error:function(json){
-                           args.response.error(parseXMLHttpResponse(XMLHttpResponse));
-                         }
-                       });
+                        error:function(json){
+                          args.response.error(parseXMLHttpResponse(XMLHttpResponse));
+                        }
+                      });
+                    }
                    }
                   },
                   error: function(XMLHttpResponse) {
                     var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
                     args.response.error(errorMsg);
                   }
-
-
                 });
               },
 
@@ -11330,42 +11356,44 @@
 									data: data,
                   success: function(json) {
                     var item = json.addhostresponse.host[0];
+                    
                     hostId = json.addhostresponse.host[0].id;
 
+                    //EXPLICIT DEDICATION
+                    var array2 = [];
 
-                       //EXPLICIT DEDICATION
-                if(args.$form.find('.form-item[rel=isDedicated]').find('input[type=checkbox]').is(':Checked')== true){
-                      var array2 = [];
+                    if(args.$form.find('.form-item[rel=isDedicated]').find('input[type=checkbox]').is(':Checked')== true){
                       if(args.data.accountId != "")
                         array2.push("&account=" +todb(args.data.accountId));
-                    }
+                    
 
                     if(hostId != null){
                       $.ajax({
                          url:createURL("dedicateHost&hostId=" +hostId +"&domainId=" +args.data.domainId + array2.join("")),
                          dataType:"json",
                          success:function(json){
-                             var jid = json.dedicatehostresponse.host.jobid;
-                    args.response.success({
+                             var jid = json.dedicatehostresponse.jobid;
+                              args.response.success({
                                  _custom:
                            {      jobId: jid
                              },
                             notification: {
-                                 poll: pollAsyncJobResult
-                              },
+                              poll: pollAsyncJobResult
+                            },
 
-                             data:item
+                            data:item
 
-                    });
+                          });
 
+                        },
+
+                        error:function(json){
+                          args.response.error(parseXMLHttpResponse(XMLHttpResponse));
+                        }
+                      });
+                    }
+                  }
                   },
-
-                         error:function(json){
-                           args.response.error(parseXMLHttpResponse(XMLHttpResponse));
-                         }
-                       });
-                   }
-                 },
 
                   error: function(XMLHttpResponse) {
                     var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -12822,7 +12850,7 @@
         title: 'label.secondary.storage',
         id: 'secondarystorages',
         sectionSelect: {
-          label: 'label.select.view'
+          label: 'label.select-view'
         },
         sections: {
           secondaryStorage: {
@@ -12837,7 +12865,8 @@
                 providername: { label: 'Provider' }
               },
 
-              dataProvider: function(args) {
+              /*
+              dataProvider: function(args) { //being replaced with dataProvider in line 6852
                 var array1 = [];
                 if(args.filterBy != null) {
                   if(args.filterBy.search != null && args.filterBy.search.by != null && args.filterBy.search.value != null) {
@@ -12864,6 +12893,7 @@
                   }
                 });
               },
+              */
 
               actions: {
                 add: {
@@ -13290,7 +13320,7 @@
                     },
                     action: function(args) {
                       $.ajax({
-                        url: createURL("deleteImageStore&id=" + args.context.secondarystorages[0].id),
+                        url: createURL("deleteImageStore&id=" + args.context.secondaryStorage[0].id),
                         dataType: "json",
                         async: true,
                         success: function(json) {
@@ -13335,9 +13365,9 @@
                       }
                     ],
 
-                    dataProvider: function(args) {
+                    dataProvider: function(args) {                      
                       $.ajax({
-                        url: createURL("listImageStores&id=" + args.context.secondarystorages[0].id),
+                        url: createURL("listImageStores&id=" + args.context.secondaryStorage[0].id),
                         dataType: "json",
                         async: true,
                         success: function(json) {
@@ -13375,9 +13405,9 @@
               }
             }
           },
-          imageStores: {
+          cacheStorage: {
             type: 'select',
-            title: 'Image stores',
+            title: 'Cache Storage',
             listView: {
               id: 'secondarystorages',
               section: 'seconary-storage',
@@ -13387,7 +13417,8 @@
                 providername: { label: 'Provider' }
               },
 
-              dataProvider: function(args) {
+              /*
+              dataProvider: function(args) {  //being replaced with dataProvider in line 6898              
                 var array1 = [];
                 if(args.filterBy != null) {
                   if(args.filterBy.search != null && args.filterBy.search.by != null && args.filterBy.search.value != null) {
@@ -13414,139 +13445,16 @@
                   }
                 });
               },
+              */
 
               actions: {
                 add: {
-                  label: 'label.add.secondary.storage',
-
+                  label: 'Add NFS Cache Storage',
                   createForm: {
-                    title: 'label.add.secondary.storage',
-
-                    fields: {
-                      name: { label: 'label.name' },
-                      provider: {
-                        label: 'Provider',
-                        select: function(args){
-                          $.ajax({
-                            url: createURL('listStorageProviders'),
-                            data: {
-                              type: 'image'
-                            },
-                            success: function(json){
-                              var objs = json.liststorageprovidersresponse.dataStoreProvider;
-                              var items = [];
-                              if(objs != null) {
-                                for(var i = 0; i < objs.length; i++){
-                                  if(objs[i].name == 'NFS')
-                                    items.unshift({id: objs[i].name, description: objs[i].name});
-                                  else
-                                    items.push({id: objs[i].name, description: objs[i].name});
-                                }
-                              }
-                              args.response.success({
-                                data: items
-                              });
-
-                              args.$select.change(function() {
-                                var $form = $(this).closest('form');
-                                if($(this).val() == "NFS") {
-                                  //NFS
-                                  $form.find('.form-item[rel=zoneid]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=nfsServer]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=path]').css('display', 'inline-block');
-
-                                  //S3
-                                  $form.find('.form-item[rel=accesskey]').hide();
-                                  $form.find('.form-item[rel=secretkey]').hide();
-                                  $form.find('.form-item[rel=bucket]').hide();
-                                  $form.find('.form-item[rel=endpoint]').hide();
-                                  $form.find('.form-item[rel=usehttps]').hide();
-                                  $form.find('.form-item[rel=connectiontimeout]').hide();
-                                  $form.find('.form-item[rel=maxerrorretry]').hide();
-                                  $form.find('.form-item[rel=sockettimeout]').hide();
-
-                                  $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
-                                  $form.find('.form-item[rel=createNfsCache]').hide();
-                                  $form.find('.form-item[rel=nfsCacheZoneid]').hide();
-                                  $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
-                                  $form.find('.form-item[rel=nfsCachePath]').hide();
-
-                                  //Swift
-                                  $form.find('.form-item[rel=url]').hide();
-                                  $form.find('.form-item[rel=account]').hide();
-                                  $form.find('.form-item[rel=username]').hide();
-                                  $form.find('.form-item[rel=key]').hide();
-                                }
-                                else if ($(this).val() == "S3") {
-                                  //NFS
-                                  $form.find('.form-item[rel=zoneid]').hide();
-                                  $form.find('.form-item[rel=nfsServer]').hide();
-                                  $form.find('.form-item[rel=path]').hide();
-
-                                  //S3
-                                  $form.find('.form-item[rel=accesskey]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=secretkey]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=bucket]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=endpoint]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=usehttps]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=connectiontimeout]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=maxerrorretry]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=sockettimeout]').css('display', 'inline-block');
-
-                                  $form.find('.form-item[rel=createNfsCache]').find('input').attr('checked','checked');
-                                  $form.find('.form-item[rel=createNfsCache]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=nfsCacheZoneid]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=nfsCacheNfsServer]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=nfsCachePath]').css('display', 'inline-block');
-
-
-                                  //Swift
-                                  $form.find('.form-item[rel=url]').hide();
-                                  $form.find('.form-item[rel=account]').hide();
-                                  $form.find('.form-item[rel=username]').hide();
-                                  $form.find('.form-item[rel=key]').hide();
-                                }
-                                else if($(this).val() == "Swift") {
-                                  //NFS
-                                  $form.find('.form-item[rel=zoneid]').hide();
-                                  $form.find('.form-item[rel=nfsServer]').hide();
-                                  $form.find('.form-item[rel=path]').hide();
-
-                                  //S3
-                                  $form.find('.form-item[rel=accesskey]').hide();
-                                  $form.find('.form-item[rel=secretkey]').hide();
-                                  $form.find('.form-item[rel=bucket]').hide();
-                                  $form.find('.form-item[rel=endpoint]').hide();
-                                  $form.find('.form-item[rel=usehttps]').hide();
-                                  $form.find('.form-item[rel=connectiontimeout]').hide();
-                                  $form.find('.form-item[rel=maxerrorretry]').hide();
-                                  $form.find('.form-item[rel=sockettimeout]').hide();
-
-                                  $form.find('.form-item[rel=createNfsCache]').find('input').removeAttr('checked');
-                                  $form.find('.form-item[rel=createNfsCache]').hide();
-                                  $form.find('.form-item[rel=nfsCacheZoneid]').hide();
-                                  $form.find('.form-item[rel=nfsCacheNfsServer]').hide();
-                                  $form.find('.form-item[rel=nfsCachePath]').hide();
-
-                                  //Swift
-                                  $form.find('.form-item[rel=url]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=account]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=username]').css('display', 'inline-block');
-                                  $form.find('.form-item[rel=key]').css('display', 'inline-block');
-                                }
-                              });
-
-                              args.$select.change();
-                            }
-                          });
-                        }
-                      },
-
-
-                      //NFS (begin)
+                    title: 'Add NFS Cache Storage',
+                    fields: {     
                       zoneid: {
-                        label: 'Zone',
-                        docID: 'helpSecondaryStorageZone',
+                        label: 'Zone',                        
                         validation: { required: true },
                         select: function(args) {
                           $.ajax({
@@ -13575,285 +13483,49 @@
                         }
                       },
                       nfsServer: {
-                        label: 'label.nfs.server',
-                        docID: 'helpSecondaryStorageNFSServer',
+                        label: 'label.nfs.server',                        
                         validation: { required: true }
                       },
                       path: {
-                        label: 'label.path',
-                        docID: 'helpSecondaryStoragePath',
+                        label: 'label.path',                        
                         validation: { required: true }
-                      },
-                      //NFS (end)
-
-
-                      //S3 (begin)
-                      accesskey: { label: 'label.s3.access_key', validation: { required: true } },
-                      secretkey: { label: 'label.s3.secret_key', validation: { required: true} },
-                      bucket: { label: 'label.s3.bucket', validation: { required: true} },
-                      endpoint: { label: 'label.s3.endpoint' },
-                      usehttps: {
-                        label: 'label.s3.use_https',
-                        isEditable: true,
-                        isBoolean: true,
-                        isChecked: true,
-                        converter:cloudStack.converters.toBooleanText
-                      },
-                      connectiontimeout: { label: 'label.s3.connection_timeout' },
-                      maxerrorretry: { label: 'label.s3.max_error_retry' },
-                      sockettimeout: { label: 'label.s3.socket_timeout' },
-
-                      createNfsCache: {
-                        label: 'Create NFS Cache Storage',
-                        isBoolean: true,
-                        isChecked: true
-                      },
-                      nfsCacheZoneid: {
-                        dependsOn: 'createNfsCache',
-                        label: 'Zone',
-                        validation: { required: true },
-                        select: function(args) {
-                          $.ajax({
-                            url: createURL('listZones'),
-                            data: {
-                              listAll: true
-                            },
-                            success: function(json) {
-                              var zones = json.listzonesresponse.zone;
-
-                              if(zones != null){ //$.map(items, fn) - items can not be null
-                                args.response.success({
-                                  data: $.map(zones, function(zone) {
-                                    return {
-                                      id: zone.id,
-                                      description: zone.name
-                                    };
-                                  })
-                                });
-                              }
-                              else {
-                                args.response.success({data: null});
-                              }
-                            }
-                          });
-                        }
-                      },
-                      nfsCacheNfsServer: {
-                        dependsOn: 'createNfsCache',
-                        label: 'label.nfs.server',
-                        validation: { required: true }
-                      },
-                      nfsCachePath: {
-                        dependsOn: 'createNfsCache',
-                        label: 'label.path',
-                        validation: { required: true }
-                      },
-                      //S3 (end)
-
-
-                      //Swift (begin)
-                      url: { label: 'label.url', validation: { required: true } },
-                      account: { label: 'label.account' },
-                      username: { label: 'label.username' },
-                      key: { label: 'label.key' }
-                      //Swift (end)
+                      }                      
                     }
                   },
-
-                  action: function(args) {
-                    var data = {};
-                    if(args.data.name != null && args.data.name.length > 0) {
-                      $.extend(data, {
-                        name: args.data.name
-                      });
-                    }
-
-                    if(args.data.provider == 'NFS') {
-                      var zoneid = args.data.zoneid;
-                      var nfs_server = args.data.nfsServer;
-                      var path = args.data.path;
-                      var url = nfsURL(nfs_server, path);
-
-                      $.extend(data, {
-                        provider: args.data.provider,
-                        zoneid: zoneid,
-                        url: url
-                      });
-
-                      $.ajax({
-                        url: createURL('addImageStore'),
-                        data: data,
-                        success: function(json) {
-                          var item = json.addimagestoreresponse.secondarystorage;
-                          args.response.success({
-                            data:item
-                          });
-                        },
-                        error: function(XMLHttpResponse) {
-                          var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
-                          args.response.error(errorMsg);
-                        }
-                      });
-                    }
-                    else if(args.data.provider == 'S3') {
-                      $.extend(data, {
-                        provider: args.data.provider,
-                        'details[0].key': 'accesskey',
-                        'details[0].value': args.data.accesskey,
-                        'details[1].key': 'secretkey',
-                        'details[1].value': args.data.secretkey,
-                        'details[2].key': 'bucket',
-                        'details[2].value': args.data.bucket,
-                        'details[3].key': 'usehttps',
-                        'details[3].value': (args.data.usehttps != null && args.data.usehttps == 'on' ? 'true' : 'false')
-                      });
-
-                      var index = 4;
-                      if(args.data.endpoint != null && args.data.endpoint.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'endpoint';
-                        data['details[' + index.toString() + '].value'] = args.data.endpoint;
-                        index++;
+                  action: function(args) {                       
+                    var data = {
+                      provider: 'NFS',
+                      zoneid: args.data.zoneid,
+                      url: nfsURL(args.data.nfsServer, args.data.path)
+                    };
+                    $.ajax({
+                      url: createURL('createCacheStore'),
+                      data: data,
+                      success: function(json) {                  
+                        var item = json.createcachestoreresponse.secondarystorage;
+                        args.response.success({ data: item });                        
+                      },
+                      error: function(json) {
+                        args.response.error(parseXMLHttpResponse(json));
                       }
-                      if(args.data.connectiontimeout != null && args.data.connectiontimeout.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'connectiontimeout';
-                        data['details[' + index.toString() + '].value'] = args.data.connectiontimeout;
-                        index++;
-                      }
-                      if(args.data.maxerrorretry != null && args.data.maxerrorretry.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'maxerrorretry';
-                        data['details[' + index.toString() + '].value'] = args.data.maxerrorretry;
-                        index++;
-                      }
-                      if(args.data.sockettimeout != null && args.data.sockettimeout.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'sockettimeout';
-                        data['details[' + index.toString() + '].value'] = args.data.sockettimeout;
-                        index++;
-                      }
-
-                      $.ajax({
-                        url: createURL('addImageStore'),
-                        data: data,
-                        success: function(json) {
-                          havingS3 = true;
-                          var item = json.addimagestoreresponse.secondarystorage;
-                          args.response.success({
-                            data:item
-                          });
-                        },
-                        error: function(json) {
-                          args.response.error(parseXMLHttpResponse(json));
-                        }
-                      });
-
-                      if(args.data.createNfsCache == 'on') {
-                        var zoneid = args.data.nfsCacheZoneid;
-                        var nfs_server = args.data.nfsCacheNfsServer;
-                        var path = args.data.nfsCachePath;
-                        var url = nfsURL(nfs_server, path);
-
-                        var nfsCacheData = {
-                          provider: 'NFS',
-                          zoneid: zoneid,
-                          url: url
-                        };
-
-                        $.ajax({
-                          url: createURL('createCacheStore'),
-                          data: nfsCacheData,
-                          success: function(json) {
-                            //do nothing
-                          },
-                          error: function(json) {
-                            args.response.error(parseXMLHttpResponse(json));
-                          }
-                        });
-                      }
-                    }
-                    else if(args.data.provider == 'Swift') {
-                      $.extend(data, {
-                        provider: args.data.provider,
-                        url: args.data.url
-                      });
-
-                      var index = 0;
-                      if(args.data.account != null && args.data.account.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'account';
-                        data['details[' + index.toString() + '].value'] = args.data.account;
-                        index++;
-                      }
-                      if(args.data.username != null && args.data.username.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'username';
-                        data['details[' + index.toString() + '].value'] = args.data.username;
-                        index++;
-                      }
-                      if(args.data.key != null && args.data.key.length > 0){
-                        data['details[' + index.toString() + '].key'] = 'key';
-                        data['details[' + index.toString() + '].value'] = args.data.key;
-                        index++;
-                      }
-                      $.ajax({
-                        url: createURL('addImageStore'),
-                        data: data,
-                        success: function(json) {
-                          havingSwift = true;
-                          var item = json.addimagestoreresponse.secondarystorage;
-                          args.response.success({
-                            data:item
-                          });
-                        },
-                        error: function(json) {
-                          args.response.error(parseXMLHttpResponse(json));
-                        }
-                      });
-                    }
+                    });               
                   },
-
                   notification: {
                     poll: function(args) {
-                      args.complete({
-                        actionFilter: secondarystorageActionfilter
-                      });
+                      args.complete();
                     }
                   },
-
                   messages: {
                     notification: function(args) {
-                      return 'label.add.secondary.storage';
+                      return 'Add NFS Cache Storage';
                     }
                   }
                 }
               },
 
               detailView: {
-                name: 'Secondary storage details',
-                isMaximized: true,
-                actions: {
-                  remove: {
-                    label: 'label.action.delete.secondary.storage' ,
-                    messages: {
-                      confirm: function(args) {
-                        return 'message.action.delete.secondary.storage';
-                      },
-                      notification: function(args) {
-                        return 'label.action.delete.secondary.storage';
-                      }
-                    },
-                    action: function(args) {
-                      $.ajax({
-                        url: createURL("deleteImageStore&id=" + args.context.secondarystorages[0].id),
-                        dataType: "json",
-                        async: true,
-                        success: function(json) {
-                          args.response.success();
-                        }
-                      });
-                    },
-                    notification: {
-                      poll: function(args) { args.complete({ data: { resourcestate: 'Destroyed' } }); }
-                    }
-                  }
-
-                },
+                name: 'Cache Storage details',
+                isMaximized: true,                
                 tabs: {
                   details: {
                     title: 'label.details',
@@ -13885,19 +13557,19 @@
                       }
                     ],
 
-                    dataProvider: function(args) {
+                    dataProvider: function(args) {                                
                       $.ajax({
-                        url: createURL("listImageStores&id=" + args.context.secondarystorages[0].id),
-                        dataType: "json",
-                        async: true,
-                        success: function(json) {
-                          var item = json.listimagestoreresponse.imagestore[0];
-                          args.response.success({
-                            actionFilter: secondarystorageActionfilter,
-                            data:item
-                          });
+                        url: createURL('listCacheStores'),
+                        data: { 
+                          id: args.context.cacheStorage[0].id
+                        },
+                        async: false,
+                        success: function (json) {                          
+                          var item = json.listcachestoreresponse.imagestore[0];                          
+                          args.response.success({ data: item });
+                          
                         }
-                      });
+                      });                      
                     }
                   }
 
@@ -13958,6 +13630,8 @@
               createForm: {
                 title: 'label.add.ip.range',
                 fields: {
+                  gateway: { label: 'label.gateway' },
+                  netmask: { label: 'label.netmask' },
                   startipv4: { label: 'IPv4 Start IP' },
                   endipv4: { label: 'IPv4 End IP' },
                   startipv6: { label: 'IPv6 Start IP' },
@@ -13966,6 +13640,12 @@
               },
               action: function(args) {
                 var array2 = [];
+                
+                if(args.data.gateway != null && args.data.gateway.length > 0)
+                  array2.push("&gateway=" + args.data.gateway);   
+                if(args.data.netmask != null && args.data.netmask.length > 0)
+                  array2.push("&netmask=" + args.data.netmask); 
+                
                 if(args.data.startipv4 != null && args.data.startipv4.length > 0)
                   array2.push("&startip=" + args.data.startipv4);                
                 if(args.data.endipv4 != null && args.data.endipv4.length > 0)

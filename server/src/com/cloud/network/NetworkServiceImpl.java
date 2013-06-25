@@ -1298,8 +1298,12 @@ public class NetworkServiceImpl extends ManagerBase implements  NetworkService {
                     throw new InvalidParameterValueException("Unable to find specified NetworkACL");
                 }
 
-                if(!vpcId.equals(acl.getVpcId())){
-                    throw new InvalidParameterValueException("ACL: "+aclId+" do not belong to the VPC");
+                if(aclId != NetworkACL.DEFAULT_DENY && aclId != NetworkACL.DEFAULT_ALLOW) {
+                    //ACL is not default DENY/ALLOW
+                    // ACL should be associated with a VPC
+                    if(!vpcId.equals(acl.getVpcId())){
+                        throw new InvalidParameterValueException("ACL: "+aclId+" do not belong to the VPC");
+                    }
                 }
             }
             network = _vpcMgr.createVpcGuestNetwork(networkOfferingId, name, displayText, gateway, cidr, vlanId, 
@@ -2493,11 +2497,11 @@ public class NetworkServiceImpl extends ManagerBase implements  NetworkService {
             addDefaultVpcVirtualRouterToPhysicalNetwork(pNetwork.getId());
 
             // add baremetal as the defualt network service provider
-            /* addDefaultBaremetalProvidersToPhysicalNetwork(pNetwork.getId()); */
-            
+            addDefaultBaremetalProvidersToPhysicalNetwork(pNetwork.getId());
+
             //Add Internal Load Balancer element as a default network service provider
             addDefaultInternalLbProviderToPhysicalNetwork(pNetwork.getId());
-            
+
             txn.commit();
             return pNetwork;
         } catch (Exception ex) {
@@ -2978,7 +2982,7 @@ public class NetworkServiceImpl extends ManagerBase implements  NetworkService {
         PhysicalNetworkVO physicalNetwork = _physicalNetworkDao.findById(physicalNetworkId);
         if (physicalNetwork == null ) {
             throw new InvalidParameterValueException("Unable to find physical network by id " + physicalNetworkId);
-        } else if (physicalNetwork.getIsolationMethods() == null || !physicalNetwork.getIsolationMethods().contains("VLAN")) {
+        } else if (!physicalNetwork.getIsolationMethods().isEmpty() && !physicalNetwork.getIsolationMethods().contains("VLAN")) {
             throw new InvalidParameterValueException("Cannot dedicate guest vlan range. " +
                     "Physical isolation type of network " + physicalNetworkId + " is not VLAN");
         }
@@ -3776,12 +3780,9 @@ public class NetworkServiceImpl extends ManagerBase implements  NetworkService {
         DataCenterVO dvo = _dcDao.findById(pvo.getDataCenterId());
         if (dvo.getNetworkType() == NetworkType.Basic) {
 
-        	// Baremetal is currently disabled
-/*
             addProviderToPhysicalNetwork(physicalNetworkId, "BaremetalDhcpProvider", null, null);
             addProviderToPhysicalNetwork(physicalNetworkId, "BaremetalPxeProvider", null, null);
-            addProviderToPhysicalNetwork(physicalNetworkId, "BaremetaUserdataProvider", null, null);
-*/
+            addProviderToPhysicalNetwork(physicalNetworkId, "BaremetalUserdataProvider", null, null);
         }
         return null;
     }

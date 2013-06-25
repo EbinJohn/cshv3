@@ -35,6 +35,7 @@ import org.apache.cloudstack.api.BaseListProjectAndAccountResourcesCmd;
 import org.apache.cloudstack.api.command.admin.host.ListHostsCmd;
 import org.apache.cloudstack.api.command.admin.internallb.ListInternalLBVMsCmd;
 import org.apache.cloudstack.api.command.admin.router.ListRoutersCmd;
+import org.apache.cloudstack.api.command.admin.storage.ListCacheStoresCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListImageStoresCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListStoragePoolsCmd;
 import org.apache.cloudstack.api.command.admin.user.ListUsersCmd;
@@ -132,6 +133,7 @@ import com.cloud.server.TaggedResourceService;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.Storage.TemplateType;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.template.VirtualMachineTemplate.TemplateFilter;
@@ -289,7 +291,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see
      * com.cloud.api.query.QueryService#searchForUsers(org.apache.cloudstack
      * .api.command.admin.user.ListUsersCmd)
@@ -499,7 +501,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
              * calMin.add(Calendar.SECOND, -entryTime);
              * calMax.add(Calendar.SECOND, -duration); Date minTime =
              * calMin.getTime(); Date maxTime = calMax.getTime();
-             * 
+             *
              * sc.setParameters("state", com.cloud.event.Event.State.Completed);
              * sc.setParameters("startId", 0); sc.setParameters("createDate",
              * minTime, maxTime); List<EventJoinVO> startedEvents =
@@ -770,14 +772,6 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
             sb.and("instanceGroupId", sb.entity().getInstanceGroupId(), SearchCriteria.Op.EQ);
         }
 
-        if (tags != null && !tags.isEmpty()) {
-            for (int count = 0; count < tags.size(); count++) {
-                sb.or().op("key" + String.valueOf(count), sb.entity().getTagKey(), SearchCriteria.Op.EQ);
-                sb.and("value" + String.valueOf(count), sb.entity().getTagValue(), SearchCriteria.Op.EQ);
-                sb.cp();
-            }
-        }
-
         if (networkId != null) {
             sb.and("networkId", sb.entity().getNetworkId(), SearchCriteria.Op.EQ);
         }
@@ -802,12 +796,14 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
                 listProjectResourcesCriteria);
 
         if (tags != null && !tags.isEmpty()) {
-            int count = 0;
+            SearchCriteria<UserVmJoinVO> tagSc = _userVmJoinDao.createSearchCriteria();
             for (String key : tags.keySet()) {
-                sc.setParameters("key" + String.valueOf(count), key);
-                sc.setParameters("value" + String.valueOf(count), tags.get(key));
-                count++;
+                SearchCriteria<UserVmJoinVO> tsc = _userVmJoinDao.createSearchCriteria();
+                tsc.addAnd("tagKey", SearchCriteria.Op.EQ, key);
+                tsc.addAnd("tagValue", SearchCriteria.Op.EQ, tags.get(key));
+                tagSc.addOr("tagKey", SearchCriteria.Op.SC, tsc);
             }
+            sc.addAnd("tagKey", SearchCriteria.Op.SC, tagSc);
         }
 
         if (groupId != null && (Long) groupId != -1) {
@@ -962,13 +958,6 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
         sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
         sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
 
-        if (tags != null && !tags.isEmpty()) {
-            for (int count = 0; count < tags.size(); count++) {
-                sb.or().op("key" + String.valueOf(count), sb.entity().getTagKey(), SearchCriteria.Op.EQ);
-                sb.and("value" + String.valueOf(count), sb.entity().getTagValue(), SearchCriteria.Op.EQ);
-                sb.cp();
-            }
-        }
 
         SearchCriteria<SecurityGroupJoinVO> sc = sb.create();
         _accountMgr.buildACLViewSearchCriteria(sc, domainId, isRecursive, permittedAccounts,
@@ -979,12 +968,14 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
         }
 
         if (tags != null && !tags.isEmpty()) {
-            int count = 0;
+            SearchCriteria<SecurityGroupJoinVO> tagSc = _securityGroupJoinDao.createSearchCriteria();
             for (String key : tags.keySet()) {
-                sc.setParameters("key" + String.valueOf(count), key);
-                sc.setParameters("value" + String.valueOf(count), tags.get(key));
-                count++;
+                SearchCriteria<SecurityGroupJoinVO> tsc = _securityGroupJoinDao.createSearchCriteria();
+                tsc.addAnd("tagKey", SearchCriteria.Op.EQ, key);
+                tsc.addAnd("tagValue", SearchCriteria.Op.EQ, tags.get(key));
+                tagSc.addOr("tagKey", SearchCriteria.Op.SC, tsc);
             }
+            sc.addAnd("tagKey", SearchCriteria.Op.SC, tagSc);
         }
 
         if (securityGroup != null) {
@@ -1062,7 +1053,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
 
     private Pair<List<DomainRouterJoinVO>, Integer> searchForRoutersInternal(BaseListProjectAndAccountResourcesCmd cmd, Long id,
             String name, String state, Long zoneId, Long podId, Long hostId, String keyword, Long networkId, Long vpcId, Boolean forVpc, String role) {
-       
+
         Account caller = UserContext.current().getCaller();
         List<Long> permittedAccounts = new ArrayList<Long>();
 
@@ -1086,7 +1077,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
         _accountMgr.buildACLViewSearchBuilder(sb, domainId, isRecursive, permittedAccounts,
                 listProjectResourcesCriteria);
 
-        sb.and("name", sb.entity().getHostName(), SearchCriteria.Op.LIKE);
+        sb.and("name", sb.entity().getInstanceName(), SearchCriteria.Op.LIKE);
         sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
         sb.and("accountId", sb.entity().getAccountId(), SearchCriteria.Op.IN);
         sb.and("state", sb.entity().getState(), SearchCriteria.Op.EQ);
@@ -1259,13 +1250,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
             sb.and("accountId", sb.entity().getAccountId(), SearchCriteria.Op.EQ);
         }
 
-        if (tags != null && !tags.isEmpty()) {
-            for (int count = 0; count < tags.size(); count++) {
-                sb.or().op("key" + String.valueOf(count), sb.entity().getTagKey(), SearchCriteria.Op.EQ);
-                sb.and("value" + String.valueOf(count), sb.entity().getTagValue(), SearchCriteria.Op.EQ);
-                sb.cp();
-            }
-        }
+
 
         SearchCriteria<ProjectJoinVO> sc = sb.create();
 
@@ -1304,14 +1289,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
             sc.setParameters("domainPath", path);
         }
 
-        if (tags != null && !tags.isEmpty()) {
-            int count = 0;
-            for (String key : tags.keySet()) {
-                sc.setParameters("key" + String.valueOf(count), key);
-                sc.setParameters("value" + String.valueOf(count), tags.get(key));
-                count++;
-            }
-        }
+
 
         // search distinct projects to get count
         Pair<List<ProjectJoinVO>, Integer> uniquePrjPair = _projectJoinDao.searchAndCount(sc, searchFilter);
@@ -1643,13 +1621,6 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
         sb.or("nulltype", sb.entity().getVmType(), SearchCriteria.Op.NULL);
         sb.cp();
 
-        if (tags != null && !tags.isEmpty()) {
-            for (int count = 0; count < tags.size(); count++) {
-                sb.or().op("key" + String.valueOf(count), sb.entity().getTagKey(), SearchCriteria.Op.EQ);
-                sb.and("value" + String.valueOf(count), sb.entity().getTagValue(), SearchCriteria.Op.EQ);
-                sb.cp();
-            }
-        }
 
         // now set the SC criteria...
         SearchCriteria<VolumeJoinVO> sc = sb.create();
@@ -1671,12 +1642,14 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
         sc.setParameters("systemUse", 1);
 
         if (tags != null && !tags.isEmpty()) {
-            int count = 0;
+            SearchCriteria<VolumeJoinVO> tagSc = _volumeJoinDao.createSearchCriteria();
             for (String key : tags.keySet()) {
-                sc.setParameters("key" + String.valueOf(count), key);
-                sc.setParameters("value" + String.valueOf(count), tags.get(key));
-                count++;
+                SearchCriteria<VolumeJoinVO> tsc = _volumeJoinDao.createSearchCriteria();
+                tsc.addAnd("tagKey", SearchCriteria.Op.EQ, key);
+                tsc.addAnd("tagValue", SearchCriteria.Op.EQ, tags.get(key));
+                tagSc.addOr("tagKey", SearchCriteria.Op.SC, tsc);
             }
+            sc.addAnd("tagKey", SearchCriteria.Op.SC, tagSc);
         }
 
         if (id != null) {
@@ -2062,6 +2035,86 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
 
         SearchCriteria<ImageStoreJoinVO> sc = sb.create();
         sc.setParameters("role", DataStoreRole.Image);
+
+        if (keyword != null) {
+            SearchCriteria<ImageStoreJoinVO> ssc = _imageStoreJoinDao.createSearchCriteria();
+            ssc.addOr("name", SearchCriteria.Op.LIKE, "%" + keyword + "%");
+            ssc.addOr("provider", SearchCriteria.Op.LIKE, "%" + keyword + "%");
+            sc.addAnd("name", SearchCriteria.Op.SC, ssc);
+        }
+
+        if (id != null) {
+            sc.setParameters("id", id);
+        }
+
+        if (name != null) {
+            sc.setParameters("name", name);
+        }
+
+        if (zoneId != null) {
+            sc.setParameters("dataCenterId", zoneId);
+        }
+        if (provider != null) {
+            sc.setParameters("provider", provider);
+        }
+        if (protocol != null) {
+            sc.setParameters("protocol", protocol);
+        }
+
+        // search Store details by ids
+        Pair<List<ImageStoreJoinVO>, Integer> uniqueStorePair = _imageStoreJoinDao.searchAndCount(sc, searchFilter);
+        Integer count = uniqueStorePair.second();
+        if (count.intValue() == 0) {
+            // empty result
+            return uniqueStorePair;
+        }
+        List<ImageStoreJoinVO> uniqueStores = uniqueStorePair.first();
+        Long[] vrIds = new Long[uniqueStores.size()];
+        int i = 0;
+        for (ImageStoreJoinVO v : uniqueStores) {
+            vrIds[i++] = v.getId();
+        }
+        List<ImageStoreJoinVO> vrs = _imageStoreJoinDao.searchByIds(vrIds);
+        return new Pair<List<ImageStoreJoinVO>, Integer>(vrs, count);
+
+    }
+
+    @Override
+    public ListResponse<ImageStoreResponse> searchForCacheStores(ListCacheStoresCmd cmd) {
+        Pair<List<ImageStoreJoinVO>, Integer> result = searchForCacheStoresInternal(cmd);
+        ListResponse<ImageStoreResponse> response = new ListResponse<ImageStoreResponse>();
+
+        List<ImageStoreResponse> poolResponses = ViewResponseHelper.createImageStoreResponse(result.first().toArray(
+                new ImageStoreJoinVO[result.first().size()]));
+        response.setResponses(poolResponses, result.second());
+        return response;
+    }
+
+    private Pair<List<ImageStoreJoinVO>, Integer> searchForCacheStoresInternal(ListCacheStoresCmd cmd) {
+
+        Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(UserContext.current().getCaller(), cmd.getZoneId());
+        Object id = cmd.getId();
+        Object name = cmd.getStoreName();
+        String provider = cmd.getProvider();
+        String protocol = cmd.getProtocol();
+        Object keyword = cmd.getKeyword();
+        Long startIndex = cmd.getStartIndex();
+        Long pageSize = cmd.getPageSizeVal();
+
+        Filter searchFilter = new Filter(ImageStoreJoinVO.class, "id", Boolean.TRUE, startIndex, pageSize);
+
+        SearchBuilder<ImageStoreJoinVO> sb = _imageStoreJoinDao.createSearchBuilder();
+        sb.select(null, Func.DISTINCT, sb.entity().getId()); // select distinct
+                                                             // ids
+        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
+        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
+        sb.and("dataCenterId", sb.entity().getZoneId(), SearchCriteria.Op.EQ);
+        sb.and("protocol", sb.entity().getProtocol(), SearchCriteria.Op.EQ);
+        sb.and("provider", sb.entity().getProviderName(), SearchCriteria.Op.EQ);
+        sb.and("role", sb.entity().getRole(), SearchCriteria.Op.EQ);
+
+        SearchCriteria<ImageStoreJoinVO> sc = sb.create();
+        sc.setParameters("role", DataStoreRole.ImageCache);
 
         if (keyword != null) {
             SearchCriteria<ImageStoreJoinVO> ssc = _imageStoreJoinDao.createSearchCriteria();
@@ -2782,7 +2835,14 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
             }
 
             if (onlyReady) {
-                sc.addAnd("state", SearchCriteria.Op.EQ, TemplateState.Ready);
+                SearchCriteria<TemplateJoinVO> readySc = _templateJoinDao.createSearchCriteria();
+                readySc.addOr("state", SearchCriteria.Op.EQ, TemplateState.Ready);
+                readySc.addOr("format", SearchCriteria.Op.EQ, ImageFormat.BAREMETAL);
+                SearchCriteria<TemplateJoinVO> isoPerhostSc = _templateJoinDao.createSearchCriteria();
+                isoPerhostSc.addAnd("format", SearchCriteria.Op.EQ, ImageFormat.ISO);
+                isoPerhostSc.addAnd("templateType", SearchCriteria.Op.EQ, TemplateType.PERHOST);
+                readySc.addOr("templateType", SearchCriteria.Op.SC, isoPerhostSc);
+                sc.addAnd("state", SearchCriteria.Op.SC, readySc);
             }
 
             if (zoneId != null) {

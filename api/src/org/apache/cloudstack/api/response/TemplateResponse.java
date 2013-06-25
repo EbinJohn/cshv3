@@ -146,10 +146,14 @@ public class TemplateResponse extends BaseResponse implements ControlledViewEnti
     @SerializedName(ApiConstants.SSHKEY_ENABLED) @Param(description="true if template is sshkey enabled, false otherwise")
     private Boolean sshKeyEnabled;
 
+    @SerializedName(ApiConstants.IS_DYNAMICALLY_SCALABLE) @Param(description="true if template contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory")
+    private Boolean isDynamicallyScalable;
+
     public TemplateResponse(){
         zones = new LinkedHashSet<TemplateZoneResponse>();
         tags = new LinkedHashSet<ResourceTagResponse>();
     }
+
 
     @Override
     public String getObjectId() {
@@ -320,9 +324,11 @@ public class TemplateResponse extends BaseResponse implements ControlledViewEnti
         this.sshKeyEnabled = sshKeyEnabled;
     }
 
+    public void setDynamicallyScalable(boolean isDynamicallyScalable) {
+        this.isDynamicallyScalable = isDynamicallyScalable;
+    }
+
     public String getZoneId() {
         return zoneId;
     }
-
-
 }
