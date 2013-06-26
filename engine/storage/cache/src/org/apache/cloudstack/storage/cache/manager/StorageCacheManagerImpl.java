@@ -230,6 +230,12 @@ public class StorageCacheManagerImpl implements StorageCacheManager, Manager {
     @Override
     public DataObject createCacheObject(DataObject data, Scope scope) {
         DataStore cacheStore = this.getCacheStorage(scope);
+
+        if (cacheStore == null) 
+        {
+            s_logger.debug("No cache DataStore in scope id " + scope.getScopeId() + " type " + scope.getScopeType().toString());
+            return null;
+        }
         return this.createCacheObject(data, cacheStore);
     }
 

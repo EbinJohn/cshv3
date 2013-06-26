@@ -129,12 +129,17 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
         DataStoreTO srcStoreTO = srcTO.getDataStore();
         DataStoreTO destStoreTO = destTO.getDataStore();
         if (srcStoreTO instanceof NfsTO || srcStoreTO.getRole() == DataStoreRole.ImageCache) {
+        	s_logger.debug("needCacheStorage false due to src, at " + srcTO.getPath() + " role " + srcStoreTO.getRole().toString());
             return false;
         }
 
         if (destStoreTO instanceof NfsTO || destStoreTO.getRole() == DataStoreRole.ImageCache) {
+        	s_logger.debug("needCacheStorage false due to dest, at " + destTO.getPath() + " role " + destStoreTO.getRole().toString());
             return false;
         }
+    	s_logger.debug("needCacheStorage true, dest at " + 
+    				destTO.getPath() + " dest role " + destStoreTO.getRole().toString() +
+    				srcTO.getPath() + " src role " + srcStoreTO.getRole().toString() );
         return true;
     }
 
@@ -158,20 +163,24 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
                 Integer.parseInt(Config.PrimaryStorageDownloadWait.getDefaultValue()));
         Answer answer = null;
         DataObject cacheData = null;
+    	DataObject srcForCopy = srcData; 
         try {
+        	
+        	// Revise src to cached copy, if possible
             if (needCacheStorage(srcData, destData)) {
                 // need to copy it to image cache store
                 Scope destScope = getZoneScope(destData.getDataStore().getScope());
                 cacheData = cacheMgr.createCacheObject(srcData, destScope);
-                CopyCommand cmd = new CopyCommand(cacheData.getTO(), destData.getTO(), _primaryStorageDownloadWait);
-                EndPoint ep = selector.select(cacheData, destData);
-                answer = ep.sendMessage(cmd);
-            } else {
-                // handle copy it to/from cache store
-                CopyCommand cmd = new CopyCommand(srcData.getTO(), destData.getTO(), _primaryStorageDownloadWait);
-                EndPoint ep = selector.select(srcData, destData);
-                answer = ep.sendMessage(cmd);
-            }
+                
+                if (cacheData != null) {
+                	srcForCopy = cacheData;
+                }
+            } 
+            // handle copy it to/from cache store
+            CopyCommand cmd = new CopyCommand(srcForCopy.getTO(), destData.getTO(), _primaryStorageDownloadWait);
+            EndPoint ep = selector.select(srcForCopy, destData);
+            answer = ep.sendMessage(cmd);
+            
             if (cacheData != null) {
                 if (answer == null || !answer.getResult()) {
                     cacheMgr.deleteCacheObject(cacheData);
@@ -317,6 +326,8 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
         Answer answer = null;
         String errMsg = null;
         try {
+            s_logger.debug("copyAsync inspecting src type " + srcData.getType().toString() +
+            		" copyAsync inspecting dest type " + destData.getType().toString());
 
             if (srcData.getType() == DataObjectType.SNAPSHOT && destData.getType() == DataObjectType.VOLUME) {
                 answer = copyVolumeFromSnapshot(srcData, destData);
