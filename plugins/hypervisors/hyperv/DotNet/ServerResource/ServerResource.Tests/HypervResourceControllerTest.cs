@@ -343,7 +343,7 @@ namespace ServerResource.Tests
                 // org.apache.cloudstack.storage.command.CopyCommand
                 "{\"srcTO\":" +
                     "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
-                        "{\"path\":\"c7cef06e-0f4b-4a19-afcf-5e96ca887c96\"," +
+                        "{" +
                         "\"origUrl\":\"http://people.apache.org/~bhaisaab/vms/ttylinux_pv.vhd\"," +
                         "\"uuid\":\"9873f1c0-bdcc-11e2-8baa-ea85dab5fcd0\"," +
                         "\"id\":5,\"format\":\"VHDX\"," +
@@ -351,7 +351,7 @@ namespace ServerResource.Tests
                         "\"checksum\":\"046e134e642e6d344b34648223ba4bc1\"," +
                         "\"hvm\":false," +
                         "\"displayText\":\"tiny Linux\"," +
-                        "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "\"," +
+                        "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
                         "\"name\":\"" + testS3TemplateName + "\"}" +
                     "}," +  // end of srcTO
                 "\"destTO\":" +
@@ -359,7 +359,7 @@ namespace ServerResource.Tests
                         "{\"uuid\":\"19ae8e67-cb2c-4ab4-901e-e0b864272b59\"," +
                         "\"volumeType\":\"ROOT\"," +
                         "\"format\":\"VHDX\"," +
-                        "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "\"," +
+                        "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
                         "\"name\":\"ROOT-5\"," +
                         "\"size\":52428800," +
                         "\"volumeId\":10," +
@@ -374,7 +374,7 @@ namespace ServerResource.Tests
                 // org.apache.cloudstack.storage.command.CopyCommand
                 "{\"srcTO\":" +
                     "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
-                        "{\"path\":\"template/tmpl/2/206/206-2-73592258-559a-3b38-8f66-b667aab143eb\"," +
+                        "{\"path\":\"" + testS3TemplateName + ".vhdx" + "\"," +
                         "\"origUrl\":\"http://10.147.28.7/templates/5d67394c-4efd-4b62-966b-51aa53b35277.vhd.bz2\"," +
                         "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
                         "\"id\":206," +
@@ -393,11 +393,11 @@ namespace ServerResource.Tests
                                 "\"httpsFlag\":false," +
                                 "\"created\":\"May 19, 2013 4:17:25 PM\"}" +
                                 "}," + // end of imageDataStore
-                        "\"name\":\"" + AgentSettings.Default.testS3TemplateName + "\"}" +
+                        "\"name\":\"" + testS3TemplateName + "\"}" +
                      "}," + // end of srcTO
                  "\"destTO\":" +
                     "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
-                        "{\"path\":\"template/tmpl/2/206\"," +
+                        "{\"checksum\": \"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
                         "\"origUrl\":\"http://10.147.28.7/templates/5d67394c-4efd-4b62-966b-51aa53b35277.vhd.bz2\"," +
                         "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
                         "\"id\":206," +
@@ -405,9 +405,8 @@ namespace ServerResource.Tests
                         "\"accountId\":2," +
                         "\"hvm\":true," +
                         "\"displayText\":\"OS031\"," +
-                        "\"imageDataStore\":" +
-                            "{\"org.apache.cloudstack.storage.to.PrimaryDataStoreTO\":" + getSamplePrimaryDataStoreInfo() + "}," + // end of imageDataStore
-                        "\"name\":\"" + AgentSettings.Default.testS3TemplateName + "\"}" +
+                        "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," + // end of imageDataStore
+                        "\"name\":\"" + testS3TemplateName + "\"}" +
                     "}," +// end of destTO
                 "\"wait\":10800}"; // end of CopyCommand
  #endregion 
@@ -416,7 +415,7 @@ namespace ServerResource.Tests
             dynamic jsonDownloadCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandForTemplateDownload);
             TemplateObjectTO dwnldTemplate = TemplateObjectTO.ParseJson(jsonDownloadCopyCmd.destTO);
             PrimaryDataStoreTO dwnldDataStore = PrimaryDataStoreTO.ParseJson(dwnldTemplate.imageDataStore);
-            string dwnldDest = Path.Combine(dwnldDataStore.path, dwnldTemplate.FileName);
+            string dwnldDest = dwnldTemplate.FullFileName;
 
             dynamic jsonCloneCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandToCreateVolumeFromTemplate);
             VolumeObjectTO newVol = VolumeObjectTO.ParseJson(jsonCloneCopyCmd.destTO);
