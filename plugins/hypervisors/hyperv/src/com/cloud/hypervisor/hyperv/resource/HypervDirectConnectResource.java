@@ -46,6 +46,7 @@ import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.CreateStoragePoolCommand;
 import com.cloud.agent.api.PingCommand;
+import com.cloud.agent.api.PingRoutingCommand;
 import com.cloud.agent.api.StartupAnswer;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
@@ -68,6 +69,7 @@ import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.google.gson.Gson;
+
 
 /**
  * Implementation of dummy resource to be returned from discoverer
@@ -95,8 +97,7 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 
 	@Override
 	public Type getType() {
-		// TODO Auto-generated method stub
-		return null;
+        return Type.Routing;
 	}
 
 	//@Override
@@ -244,8 +245,20 @@ public class HypervDirectConnectResource extends ServerResourceBase implements
 
 	@Override
 	public PingCommand getCurrentStatus(long id) {
-		// TODO Auto-generated method stub
-		return null;
+		PingCommand pingCmd = new PingRoutingCommand(getType(), id, null );
+		
+		if (s_logger.isDebugEnabled()) {
+			s_logger.debug("Ping host " + this._name + " (IP "+ this._agentIp + ")") ;
+		}
+			
+		Answer pingAns = this.executeRequest(pingCmd);
+
+		if (pingAns == null || pingAns.getResult() == false)
+		{
+			s_logger.info("Cannot ping host " + this._name + " (IP "+ this._agentIp + "), pingAns (blank means null) is:" + pingAns) ;
+			return null;
+		}
+		return pingCmd;
 	}
 
 	// TODO: Is it valid to return NULL, or should we throw on error?
