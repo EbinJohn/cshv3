@@ -233,8 +233,8 @@ public class StorageCacheManagerImpl implements StorageCacheManager, Manager {
 
         if (cacheStore == null) 
         {
-            s_logger.debug("No cache DataStore in scope id " + scope.getScopeId() + " type " + scope.getScopeType().toString());
-            return null;
+        	String errMsg = "No cache DataStore in scope id " + scope.getScopeId() + " type " + scope.getScopeType().toString();
+        	throw new CloudRuntimeException(errMsg);
         }
         return this.createCacheObject(data, cacheStore);
     }
