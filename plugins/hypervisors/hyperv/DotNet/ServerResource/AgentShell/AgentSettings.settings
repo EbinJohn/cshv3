@@ -65,9 +65,6 @@
     <Setting Name="RootDeviceName" Type="System.String" Scope="Application">
       <Value Profile="(Default)">e:\</Value>
     </Setting>
-    <Setting Name="dom0MinMemory" Type="System.UInt64" Scope="Application">
-      <Value Profile="(Default)">2048</Value>
-    </Setting>
     <Setting Name="private_mac_address" Type="System.String" Scope="Application">
       <Value Profile="(Default)">101F742C6B88</Value>
     </Setting>
@@ -91,6 +88,15 @@
     </Setting>
     <Setting Name="testLocalStoreUUID" Type="System.String" Scope="User">
       <Value Profile="(Default)">5fe2bad3-d785-394e-9949-89786b8a63d2</Value>
+    </Setting>
+    <Setting Name="testSystemVMTemplateName" Type="System.String" Scope="User">
+      <Value Profile="(Default)">acton-systemvm-02062012.vhd.bz2</Value>
+    </Setting>
+    <Setting Name="testSystemVMTemplateNameNoExt" Type="System.String" Scope="User">
+      <Value Profile="(Default)">acton-systemvm-02062012</Value>
+    </Setting>
+    <Setting Name="dom0MinMemory" Type="System.UInt64" Scope="Application">
+      <Value Profile="(Default)">2048</Value>
     </Setting>
   </Settings>
 </SettingsFile>

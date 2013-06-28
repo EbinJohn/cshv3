@@ -17,6 +17,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -53,15 +54,25 @@ namespace HypervResource
 
     public class VolumeObjectTO
     {
-        public string FileName
+        public string FullFileName
         {
-            get { return this.name + '.' + this.formatExtension; }
+            get
+            {
+                String result = Path.Combine(this.primaryDataStore.path, this.name);
+                if ( this.format != null)
+                {
+                    result = result + "." + this.format.ToLowerInvariant();
+                }
+                return result;
+            }
         }
 
         public dynamic dataStore;
-        public string formatExtension;
+        public string format;
         public string name;
         public string uuid;
+        public S3TO s3DataStoreTO;
+        public PrimaryDataStoreTO primaryDataStore;
 
         public static VolumeObjectTO ParseJson(dynamic json)
         {
@@ -78,11 +89,12 @@ namespace HypervResource
                 result = new VolumeObjectTO()
                 {
                     dataStore = volumeObjectTOJson.dataStore,
-                    formatExtension = ((string)volumeObjectTOJson.format),
+                    format = ((string)volumeObjectTOJson.format),
                     name = (string)volumeObjectTOJson.name,
                     uuid = (string)volumeObjectTOJson.uuid
                 };
-                result.formatExtension = !String.IsNullOrEmpty(result.formatExtension) ? result.formatExtension.ToLowerInvariant() : result.formatExtension;
+                result.s3DataStoreTO = S3TO.ParseJson(volumeObjectTOJson.dataStore);
+                result.primaryDataStore = PrimaryDataStoreTO.ParseJson(volumeObjectTOJson.dataStore);
             }
             return result;
         }
@@ -90,15 +102,29 @@ namespace HypervResource
 
     public class TemplateObjectTO
     {
-        public string FileName
+        /// <summary>
+        /// Full file name varies depending on whether the TemplateObjectTO has a path or not.
+        /// If it has a path, we use that.  Otherwise, we build it from the name, extension and data store path.
+        /// </summary>
+        public string FullFileName
         {
-            get { return this.name + '.' + this.formatExtension; }
+            get
+            {
+                if (String.IsNullOrEmpty(this.path))
+                {
+                    return Path.Combine(this.primaryDataStore.path, this.name) + '.' + this.format.ToLowerInvariant();
+                }
+                return this.path;
+            }
         }
 
         public dynamic imageDataStore;
-        public string formatExtension;
+        public string format;
         public string name;
         public string uuid;
+        public S3TO s3DataStoreTO = null;
+        public PrimaryDataStoreTO primaryDataStore = null;
+        public string path;
 
         public static TemplateObjectTO ParseJson(dynamic json)
         {
@@ -109,12 +135,15 @@ namespace HypervResource
                 result = new TemplateObjectTO()
                 {
                     imageDataStore = templateObjectTOJson.imageDataStore,
-                    formatExtension = ((string)templateObjectTOJson.format),
+                    format = (string)templateObjectTOJson.format,
                     name = (string)templateObjectTOJson.name,
-                    uuid = (string)templateObjectTOJson.uuid
+                    uuid = (string)templateObjectTOJson.uuid,
+                    path = (string)templateObjectTOJson.path
                 };
-                result.formatExtension = !String.IsNullOrEmpty(result.formatExtension) ? result.formatExtension.ToLowerInvariant() : result.formatExtension;
+                result.s3DataStoreTO = S3TO.ParseJson(templateObjectTOJson.imageDataStore);
+                result.primaryDataStore = PrimaryDataStoreTO.ParseJson(templateObjectTOJson.imageDataStore);
             }
+
             return result;
         }
     }
@@ -141,6 +170,9 @@ namespace HypervResource
                     endpoint = (string)s3TOJson.endPoint,
                     httpsFlag = (bool)s3TOJson.httpsFlag
                 };
+                // Delete security credentials in original command.  Prevents logger from spilling the beans, as it were.
+                s3TOJson.secretKey = string.Empty;
+                s3TOJson.accessKey = string.Empty;
             }
             return result;
         }
