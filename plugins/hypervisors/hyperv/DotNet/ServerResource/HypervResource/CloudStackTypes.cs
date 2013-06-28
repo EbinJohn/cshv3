@@ -54,15 +54,25 @@ namespace HypervResource
 
     public class VolumeObjectTO
     {
-        public string FileName
+        public string FullFileName
         {
-            get { return this.name + '.' + this.formatExtension; }
+            get
+            {
+                String result = Path.Combine(this.primaryDataStore.path, this.name);
+                if ( this.format != null)
+                {
+                    result = result + "." + this.format.ToLowerInvariant();
+                }
+                return result;
+            }
         }
 
         public dynamic dataStore;
-        public string formatExtension;
+        public string format;
         public string name;
         public string uuid;
+        public S3TO s3DataStoreTO;
+        public PrimaryDataStoreTO primaryDataStore;
 
         public static VolumeObjectTO ParseJson(dynamic json)
         {
@@ -79,11 +89,12 @@ namespace HypervResource
                 result = new VolumeObjectTO()
                 {
                     dataStore = volumeObjectTOJson.dataStore,
-                    formatExtension = ((string)volumeObjectTOJson.format),
+                    format = ((string)volumeObjectTOJson.format),
                     name = (string)volumeObjectTOJson.name,
                     uuid = (string)volumeObjectTOJson.uuid
                 };
-                result.formatExtension = !String.IsNullOrEmpty(result.formatExtension) ? result.formatExtension.ToLowerInvariant() : result.formatExtension;
+                result.s3DataStoreTO = S3TO.ParseJson(volumeObjectTOJson.dataStore);
+                result.primaryDataStore = PrimaryDataStoreTO.ParseJson(volumeObjectTOJson.dataStore);
             }
             return result;
         }
@@ -101,14 +112,14 @@ namespace HypervResource
             {
                 if (String.IsNullOrEmpty(this.path))
                 {
-                    return Path.Combine(this.primaryDataStore.path, this.name) + '.' + this.formatExtension.ToLowerInvariant();
+                    return Path.Combine(this.primaryDataStore.path, this.name) + '.' + this.format.ToLowerInvariant();
                 }
                 return this.path;
             }
         }
 
         public dynamic imageDataStore;
-        public string formatExtension;
+        public string format;
         public string name;
         public string uuid;
         public S3TO s3DataStoreTO = null;
@@ -124,13 +135,11 @@ namespace HypervResource
                 result = new TemplateObjectTO()
                 {
                     imageDataStore = templateObjectTOJson.imageDataStore,
-                    formatExtension = (string)templateObjectTOJson.format,
+                    format = (string)templateObjectTOJson.format,
                     name = (string)templateObjectTOJson.name,
                     uuid = (string)templateObjectTOJson.uuid,
                     path = (string)templateObjectTOJson.path
                 };
-                result.formatExtension = !String.IsNullOrEmpty(result.formatExtension) ? result.formatExtension.ToLowerInvariant() : result.formatExtension;
-
                 result.s3DataStoreTO = S3TO.ParseJson(templateObjectTOJson.imageDataStore);
                 result.primaryDataStore = PrimaryDataStoreTO.ParseJson(templateObjectTOJson.imageDataStore);
             }

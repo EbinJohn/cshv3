@@ -219,15 +219,6 @@ namespace CloudStack.Plugin.AgentShell {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("2048")]
-        public ulong dom0MinMemory {
-            get {
-                return ((ulong)(this["dom0MinMemory"]));
-            }
-        }
-        
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("101F742C6B88")]
         public string private_mac_address {
             get {
@@ -316,6 +307,39 @@ namespace CloudStack.Plugin.AgentShell {
             }
             set {
                 this["testLocalStoreUUID"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("acton-systemvm-02062012.vhd.bz2")]
+        public string testSystemVMTemplateName {
+            get {
+                return ((string)(this["testSystemVMTemplateName"]));
+            }
+            set {
+                this["testSystemVMTemplateName"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("acton-systemvm-02062012")]
+        public string testSystemVMTemplateNameNoExt {
+            get {
+                return ((string)(this["testSystemVMTemplateNameNoExt"]));
+            }
+            set {
+                this["testSystemVMTemplateNameNoExt"] = value;
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("2048")]
+        public ulong dom0MinMemory {
+            get {
+                return ((ulong)(this["dom0MinMemory"]));
             }
         }
     }

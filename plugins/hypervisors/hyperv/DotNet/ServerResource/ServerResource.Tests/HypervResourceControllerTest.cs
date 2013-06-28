@@ -33,6 +33,8 @@ namespace ServerResource.Tests
     {
         protected static String testPrimaryDataStoreHost = HypervResourceController.config.StorageIpAddress;
         protected static String testS3TemplateName = AgentSettings.Default.testS3TemplateName;
+        protected static String testSystemVMTemplateName = AgentSettings.Default.testSystemVMTemplateName;
+        protected static String testSystemVMTemplateNameNoExt = AgentSettings.Default.testSystemVMTemplateNameNoExt;
         protected static String testLocalStoreUUID = "5fe2bad3-d785-394e-9949-89786b8a63d2";
         protected static String testLocalStorePath = Path.Combine(AgentSettings.Default.hyperv_plugin_root, "var", "test", "storagepool");
         protected static String testSecondaryStoreLocalPath = Path.Combine(AgentSettings.Default.hyperv_plugin_root, "var", "test", "secondary");
@@ -346,7 +348,8 @@ namespace ServerResource.Tests
                         "{" +
                         "\"origUrl\":\"http://people.apache.org/~bhaisaab/vms/ttylinux_pv.vhd\"," +
                         "\"uuid\":\"9873f1c0-bdcc-11e2-8baa-ea85dab5fcd0\"," +
-                        "\"id\":5,\"format\":\"VHDX\"," +
+                        "\"id\":5," +
+                        "\"format\":\"VHDX\"," +
                         "\"accountId\":1," +
                         "\"checksum\":\"046e134e642e6d344b34648223ba4bc1\"," +
                         "\"hvm\":false," +
@@ -358,16 +361,17 @@ namespace ServerResource.Tests
                     "{\"org.apache.cloudstack.storage.to.VolumeObjectTO\":" +
                         "{\"uuid\":\"19ae8e67-cb2c-4ab4-901e-e0b864272b59\"," +
                         "\"volumeType\":\"ROOT\"," +
-                        "\"format\":\"VHDX\"," +
                         "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
                         "\"name\":\"ROOT-5\"," +
                         "\"size\":52428800," +
                         "\"volumeId\":10," +
                         "\"vmName\":\"i-3-5-VM\"," +
-                        "\"accountId\":3,\"id\":10}" +
+                        "\"accountId\":3,"+
+                        "\"id\":10 }" +
                     "}," +  // end of destTO 
                 "\"wait\":0}"; // end of Copy Command
 #endregion
+//"name":"ROOT-8","size":140616708,"volumeId":8,"vmName":"s-8-VM","accountId":1,"id":8}},"contextMap":{},"wait":0}
 
             string sampleCopyCommandForTemplateDownload =
             #region string_literal
@@ -414,13 +418,12 @@ namespace ServerResource.Tests
             HypervResourceController rsrcServer = new HypervResourceController();
             dynamic jsonDownloadCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandForTemplateDownload);
             TemplateObjectTO dwnldTemplate = TemplateObjectTO.ParseJson(jsonDownloadCopyCmd.destTO);
-            PrimaryDataStoreTO dwnldDataStore = PrimaryDataStoreTO.ParseJson(dwnldTemplate.imageDataStore);
             string dwnldDest = dwnldTemplate.FullFileName;
 
             dynamic jsonCloneCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandToCreateVolumeFromTemplate);
             VolumeObjectTO newVol = VolumeObjectTO.ParseJson(jsonCloneCopyCmd.destTO);
-            PrimaryDataStoreTO newVolDataStore = PrimaryDataStoreTO.ParseJson(newVol.dataStore);
-            string newVolName = Path.Combine(newVolDataStore.path, newVol.FileName);
+            newVol.format = dwnldTemplate.format;
+            string newVolName = newVol.FullFileName;
 
             if (File.Exists(dwnldDest))
             {
@@ -453,6 +456,124 @@ namespace ServerResource.Tests
             File.Delete(newVolName);
         }
 
+                [TestMethod]
+        public void TestCopyCommandBz2Img()
+        {
+            // Arrange
+            string sampleCopyCommandToCreateVolumeFromTemplate =
+            #region string_literal
+                // org.apache.cloudstack.storage.command.CopyCommand
+                "{\"srcTO\":" +
+                    "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
+                        "{" +
+                        "\"origUrl\":\"http://people.apache.org/~bhaisaab/vms/ttylinux_pv.vhd\"," +
+                        "\"uuid\":\"9873f1c0-bdcc-11e2-8baa-ea85dab5fcd0\"," +
+                        "\"id\":5,\"format\":\"VHD\"," +
+                        "\"accountId\":1," +
+                        "\"checksum\":\"046e134e642e6d344b34648223ba4bc1\"," +
+                        "\"hvm\":false," +
+                        "\"displayText\":\"tiny Linux\"," +
+                        "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
+                        "\"name\":\"" + testSystemVMTemplateNameNoExt + "\"}" +
+                    "}," +  // end of srcTO
+                "\"destTO\":" +
+                    "{\"org.apache.cloudstack.storage.to.VolumeObjectTO\":" +
+                        "{\"uuid\":\"19ae8e67-cb2c-4ab4-901e-e0b864272b59\"," +
+                        "\"volumeType\":\"ROOT\"," +
+                        "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
+                        "\"name\":\"ROOT-5\"," +
+                        "\"size\":52428800," +
+                        "\"volumeId\":10," +
+                        "\"vmName\":\"i-3-5-VM\"," +
+                        "\"accountId\":3,"+
+                        "\"id\":10}" +
+                    "}," +  // end of destTO 
+                "\"wait\":0}"; // end of Copy Command
+#endregion
+
+            string sampleCopyCommandForTemplateDownload =
+            #region string_literal
+                // org.apache.cloudstack.storage.command.CopyCommand
+                "{\"srcTO\":" +
+                    "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
+                        "{\"path\":\"" + testSystemVMTemplateName + "\"," +
+                        "\"origUrl\":\"http://10.147.28.7/templates/5d67394c-4efd-4b62-966b-51aa53b35277.vhd.bz2\"," +
+                        "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
+                        "\"id\":206," +
+                        "\"format\":\"VHD\"," +
+                        "\"accountId\":2," +
+                        "\"hvm\":true," +
+                        "\"displayText\":\"OS031\"," +
+                        "\"imageDataStore\":" +
+                            "{\"com.cloud.agent.api.to.S3TO\":" +
+                                "{\"id\":1," +
+                                "\"uuid\":\"95a64c8f-2128-4502-b5b4-0d7aa77406d2\"," +
+                                "\"accessKey\":\"" + AgentSettings.Default.testS3AccessKey + "\"," +
+                                "\"secretKey\":\"" + AgentSettings.Default.testS3SecretKey + "\"," +
+                                "\"endPoint\":\"" + AgentSettings.Default.testS3Endpoint + "\"," +
+                                "\"bucketName\":\"" + AgentSettings.Default.testS3Bucket + "\"," +
+                                "\"httpsFlag\":false," +
+                                "\"created\":\"May 19, 2013 4:17:25 PM\"}" +
+                                "}," + // end of imageDataStore
+                        "\"name\":\"" + testSystemVMTemplateNameNoExt + "\"}" +
+                     "}," + // end of srcTO
+                 "\"destTO\":" +
+                    "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
+                        "{\"checksum\": \"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
+                        "\"origUrl\":\"http://10.147.28.7/templates/5d67394c-4efd-4b62-966b-51aa53b35277.vhd.bz2\"," +
+                        "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
+                        "\"id\":206," +
+                        "\"format\":\"VHD\"," +
+                        "\"accountId\":2," +
+                        "\"hvm\":true," +
+                        "\"displayText\":\"OS031\"," +
+                        "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," + // end of imageDataStore
+                        "\"name\":\"" + testSystemVMTemplateNameNoExt + "\"}" +
+                    "}," +// end of destTO
+                "\"wait\":10800}"; // end of CopyCommand
+ #endregion 
+
+            HypervResourceController rsrcServer = new HypervResourceController();
+            dynamic jsonDownloadCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandForTemplateDownload);
+            TemplateObjectTO dwnldTemplate = TemplateObjectTO.ParseJson(jsonDownloadCopyCmd.destTO);
+            string dwnldDest = dwnldTemplate.FullFileName;
+
+            dynamic jsonCloneCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandToCreateVolumeFromTemplate);
+            VolumeObjectTO newVol = VolumeObjectTO.ParseJson(jsonCloneCopyCmd.destTO);
+            newVol.format = dwnldTemplate.format;
+            string newVolName = dwnldTemplate.FullFileName;
+
+            if (File.Exists(dwnldDest))
+            {
+                File.Delete(dwnldDest);
+            }
+            if (File.Exists(newVolName))
+            {
+                File.Delete(newVolName);
+            }
+
+            // Download template to primary storage
+            // Act
+            dynamic dwnldResult = rsrcServer.CopyCommand(jsonDownloadCopyCmd);
+
+            // Assert
+            Assert.IsNotNull(dwnldResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
+            Assert.IsTrue((bool)dwnldResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + dwnldResult[0][CloudStackTypes.CopyCmdAnswer].details);
+            Assert.IsTrue(File.Exists(dwnldDest), "CopyCommand failed to generate " + dwnldDest);
+
+            // Create Volume from Template
+            // Act
+            dynamic copyResult = rsrcServer.CopyCommand(jsonCloneCopyCmd);
+
+            // Assert
+            Assert.IsNotNull(copyResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
+            Assert.IsTrue((bool)copyResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + copyResult[0][CloudStackTypes.CopyCmdAnswer].details);
+            Assert.IsTrue(File.Exists(newVolName), "CopyCommand failed to generate " + newVolName);
+                    
+            File.Delete(dwnldDest);
+            File.Delete(newVolName);
+        }
+        
 
                 [TestMethod]
         public void TestModifyStoragePoolCommand()
@@ -518,6 +639,22 @@ namespace ServerResource.Tests
 
             // Assert
             dynamic ans = jsonResult[0][CloudStackTypes.Answer];
+            Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
+        }
+
+        [TestMethod]
+        public void MaintainCommand()
+        {
+            // Omit HostEnvironment object, as this is a series of settings currently not used.
+            var cmd = new {  };
+            JToken tok = JToken.FromObject(cmd);
+            HypervResourceController controller = new HypervResourceController();
+
+            // Act
+            dynamic jsonResult = controller.MaintainCommand(tok);
+
+            // Assert
+            dynamic ans = jsonResult[0][CloudStackTypes.MaintainAnswer];
             Assert.IsTrue((bool)ans.result, (string)ans.details);  // always succeeds
         }
 
@@ -705,7 +842,7 @@ namespace ServerResource.Tests
             ulong memory_mb;
             ulong freememory;
             WmiCalls.GetMemoryResources(out memory_mb, out freememory);
-            memory_mb = memory_mb / 1024;
+            memory_mb *=1024;
             long capacityBytes;
             long availableBytes;
             HypervResourceController.GetCapacityForLocalPath(WmiCalls.GetDefaultVirtualDiskFolder(),
@@ -717,7 +854,7 @@ namespace ServerResource.Tests
                         "\"cpus\":" + cores + "," +
                         "\"speed\":" + mhz + "," +
                         "\"memory\":" + memory_mb + "," +
-                        "\"dom0MinMemory\":" + AgentSettings.Default.dom0MinMemory + "," +
+                        "\"dom0MinMemory\":" + (AgentSettings.Default.dom0MinMemory *1024 * 1024) + "," +
                         "\"poolSync\":false," +
                         "\"vms\":{}," +
                         "\"hypervisorType\":\"Hyperv\"," +
@@ -749,7 +886,7 @@ namespace ServerResource.Tests
                             "\"hostPath\":" + DefaultVirtualDiskFolder + "," +
                             "\"poolType\":\"Filesystem\"," +
                             "\"capacityBytes\":" + capacityBytes + "," +
-                            "\"availableBytes\":" + availableBytes + "," +
+                            "\"availableBytes\":" + (capacityBytes-availableBytes) + "," +
                             "\"details\":null" +
                         "}," +
                         "\"guid\":\"16f85622-4508-415e-b13a-49a39bb14e4d\"," +

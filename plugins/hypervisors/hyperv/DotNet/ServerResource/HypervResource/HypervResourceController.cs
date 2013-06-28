@@ -751,6 +751,69 @@ namespace HypervResource
             }
         }
 
+        // POST api/HypervResource/MaintainCommand
+        // TODO: should this be a NOP?
+        [HttpPost]
+        [ActionName(CloudStackTypes.MaintainCommand)]
+        public JContainer MaintainCommand([FromBody]dynamic cmd)
+        {
+            using (log4net.NDC.Push(Guid.NewGuid().ToString()))
+            {
+                logger.Info(CloudStackTypes.MaintainCommand + cmd.ToString());
+
+                object ansContent = new
+                {
+                    result = true,
+                    details = "success - NOP for MaintainCommand",
+                    _reconnect = false
+                };
+
+                return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.MaintainAnswer);
+            }
+        }
+
+        // POST api/HypervResource/PingRoutingCommand
+        // TODO: should this be a NOP?
+        [HttpPost]
+        [ActionName(CloudStackTypes.PingRoutingCommand)]
+        public JContainer PingRoutingCommand([FromBody]dynamic cmd)
+        {
+            using (log4net.NDC.Push(Guid.NewGuid().ToString()))
+            {
+                logger.Info(CloudStackTypes.PingRoutingCommand + cmd.ToString());
+
+                object ansContent = new
+                {
+                    result = true,
+                    details = "success - NOP for PingRoutingCommand",
+                    _reconnect = false
+                };
+
+                return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
+            }
+        }
+
+        // POST api/HypervResource/PingCommand
+        // TODO: should this be a NOP?
+        [HttpPost]
+        [ActionName(CloudStackTypes.PingCommand)]
+        public JContainer PingCommand([FromBody]dynamic cmd)
+        {
+            using (log4net.NDC.Push(Guid.NewGuid().ToString()))
+            {
+                logger.Info(CloudStackTypes.PingCommand + cmd.ToString());
+
+                object ansContent = new
+                {
+                    result = true,
+                    details = "success - NOP for PingCommand",
+                    _reconnect = false
+                };
+
+                return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.Answer);
+            }
+        }
+
         // POST api/HypervResource/GetVmStatsCommand
         [HttpPost]
         [ActionName(CloudStackTypes.GetVmStatsCommand)]
@@ -831,19 +894,21 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
+                // Log command *after* we've removed security details from the command.
+
                 bool result = false;
                 string details = null;
                 object newData = null;
 
                 try
                 {
-                    dynamic timeout = cmd.wait;  // Useful?
+                    dynamic timeout = cmd.wait;  // TODO: Useful?
 
                     TemplateObjectTO srcTemplateObjectTO = TemplateObjectTO.ParseJson(cmd.srcTO);
                     TemplateObjectTO destTemplateObjectTO = TemplateObjectTO.ParseJson(cmd.destTO);
                     VolumeObjectTO destVolumeObjectTO = VolumeObjectTO.ParseJson(cmd.destTO);
 
-                    logger.Info(cmd.ToString()); // Log command *after* we've removed security details from the command.
+                    logger.Info(CloudStackTypes.CopyCommand + cmd.ToString()); 
 
                     // Create local copy of a template?
                     if (srcTemplateObjectTO != null && destTemplateObjectTO != null)
@@ -856,6 +921,47 @@ namespace HypervResource
                             {
                                 // Download from S3 to destination data storage
                                 DownloadS3ObjectToFile(srcTemplateObjectTO.path, srcTemplateObjectTO.s3DataStoreTO, destFile);
+
+                                // Uncompress, as required
+                                if (srcTemplateObjectTO.path.EndsWith(".bz2"))
+                                {
+                                    String uncompressedFile = destFile + ".tmp";
+                                    String compressedFile = destFile;
+                                    using (var uncompressedOutStrm = new FileStream(uncompressedFile, FileMode.CreateNew, FileAccess.Write))
+                                    {
+                                        using (var compressedInStrm = new FileStream(destFile, FileMode.Open, FileAccess.Read))
+                                        {
+                                            using (var bz2UncompressorStrm = new Ionic.BZip2.BZip2InputStream(compressedInStrm, true) /* outer 'using' statement will close FileStream*/ )
+                                            {
+                                                int count = 0;
+                                                int bufsize = 1024*1024;
+                                                byte[] buf = new byte[bufsize];
+
+                                                // EOF returns -1, see http://dotnetzip.codeplex.com/workitem/16069 
+                                                while (0 < (count = bz2UncompressorStrm.Read(buf, 0, bufsize)))
+                                                {
+                                                    uncompressedOutStrm.Write(buf, 0, count);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    File.Delete(compressedFile);
+                                    File.Move(uncompressedFile, compressedFile);
+
+                                    // assert
+                                    if (!File.Exists(destFile))
+                                    {
+                                        String errMsg = "Failed to create " + destFile + " , because the file is missing";
+                                        logger.Error(errMsg);
+                                        throw new IOException(errMsg);
+                                    }
+                                    if (File.Exists(uncompressedFile))
+                                    {
+                                        String errMsg = "Extra file left around called " + uncompressedFile + " when creating " + destFile;
+                                        logger.Error(errMsg);
+                                        throw new IOException(errMsg);
+                                    }
+                                }
 
                                 newData = cmd.destTO;
                                 result = true;
@@ -873,9 +979,11 @@ namespace HypervResource
                     // Create volume from a template?
                     else if (srcTemplateObjectTO != null && destVolumeObjectTO != null)
                     {
-                        PrimaryDataStoreTO srcPrimaryDataStore = PrimaryDataStoreTO.ParseJson(srcTemplateObjectTO.imageDataStore);
-                        PrimaryDataStoreTO destPrimaryDataStore = PrimaryDataStoreTO.ParseJson(destVolumeObjectTO.dataStore);
-                        string destFile = Path.Combine(destPrimaryDataStore.path, destVolumeObjectTO.FileName);
+                        if (destVolumeObjectTO.format == null)
+                        {
+                            destVolumeObjectTO.format = srcTemplateObjectTO.format;
+                        }
+                        string destFile = destVolumeObjectTO.FullFileName;
                         string srcFile = srcTemplateObjectTO.FullFileName;
 
                         if (File.Exists(destFile))
@@ -898,6 +1006,7 @@ namespace HypervResource
                     {
                         details = "Data store combination not supported";
                     }
+
                 }
                 catch (Exception ex)
                 {
