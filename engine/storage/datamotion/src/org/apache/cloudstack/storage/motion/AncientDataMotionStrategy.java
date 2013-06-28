@@ -35,6 +35,7 @@ import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreState
 import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.StorageCacheManager;
+import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.ZoneScope;
 import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
@@ -57,6 +58,7 @@ import com.cloud.configuration.Config;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.host.Host;
 import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
@@ -129,17 +131,28 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
         DataStoreTO srcStoreTO = srcTO.getDataStore();
         DataStoreTO destStoreTO = destTO.getDataStore();
         if (srcStoreTO instanceof NfsTO || srcStoreTO.getRole() == DataStoreRole.ImageCache) {
-        	s_logger.debug("needCacheStorage false due to src, at " + srcTO.getPath() + " role " + srcStoreTO.getRole().toString());
             return false;
         }
 
         if (destStoreTO instanceof NfsTO || destStoreTO.getRole() == DataStoreRole.ImageCache) {
-        	s_logger.debug("needCacheStorage false due to dest, at " + destTO.getPath() + " role " + destStoreTO.getRole().toString());
             return false;
         }
-    	s_logger.debug("needCacheStorage true, dest at " + 
+        
+        if (srcData.getType() == DataObjectType.TEMPLATE) {
+            TemplateInfo template = (TemplateInfo)srcData;
+            if (template.getHypervisorType() == HypervisorType.Hyperv) {
+            	if (s_logger.isDebugEnabled()) {
+            		s_logger.debug("needCacheStorage false due to src TemplateInfo, which is DataObjectType.TEMPLATE of HypervisorType.Hyperv");
+            	}
+               return false; 
+            }
+        }
+
+    	if (s_logger.isDebugEnabled()) {
+    		s_logger.debug("needCacheStorage true, dest at " + 
     				destTO.getPath() + " dest role " + destStoreTO.getRole().toString() +
     				srcTO.getPath() + " src role " + srcStoreTO.getRole().toString() );
+    	}
         return true;
     }
 
@@ -162,30 +175,24 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
         int _primaryStorageDownloadWait = NumbersUtil.parseInt(value,
                 Integer.parseInt(Config.PrimaryStorageDownloadWait.getDefaultValue()));
         Answer answer = null;
-        DataObject cacheData = null;
+        boolean usingCache = false;
+    	DataObject cacheData = null; 
     	DataObject srcForCopy = srcData; 
         try {
-        	
-        	// Revise src to cached copy, if possible
             if (needCacheStorage(srcData, destData)) {
-                // need to copy it to image cache store
                 Scope destScope = getZoneScope(destData.getDataStore().getScope());
-                cacheData = cacheMgr.createCacheObject(srcData, destScope);
-                
-                if (cacheData != null) {
-                	srcForCopy = cacheData;
-                }
+                srcForCopy = cacheData = cacheMgr.createCacheObject(srcData, destScope);
             } 
-            // handle copy it to/from cache store
+
             CopyCommand cmd = new CopyCommand(srcForCopy.getTO(), destData.getTO(), _primaryStorageDownloadWait);
             EndPoint ep = selector.select(srcForCopy, destData);
             answer = ep.sendMessage(cmd);
             
             if (cacheData != null) {
                 if (answer == null || !answer.getResult()) {
-                    cacheMgr.deleteCacheObject(cacheData);
+                    cacheMgr.deleteCacheObject(srcForCopy);
                 } else {
-                    cacheMgr.releaseCacheObject(cacheData);
+                    cacheMgr.releaseCacheObject(srcForCopy);
                 }
             }
             return answer;
@@ -196,7 +203,6 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
             }
             throw new CloudRuntimeException(e.toString());
         }
-
     }
 
     protected DataObject cacheSnapshotChain(SnapshotInfo snapshot) {
