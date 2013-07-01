@@ -137,22 +137,22 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
         if (destStoreTO instanceof NfsTO || destStoreTO.getRole() == DataStoreRole.ImageCache) {
             return false;
         }
-        
+
         if (srcData.getType() == DataObjectType.TEMPLATE) {
             TemplateInfo template = (TemplateInfo)srcData;
             if (template.getHypervisorType() == HypervisorType.Hyperv) {
-            	if (s_logger.isDebugEnabled()) {
-            		s_logger.debug("needCacheStorage false due to src TemplateInfo, which is DataObjectType.TEMPLATE of HypervisorType.Hyperv");
-            	}
-               return false; 
+                if (s_logger.isDebugEnabled()) {
+                    s_logger.debug("needCacheStorage false due to src TemplateInfo, which is DataObjectType.TEMPLATE of HypervisorType.Hyperv");
+                }
+                return false;
             }
         }
 
-    	if (s_logger.isDebugEnabled()) {
-    		s_logger.debug("needCacheStorage true, dest at " + 
-    				destTO.getPath() + " dest role " + destStoreTO.getRole().toString() +
-    				srcTO.getPath() + " src role " + srcStoreTO.getRole().toString() );
-    	}
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("needCacheStorage true, dest at " +
+                    destTO.getPath() + " dest role " + destStoreTO.getRole().toString() +
+                    srcTO.getPath() + " src role " + srcStoreTO.getRole().toString() );
+        }
         return true;
     }
 
@@ -176,18 +176,17 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
                 Integer.parseInt(Config.PrimaryStorageDownloadWait.getDefaultValue()));
         Answer answer = null;
         boolean usingCache = false;
-    	DataObject cacheData = null; 
-    	DataObject srcForCopy = srcData; 
+        DataObject cacheData = null;
+        DataObject srcForCopy = srcData;
         try {
             if (needCacheStorage(srcData, destData)) {
                 Scope destScope = getZoneScope(destData.getDataStore().getScope());
                 srcForCopy = cacheData = cacheMgr.createCacheObject(srcData, destScope);
-            } 
-
+            }
             CopyCommand cmd = new CopyCommand(srcForCopy.getTO(), destData.getTO(), _primaryStorageDownloadWait);
             EndPoint ep = selector.select(srcForCopy, destData);
             answer = ep.sendMessage(cmd);
-            
+
             if (cacheData != null) {
                 if (answer == null || !answer.getResult()) {
                     cacheMgr.deleteCacheObject(srcForCopy);
@@ -219,10 +218,10 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
     }
 
     protected void deleteSnapshotCacheChain(SnapshotInfo snapshot) {
-       while (snapshot != null) {
-           cacheMgr.deleteCacheObject(snapshot);
-           snapshot = snapshot.getParent();
-       }
+        while (snapshot != null) {
+            cacheMgr.deleteCacheObject(snapshot);
+            snapshot = snapshot.getParent();
+        }
     }
 
     protected Answer copyVolumeFromSnapshot(DataObject snapObj, DataObject volObj) {
@@ -333,7 +332,7 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
         String errMsg = null;
         try {
             s_logger.debug("copyAsync inspecting src type " + srcData.getType().toString() +
-            		" copyAsync inspecting dest type " + destData.getType().toString());
+                    " copyAsync inspecting dest type " + destData.getType().toString());
 
             if (srcData.getType() == DataObjectType.SNAPSHOT && destData.getType() == DataObjectType.VOLUME) {
                 answer = copyVolumeFromSnapshot(srcData, destData);
@@ -421,7 +420,7 @@ public class AncientDataMotionStrategy implements DataMotionStrategy {
 
     @Override
     public Void copyAsync(Map<VolumeInfo, DataStore> volumeMap, VirtualMachineTO vmTo, Host srcHost, Host destHost,
-            AsyncCompletionCallback<CopyCommandResult> callback) {
+                          AsyncCompletionCallback<CopyCommandResult> callback) {
         CopyCommandResult result = new CopyCommandResult(null, null);
         result.setResult("Unsupported operation requested for copying data.");
         callback.complete(result);

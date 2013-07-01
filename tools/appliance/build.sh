@@ -63,16 +63,23 @@ vboxmanage modifyhd $hdd_uuid --compact
 rm -fr dist *.ova *.vhd *.vdi *.qcow* *.bz2
 mkdir dist
 
+# Export for Xen
+which faketime >/dev/null 2>&1 && which vhd-util >/dev/null 2>&1
+if [ $? == 0 ]; then
+  set -e
+  vboxmanage internalcommands converttoraw -format vdi "$hdd_path" img.raw
+  faketime '2010-01-01' vhd-util convert -s 0 -t 1 -i img.raw -o stagefixed.vhd
+  faketime '2010-01-01' vhd-util convert -s 1 -t 2 -i stagefixed.vhd -o $appliance-$build_date-$branch-xen.vhd
+  rm *.bak
+  bzip2 $appliance-$build_date-$branch-xen.vhd
+  echo "$appliance exported for Xen: dist/$appliance-$build_date-$branch-xen.vhd.bz2"
+else
+  echo "** Skipping $appliance export for Xen: faketime or vhd-util command is missing. **"
+  echo "** faketime source code is available from https://github.com/wolfcw/libfaketime **"
+fi
+
 # Exit shell if exporting fails for any format
 set -e
-
-# Export for Xen
-vboxmanage internalcommands converttoraw -format vdi "$hdd_path" img.raw
-faketime '2010-01-01' vhd-util convert -s 0 -t 1 -i img.raw -o stagefixed.vhd
-faketime '2010-01-01' vhd-util convert -s 1 -t 2 -i stagefixed.vhd -o $appliance-$build_date-$branch-xen.vhd
-rm *.bak
-bzip2 $appliance-$build_date-$branch-xen.vhd
-echo "$appliance exported for Xen: dist/$appliance-$build_date-$branch-xen.vhd.bz2"
 
 # Export for KVM
 vboxmanage internalcommands converttoraw -format vdi "$hdd_path" raw.img
@@ -90,8 +97,9 @@ echo "$appliance exported for VMWare: dist/$appliance-$build_date-$branch-vmware
 
 # Export for HyperV
 vboxmanage clonehd $hdd_uuid $appliance-$build_date-$branch-hyperv.vhd --format VHD
-bzip2 $appliance-$build_date-$branch-hyperv.vhd
-echo "$appliance exported for HyperV: dist/$appliance-$build_date-$branch-hyperv.vhd.bz2"
+# HyperV doesn't support import a zipped image from S3
+#bzip2 $appliance-$build_date-$branch-hyperv.vhd
+echo "$appliance exported for HyperV: dist/$appliance-$build_date-$branch-hyperv.vhd"
 
-mv *.bz2 *.ova dist/
+mv *-hyperv.vhd *.bz2 *.ova dist/
 
