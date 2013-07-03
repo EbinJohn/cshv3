@@ -1,4 +1,5 @@
-﻿// Licensed to the Apache Software Foundation (ASF) under one
+﻿using log4net;
+// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -54,6 +55,8 @@ namespace HypervResource
 
     public class VolumeObjectTO
     {
+        private static ILog logger = LogManager.GetLogger(typeof(VolumeObjectTO));
+
         public string FullFileName
         {
             get
@@ -71,7 +74,7 @@ namespace HypervResource
         public string format;
         public string name;
         public string uuid;
-        public S3TO s3DataStoreTO;
+//        public S3TO s3DataStoreTO;
         public PrimaryDataStoreTO primaryDataStore;
 
         public static VolumeObjectTO ParseJson(dynamic json)
@@ -93,10 +96,42 @@ namespace HypervResource
                     name = (string)volumeObjectTOJson.name,
                     uuid = (string)volumeObjectTOJson.uuid
                 };
-                result.s3DataStoreTO = S3TO.ParseJson(volumeObjectTOJson.dataStore);
+ //               result.s3DataStoreTO = S3TO.ParseJson(volumeObjectTOJson.dataStore);
                 result.primaryDataStore = PrimaryDataStoreTO.ParseJson(volumeObjectTOJson.dataStore);
+
+                // Assert
+                if (result.dataStore == null || result.primaryDataStore == null)
+                {
+                    String errMsg = "VolumeObjectTO missing primary dataStore in spec " + volumeObjectTOJson.ToString();
+                    logger.Error(errMsg);
+                    throw new ArgumentNullException(errMsg);
+                }
+
+                GuessFileExtension(result);
             }
             return result;
+        }
+
+        private static void GuessFileExtension(VolumeObjectTO volInfo)
+        {
+            if (String.IsNullOrEmpty(volInfo.format))
+            {
+                logger.Info("No image format in VolumeObjectTO, going to use format from first file that matches " + volInfo.FullFileName);
+
+                string[] choices = Directory.GetFiles(volInfo.primaryDataStore.path, volInfo.name + ".vhd*");
+
+                if (choices.Length != 1)
+                {
+                    String errMsg = "Tried to guess file extension, but cannot find file corresponding to " + Path.Combine(volInfo.primaryDataStore.path, volInfo.name); // format being guessed.
+                    logger.Debug(errMsg);
+                }
+                else
+                {
+                    string[] splitFileName = choices[0].Split(new char[] { '.' });
+                    volInfo.format = splitFileName[splitFileName.Length - 1];
+                }
+                logger.Debug("Going to use file " + volInfo.FullFileName);
+            }
         }
     }
 
@@ -125,6 +160,7 @@ namespace HypervResource
         public S3TO s3DataStoreTO = null;
         public PrimaryDataStoreTO primaryDataStore = null;
         public string path;
+        public string checksum;
 
         public static TemplateObjectTO ParseJson(dynamic json)
         {
@@ -138,7 +174,8 @@ namespace HypervResource
                     format = (string)templateObjectTOJson.format,
                     name = (string)templateObjectTOJson.name,
                     uuid = (string)templateObjectTOJson.uuid,
-                    path = (string)templateObjectTOJson.path
+                    path = (string)templateObjectTOJson.path,
+                    checksum = (string)templateObjectTOJson.checksum
                 };
                 result.s3DataStoreTO = S3TO.ParseJson(templateObjectTOJson.imageDataStore);
                 result.primaryDataStore = PrimaryDataStoreTO.ParseJson(templateObjectTOJson.imageDataStore);
