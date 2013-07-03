@@ -29,6 +29,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Web.Http;
 
 namespace HypervResource
@@ -136,7 +137,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.SetupCommand + cmd.ToString());
 
                 object ansContent = new
                 {
@@ -157,34 +158,43 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.DestroyCommand + cmd.ToString());
 
                 string details = null;
                 bool result = false;
 
                 try
                 {
-                    string path = cmd.volume.path;
-                    string vmName = cmd.vmName;
+                    // Assert
+                    String errMsg = "No 'volume' details in " + CloudStackTypes.DestroyCommand + " " + cmd.ToString();
+                    if (cmd.volume == null)
+                    {
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
+                    }
+
+                    VolumeObjectTO volInfo = VolumeObjectTO.ParseJson(cmd.volume);
+                    String infoMsg = "No 'volume' at " + volInfo.FullFileName;
+                    if (String.IsNullOrEmpty(volInfo.format))
+                    {
+                        logger.Info(CloudStackTypes.DestroyCommand + ", but volume at pass already deleted " + volInfo.format);  
+                    }
 
                     // TODO: detach volume
+                    string vmName = cmd.vmName;
                     var imgmgr = WmiCalls.GetImageManagementService();
-                    if (!string.IsNullOrEmpty(vmName))
+                    if (!string.IsNullOrEmpty(vmName) && File.Exists(volInfo.FullFileName) )
                     {
-                        var returncode = imgmgr.Unmount(path);
+                        var returncode = imgmgr.Unmount(volInfo.FullFileName);
                         if (returncode != ReturnCode.Completed)
                         {
-                            details = "Could not detach driver from vm " + vmName + " for drive " + path;
+                            details = "Could not detach driver from vm " + vmName + " for drive " + volInfo.FullFileName;
                             logger.Error(details);
                         }
-                        File.Delete(path);
-                        result = true;
                     }
-                    else
-                    {
-                        File.Delete(path);
-                        result = true;
-                    }
+
+                    File.Delete(volInfo.FullFileName);
+                    result = true;
                 }
                 catch (Exception sysEx)
                 {
@@ -217,7 +227,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.CreateCommand + cmd.ToString());
 
                 string details = null;
                 bool result = false;
@@ -323,7 +333,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.PrimaryStorageDownloadCommand + cmd.ToString());
                 string details = null;
                 bool result = false;
                 long size = 0;
@@ -476,7 +486,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.CheckHealthCommand + cmd.ToString());
                 object ansContent = new
                 {
                     result = true,
@@ -493,7 +503,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.CheckVirtualMachineCommand + cmd.ToString());
                 string details = null;
                 bool result = false;
                 string vmName = cmd.vmName;
@@ -529,7 +539,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.DeleteStoragePoolCommand + cmd.ToString());
                 object ansContent = new
                 {
                     result = true,
@@ -551,7 +561,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.CreateStoragePoolCommand + cmd.ToString());
                 object ansContent = new
                 {
                     result = true,
@@ -568,7 +578,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.ModifyStoragePoolCommand + cmd.ToString());
                 string details = null;
                 string localPath;
                 object ansContent;
@@ -642,7 +652,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.CleanupNetworkRulesCmd + cmd.ToString());
                 object ansContent = new
                  {
                      result = false,
@@ -659,7 +669,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.CheckNetworkCommand + cmd.ToString());
                 object ansContent = new
                 {
                     result = true,
@@ -676,7 +686,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.ReadyCommand + cmd.ToString());
                 object ansContent = new
                 {
                     result = true,
@@ -694,7 +704,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.StartCommand + cmd.ToString()); // TODO: Security hole? VM data printed to log
                 string details = null;
                 bool result = false;
 
@@ -726,7 +736,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.StopCommand + cmd.ToString());
                 string details = null;
                 bool result = false;
 
@@ -821,7 +831,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.GetVmStatsCommand + cmd.ToString());
                 bool result = false;
                 string details = null;
                 JArray vmNamesJson = cmd.vmNames;
@@ -908,17 +918,35 @@ namespace HypervResource
                     TemplateObjectTO destTemplateObjectTO = TemplateObjectTO.ParseJson(cmd.destTO);
                     VolumeObjectTO destVolumeObjectTO = VolumeObjectTO.ParseJson(cmd.destTO);
 
-                    logger.Info(CloudStackTypes.CopyCommand + cmd.ToString()); 
+                    logger.Info(CloudStackTypes.CopyCommand + cmd.ToString());
 
-                    // Create local copy of a template?
-                    if (srcTemplateObjectTO != null && destTemplateObjectTO != null)
+                    // Already exists?
+                    if (destTemplateObjectTO != null && 
+                        File.Exists(destTemplateObjectTO.FullFileName) && 
+                        !String.IsNullOrEmpty(destTemplateObjectTO.checksum))
                     {
-                        // S3 download to primary storage?
-                        if (srcTemplateObjectTO.s3DataStoreTO != null && destTemplateObjectTO.primaryDataStore != null)
+                        // TODO: checksum fails us, because it is of the compressed image.
+                        // ASK: should we store the compressed or uncompressed version or is the checksum not calculated correctly?
+                        result = VerifyChecksum(destTemplateObjectTO.FullFileName, destTemplateObjectTO.checksum);
+                    }
+
+                    // Do we have to create a new one?
+                    if ( !result )
+                    {
+                        // Create local copy of a template?
+                        if (srcTemplateObjectTO != null && destTemplateObjectTO != null)
                         {
-                            string destFile = destTemplateObjectTO.FullFileName;
-                            if (!File.Exists(destFile))
+                            // S3 download to primary storage?
+                            if (srcTemplateObjectTO.s3DataStoreTO != null && destTemplateObjectTO.primaryDataStore != null)
                             {
+                                string destFile = destTemplateObjectTO.FullFileName;
+
+                                if (File.Exists(destFile))
+                                {
+                                    logger.Info("Deleting existing file " + destFile);
+                                    File.Delete(destFile);
+                                }
+
                                 // Download from S3 to destination data storage
                                 DownloadS3ObjectToFile(srcTemplateObjectTO.path, srcTemplateObjectTO.s3DataStoreTO, destFile);
 
@@ -934,7 +962,7 @@ namespace HypervResource
                                             using (var bz2UncompressorStrm = new Ionic.BZip2.BZip2InputStream(compressedInStrm, true) /* outer 'using' statement will close FileStream*/ )
                                             {
                                                 int count = 0;
-                                                int bufsize = 1024*1024;
+                                                int bufsize = 1024 * 1024;
                                                 byte[] buf = new byte[bufsize];
 
                                                 // EOF returns -1, see http://dotnetzip.codeplex.com/workitem/16069 
@@ -947,14 +975,6 @@ namespace HypervResource
                                     }
                                     File.Delete(compressedFile);
                                     File.Move(uncompressedFile, compressedFile);
-
-                                    // assert
-                                    if (!File.Exists(destFile))
-                                    {
-                                        String errMsg = "Failed to create " + destFile + " , because the file is missing";
-                                        logger.Error(errMsg);
-                                        throw new IOException(errMsg);
-                                    }
                                     if (File.Exists(uncompressedFile))
                                     {
                                         String errMsg = "Extra file left around called " + uncompressedFile + " when creating " + destFile;
@@ -963,12 +983,48 @@ namespace HypervResource
                                     }
                                 }
 
+                                // assert
+                                if (!File.Exists(destFile))
+                                {
+                                    String errMsg = "Failed to create " + destFile + " , because the file is missing";
+                                    logger.Error(errMsg);
+                                    throw new IOException(errMsg);
+                                }
+
                                 newData = cmd.destTO;
                                 result = true;
                             }
                             else
                             {
-                                details = "File already exists at " + destFile;
+                                details = "Data store combination not supported";
+                            }
+                        }
+                        // Create volume from a template?
+                        else if (srcTemplateObjectTO != null && destVolumeObjectTO != null)
+                        {
+                            if (destVolumeObjectTO.format == null)
+                            {
+                                destVolumeObjectTO.format = srcTemplateObjectTO.format;
+                            }
+                            string destFile = destVolumeObjectTO.FullFileName;
+                            string srcFile = srcTemplateObjectTO.FullFileName;
+
+                            if (!File.Exists(srcFile))
+                            {
+                                details = "Local template file missing from " + srcFile;
+                            }
+                            else
+                            {
+                                if (File.Exists(destFile))
+                                {
+                                    logger.Info("Deleting existing file " + destFile);
+                                    File.Delete(destFile);
+                                }
+
+                                // TODO: thin provision instead of copying the full file.
+                                File.Copy(srcFile, destFile);
+                                newData = cmd.destTO;
+                                result = true;
                             }
                         }
                         else
@@ -976,37 +1032,6 @@ namespace HypervResource
                             details = "Data store combination not supported";
                         }
                     }
-                    // Create volume from a template?
-                    else if (srcTemplateObjectTO != null && destVolumeObjectTO != null)
-                    {
-                        if (destVolumeObjectTO.format == null)
-                        {
-                            destVolumeObjectTO.format = srcTemplateObjectTO.format;
-                        }
-                        string destFile = destVolumeObjectTO.FullFileName;
-                        string srcFile = srcTemplateObjectTO.FullFileName;
-
-                        if (File.Exists(destFile))
-                        {
-                            details = "File already exists at " + destFile;
-                        }
-                        else if (!File.Exists(srcFile))
-                        {
-                            details = "Local template file missing from " + srcFile;
-                        }
-                        else
-                        {
-                            // TODO: thin provision instead of copying the full file.
-                            File.Copy(srcFile, destFile);
-                            newData = cmd.destTO;
-                            result = true;
-                        }
-                    }
-                    else
-                    {
-                        details = "Data store combination not supported";
-                    }
-
                 }
                 catch (Exception ex)
                 {
@@ -1022,6 +1047,34 @@ namespace HypervResource
                     newData = newData
                 };
                 return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CopyCmdAnswer);
+            }
+        }
+
+        private static bool VerifyChecksum(string destFile, string checksum)
+        {
+            string localChecksum = BitConverter.ToString(CalcFileChecksum(destFile)).Replace("-", "").ToLower();
+            logger.Debug("Checksum of " + destFile + " is " + checksum);
+            if (checksum.Equals(localChecksum))
+            {
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Match implmentation of DownloadManagerImpl.computeCheckSum
+        /// </summary>
+        /// <param name="destFile"></param>
+        /// <returns></returns>
+        private static byte[] CalcFileChecksum(string destFile)
+        {
+            // TODO:  Add unit test to verify that checksum algorithm has not changed.
+            using (MD5 md5 = MD5.Create())
+            {
+                using (FileStream stream = File.OpenRead(destFile))
+                {
+                    return md5.ComputeHash(stream);
+                }
             }
         }
 
@@ -1080,7 +1133,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.GetStorageStatsCommand + cmd.ToString());
                 bool result = false;
                 string details = null;
                 long capacity = 0;
@@ -1117,7 +1170,7 @@ namespace HypervResource
         {
             using (log4net.NDC.Push(Guid.NewGuid().ToString()))
             {
-                logger.Info(cmd.ToString());
+                logger.Info(CloudStackTypes.GetHostStatsCommand + cmd.ToString());
                 bool result = false;
                 string details = null;
                 object hostStats = null;
