@@ -214,7 +214,7 @@ public class HypervDirectConnectResourceTest {
         	
         	testLocalStorePathJSON = s_gson.toJson(testLocalStorePath);
 
-        	String agentIp = (String)params.get("private.ip.address");
+        	String agentIp = (String)params.get("ipaddress");
         	s_logger.info("Test using agent IP address " + agentIp); 
         	params.put("agentIp", agentIp);
         	SetTestJsonResult(params);
@@ -224,7 +224,7 @@ public class HypervDirectConnectResourceTest {
         			+ " sample template at " + testSampleTemplateURLJSON);
         	
 	        s_pythonExec = (String)params.get("agent.executable");
-	        testPrimaryDataStoreHost = (String) params.get("private.ip.address");
+	        testPrimaryDataStoreHost = (String) params.get("ipaddress");
 	        AgentCreation();
     }
 
@@ -736,18 +736,18 @@ public class HypervDirectConnectResourceTest {
                         s_gson.toJson((String) params.get("zone")),
                         s_gson.toJson((String) params.get("pod")),
                         s_gson.toJson((String) params.get("cluster")),
-                        s_gson.toJson((String) params.get("private.ip.address")),
+                        s_gson.toJson((String) params.get("ipaddress")),
                         s_gson.toJson((String) params.get("private.mac.address")),
                         s_gson.toJson((String) params.get("private.ip.netmask")),
-                        s_gson.toJson((String) params.get("private.ip.address")),
+                        s_gson.toJson((String) params.get("ipaddress")),
                         s_gson.toJson((String) params.get("private.ip.netmask")),
                         s_gson.toJson((String) params.get("private.mac.address")),
                         s_gson.toJson((String) params.get("gateway.ip.address")),
-        				s_gson.toJson((String) params.get("private.ip.address")),
+        				s_gson.toJson((String) params.get("ipaddress")),
                         s_gson.toJson((String) params.get("DefaultVirtualDiskFolder")),
                         s_gson.toJson((String) params.get("DefaultVirtualDiskFolder")),
                         s_gson.toJson(totalSpace),
-                        s_gson.toJson(usableCapacity)                        
+                        s_gson.toJson(totalSpace-usableCapacity)                        
         				);
     }
     

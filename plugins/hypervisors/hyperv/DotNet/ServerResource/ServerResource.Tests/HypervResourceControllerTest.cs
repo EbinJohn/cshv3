@@ -47,6 +47,7 @@ namespace ServerResource.Tests
         protected static String testSampleVolumeWorkingUUID = "TestVolumeLegit.vhdx";
         protected static String testSampleVolumeCorruptUUID = "TestVolumeCorrupt.vhd";
         protected static String testSampleVolumeTempUUID = "TestVolumeTemp.vhdx";
+        protected static String testSampleVolumeTempUUIDNoExt = "TestVolumeTemp";
         protected static String testSampleVolumeWorkingURIJSON;
         protected static String testSampleVolumeCorruptURIJSON;
         protected static String testSampleVolumeTempURIJSON;
@@ -224,14 +225,13 @@ namespace ServerResource.Tests
         [TestMethod]
         public void TestDestroyCommand()
         {
+            // TODO: destory commands have changed.
             // Arrange
-            String destoryCmd = "{\"volume\":{\"name\":\"" + testSampleVolumeWorkingUUID + 
-        		    "\",\"storagePoolType\":\"Filesystem\",\"mountPoint\":"+testLocalStorePathJSON+
-        		    ",\"path\":" + testSampleVolumeTempURIJSON +
-        		    ",\"storagePoolUuid\":\""+testLocalStoreUUID+"\"," + 
-        		    "\"type\":\"ROOT\",\"id\":9,\"size\":0}}";
+            String sampleVolume = getSampleVolumeObjectTO();
+            String destoryCmd = "{\"volume\":" + getSampleVolumeObjectTO() + "}";
             HypervResourceController rsrcServer = new HypervResourceController();
             dynamic jsonDestoryCmd = JsonConvert.DeserializeObject(destoryCmd);
+            VolumeObjectTO volInfo = VolumeObjectTO.ParseJson(jsonDestoryCmd.volume);
 
             // Act
             dynamic destoryAns = rsrcServer.DestroyCommand(jsonDestoryCmd);
@@ -241,11 +241,13 @@ namespace ServerResource.Tests
             dynamic ans = ansAsProperty2.GetValue(CloudStackTypes.Answer);
 
             Assert.IsTrue((bool)ans.result, "DestroyCommand did not succeed " + ans.details);
+            Assert.IsTrue(!File.Exists(volInfo.FullFileName), "Failed to delete file " + volInfo.FullFileName);
         }
 
         [TestMethod]
         public void TestCreateCommand()
         {
+            // TODO: Need sample to update the test.
             // Arrange
             String createCmd = "{\"volId\":10,\"pool\":{\"id\":201,\"uuid\":\"" + testLocalStoreUUID + "\",\"host\":\"" + HypervResourceController.config.StorageIpAddress + "\"" +
     					    ",\"path\":"+testLocalStorePathJSON+",\"port\":0,\"type\":\"Filesystem\"},\"diskCharacteristics\":{\"size\":0," +
@@ -307,7 +309,7 @@ namespace ServerResource.Tests
                         "\"volumeType\":\"ROOT\"," +
                         "\"format\":\"VHDX\"," +
                         "\"dataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
-                        "\"name\":\"" + testSampleVolumeWorkingUUID + "\"," +
+                        "\"name\":\"" + testSampleVolumeTempUUIDNoExt + "\"," +
                         "\"size\":52428800," +
                         "\"volumeId\":10," +
                 //                            "\"vmName\":\"i-3-5-VM\"," +  // TODO: do we have to fill in the vmName?
@@ -351,7 +353,7 @@ namespace ServerResource.Tests
                         "\"id\":5," +
                         "\"format\":\"VHDX\"," +
                         "\"accountId\":1," +
-                        "\"checksum\":\"046e134e642e6d344b34648223ba4bc1\"," +
+                        "\"checksum\":\"4b31e2846cc67fc10ea7281986519a54\"," +
                         "\"hvm\":false," +
                         "\"displayText\":\"tiny Linux\"," +
                         "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
@@ -384,6 +386,7 @@ namespace ServerResource.Tests
                         "\"id\":206," +
                         "\"format\":\"VHDX\"," +
                         "\"accountId\":2," +
+                        "\"checksum\":\"4b31e2846cc67fc10ea7281986519a54\"," +
                         "\"hvm\":true," +
                         "\"displayText\":\"OS031\"," +
                         "\"imageDataStore\":" +
@@ -401,12 +404,13 @@ namespace ServerResource.Tests
                      "}," + // end of srcTO
                  "\"destTO\":" +
                     "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
-                        "{\"checksum\": \"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
+                        "{" +
                         "\"origUrl\":\"http://10.147.28.7/templates/5d67394c-4efd-4b62-966b-51aa53b35277.vhd.bz2\"," +
                         "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
                         "\"id\":206," +
                         "\"format\":\"VHDX\"," +
                         "\"accountId\":2," +
+                        "\"checksum\":\"4b31e2846cc67fc10ea7281986519a54\"," +
                         "\"hvm\":true," +
                         "\"displayText\":\"OS031\"," +
                         "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," + // end of imageDataStore
@@ -415,45 +419,42 @@ namespace ServerResource.Tests
                 "\"wait\":10800}"; // end of CopyCommand
  #endregion 
 
-            HypervResourceController rsrcServer = new HypervResourceController();
-            dynamic jsonDownloadCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandForTemplateDownload);
-            TemplateObjectTO dwnldTemplate = TemplateObjectTO.ParseJson(jsonDownloadCopyCmd.destTO);
-            string dwnldDest = dwnldTemplate.FullFileName;
+            HypervResourceController rsrcServer;
+            dynamic jsonDownloadCopyCmd;
+            string dwnldDest;
+            dynamic jsonCloneCopyCmd;
+            string newVolName;
+            CopyCommandTestSetup(sampleCopyCommandToCreateVolumeFromTemplate, sampleCopyCommandForTemplateDownload, out rsrcServer, out jsonDownloadCopyCmd, out dwnldDest, out jsonCloneCopyCmd, out newVolName);
 
-            dynamic jsonCloneCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandToCreateVolumeFromTemplate);
-            VolumeObjectTO newVol = VolumeObjectTO.ParseJson(jsonCloneCopyCmd.destTO);
-            newVol.format = dwnldTemplate.format;
-            string newVolName = newVol.FullFileName;
+            // Act & Assert
+            DownloadTemplateToPrimaryStorage(rsrcServer, jsonDownloadCopyCmd, dwnldDest);
+            CreateVolumeFromTemplate(rsrcServer, jsonCloneCopyCmd, newVolName);
 
-            if (File.Exists(dwnldDest))
-            {
-                File.Delete(dwnldDest);
-            }
-            if (File.Exists(newVolName))
-            {
-                File.Delete(newVolName);
-            }
+            // Repeat to verify ability to detect existing file.
+            DownloadTemplateToPrimaryStorage(rsrcServer, jsonDownloadCopyCmd, dwnldDest);
+        
+            File.Delete(dwnldDest);
+            File.Delete(newVolName);
+        }
 
-            // Download template to primary storage
-            // Act
-            dynamic dwnldResult = rsrcServer.CopyCommand(jsonDownloadCopyCmd);
-
-            // Assert
-            Assert.IsNotNull(dwnldResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
-            Assert.IsTrue((bool)dwnldResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + dwnldResult[0][CloudStackTypes.CopyCmdAnswer].details);
-            Assert.IsTrue(File.Exists(dwnldDest), "CopyCommand failed to generate " + dwnldDest);
-
-            // Create Volume from Template
-            // Act
+        private static void CreateVolumeFromTemplate(HypervResourceController rsrcServer, dynamic jsonCloneCopyCmd, string newVolName)
+        {
             dynamic copyResult = rsrcServer.CopyCommand(jsonCloneCopyCmd);
 
             // Assert
             Assert.IsNotNull(copyResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
             Assert.IsTrue((bool)copyResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + copyResult[0][CloudStackTypes.CopyCmdAnswer].details);
             Assert.IsTrue(File.Exists(newVolName), "CopyCommand failed to generate " + newVolName);
-                    
-            File.Delete(dwnldDest);
-            File.Delete(newVolName);
+        }
+
+        private static void DownloadTemplateToPrimaryStorage(HypervResourceController rsrcServer, dynamic jsonDownloadCopyCmd, string dwnldDest)
+        {
+            dynamic dwnldResult = rsrcServer.CopyCommand(jsonDownloadCopyCmd);
+
+            // Assert
+            Assert.IsNotNull(dwnldResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
+            Assert.IsTrue((bool)dwnldResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + dwnldResult[0][CloudStackTypes.CopyCmdAnswer].details);
+            Assert.IsTrue(File.Exists(dwnldDest), "CopyCommand failed to generate " + dwnldDest);
         }
 
                 [TestMethod]
@@ -468,9 +469,10 @@ namespace ServerResource.Tests
                         "{" +
                         "\"origUrl\":\"http://people.apache.org/~bhaisaab/vms/ttylinux_pv.vhd\"," +
                         "\"uuid\":\"9873f1c0-bdcc-11e2-8baa-ea85dab5fcd0\"," +
-                        "\"id\":5,\"format\":\"VHD\"," +
+                        "\"id\":5,"+
+                        "\"format\":\"VHD\"," +
                         "\"accountId\":1," +
-                        "\"checksum\":\"046e134e642e6d344b34648223ba4bc1\"," +
+                        "\"checksum\":\"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
                         "\"hvm\":false," +
                         "\"displayText\":\"tiny Linux\"," +
                         "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," +
@@ -485,7 +487,7 @@ namespace ServerResource.Tests
                         "\"size\":52428800," +
                         "\"volumeId\":10," +
                         "\"vmName\":\"i-3-5-VM\"," +
-                        "\"accountId\":3,"+
+                        "\"accountId\":1,"+
                         "\"id\":10}" +
                     "}," +  // end of destTO 
                 "\"wait\":0}"; // end of Copy Command
@@ -501,7 +503,8 @@ namespace ServerResource.Tests
                         "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
                         "\"id\":206," +
                         "\"format\":\"VHD\"," +
-                        "\"accountId\":2," +
+                        "\"accountId\":1," +
+                        "\"checksum\": \"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
                         "\"hvm\":true," +
                         "\"displayText\":\"OS031\"," +
                         "\"imageDataStore\":" +
@@ -519,12 +522,13 @@ namespace ServerResource.Tests
                      "}," + // end of srcTO
                  "\"destTO\":" +
                     "{\"org.apache.cloudstack.storage.to.TemplateObjectTO\":" +
-                        "{\"checksum\": \"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
+                        "{"+
                         "\"origUrl\":\"http://10.147.28.7/templates/5d67394c-4efd-4b62-966b-51aa53b35277.vhd.bz2\"," +
                         "\"uuid\":\"7e4ca941-cb1b-4113-ab9e-043960d0fb10\"," +
                         "\"id\":206," +
                         "\"format\":\"VHD\"," +
-                        "\"accountId\":2," +
+                        "\"accountId\":1," +
+                        "\"checksum\": \"f613f38c96bf039f2e5cbf92fa8ad4f8\"," +
                         "\"hvm\":true," +
                         "\"displayText\":\"OS031\"," +
                         "\"imageDataStore\":" + getSamplePrimaryDataStoreInfo() + "," + // end of imageDataStore
@@ -533,46 +537,42 @@ namespace ServerResource.Tests
                 "\"wait\":10800}"; // end of CopyCommand
  #endregion 
 
-            HypervResourceController rsrcServer = new HypervResourceController();
-            dynamic jsonDownloadCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandForTemplateDownload);
-            TemplateObjectTO dwnldTemplate = TemplateObjectTO.ParseJson(jsonDownloadCopyCmd.destTO);
-            string dwnldDest = dwnldTemplate.FullFileName;
+            HypervResourceController rsrcServer;
+            dynamic jsonDownloadCopyCmd;
+            string dwnldDest;
+            dynamic jsonCloneCopyCmd;
+            string newVolName;
+            CopyCommandTestSetup(sampleCopyCommandToCreateVolumeFromTemplate, sampleCopyCommandForTemplateDownload, out rsrcServer, out jsonDownloadCopyCmd, out dwnldDest, out jsonCloneCopyCmd, out newVolName);
 
-            dynamic jsonCloneCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandToCreateVolumeFromTemplate);
-            VolumeObjectTO newVol = VolumeObjectTO.ParseJson(jsonCloneCopyCmd.destTO);
-            newVol.format = dwnldTemplate.format;
-            string newVolName = dwnldTemplate.FullFileName;
+            // Act & Assert
+            DownloadTemplateToPrimaryStorage(rsrcServer, jsonDownloadCopyCmd, dwnldDest);
+            CreateVolumeFromTemplate(rsrcServer, jsonCloneCopyCmd, newVolName);
 
-            if (File.Exists(dwnldDest))
-            {
-                File.Delete(dwnldDest);
-            }
-            if (File.Exists(newVolName))
-            {
-                File.Delete(newVolName);
-            }
-
-            // Download template to primary storage
-            // Act
-            dynamic dwnldResult = rsrcServer.CopyCommand(jsonDownloadCopyCmd);
-
-            // Assert
-            Assert.IsNotNull(dwnldResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
-            Assert.IsTrue((bool)dwnldResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + dwnldResult[0][CloudStackTypes.CopyCmdAnswer].details);
-            Assert.IsTrue(File.Exists(dwnldDest), "CopyCommand failed to generate " + dwnldDest);
-
-            // Create Volume from Template
-            // Act
-            dynamic copyResult = rsrcServer.CopyCommand(jsonCloneCopyCmd);
-
-            // Assert
-            Assert.IsNotNull(copyResult[0][CloudStackTypes.CopyCmdAnswer], "CopyCommand should return a StartAnswer in all cases");
-            Assert.IsTrue((bool)copyResult[0][CloudStackTypes.CopyCmdAnswer].result, "CopyCommand did not succeed " + copyResult[0][CloudStackTypes.CopyCmdAnswer].details);
-            Assert.IsTrue(File.Exists(newVolName), "CopyCommand failed to generate " + newVolName);
-                    
             File.Delete(dwnldDest);
             File.Delete(newVolName);
         }
+
+                private static void CopyCommandTestSetup(string sampleCopyCommandToCreateVolumeFromTemplate, string sampleCopyCommandForTemplateDownload, out HypervResourceController rsrcServer, out dynamic jsonDownloadCopyCmd, out string dwnldDest, out dynamic jsonCloneCopyCmd, out string newVolName)
+                {
+                    rsrcServer = new HypervResourceController();
+                    jsonDownloadCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandForTemplateDownload);
+                    TemplateObjectTO dwnldTemplate = TemplateObjectTO.ParseJson(jsonDownloadCopyCmd.destTO);
+                    dwnldDest = dwnldTemplate.FullFileName;
+
+                    jsonCloneCopyCmd = JsonConvert.DeserializeObject(sampleCopyCommandToCreateVolumeFromTemplate);
+                    VolumeObjectTO newVol = VolumeObjectTO.ParseJson(jsonCloneCopyCmd.destTO);
+                    newVol.format = dwnldTemplate.format;
+                    newVolName = dwnldTemplate.FullFileName;
+
+                    if (File.Exists(dwnldDest))
+                    {
+                        File.Delete(dwnldDest);
+                    }
+                    if (File.Exists(newVolName))
+                    {
+                        File.Delete(newVolName);
+                    }
+                }
         
 
                 [TestMethod]

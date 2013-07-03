@@ -26,6 +26,7 @@ using System.Management;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using CloudStack.Plugin.WmiWrappers.ROOT.CIMV2;
+using System.IO;
 
 namespace HypervResource
 {
@@ -157,12 +158,6 @@ namespace HypervResource
         /// <summary>
         /// Create new VM.  By default we start it. 
         /// </summary>
-        public static ComputerSystem DeployVirtualMachine(string json)
-        {
-            dynamic jsonObj = JsonConvert.DeserializeObject(json);
-            return DeployVirtualMachine(jsonObj);
-        }
-
         public static ComputerSystem DeployVirtualMachine(dynamic jsonObj)
         {
             var vmInfo = jsonObj.vm;
@@ -170,6 +165,24 @@ namespace HypervResource
             var nicInfo = vmInfo.nics;
             int vcpus = vmInfo.cpus;
             int memSize = vmInfo.maxRam / 1048576;
+            string errMsg = vmName;
+            var diskDrives = vmInfo.disks;
+
+            // assert
+            errMsg = vmName + ": missing disk information, array empty or missing, agent expects *at least* one disk for a VM";
+            if (diskDrives == null)
+            {
+                logger.Error(errMsg);
+                throw new ArgumentException(errMsg);
+            }
+            // assert
+            errMsg = vmName + ": missing NIC information, array empty or missing, agent expects at least an empty array.";
+            if (nicInfo == null )
+            {
+                logger.Error(errMsg);
+                throw new ArgumentException(errMsg);
+            }
+
 
             // For existing VMs, return when we spot one of this name not stopped.  In the meantime, remove any existing VMs of same name.
             ComputerSystem vmWmiObj = null;
@@ -184,7 +197,7 @@ namespace HypervResource
                 else
                 {
                     // TODO: revise exception type
-                    var errMsg = string.Format("Create VM failing, because there exists a VM with name {0}, state {1}", 
+                    errMsg = string.Format("Create VM failing, because there exists a VM with name {0}, state {1}", 
                         vmName,
                         EnabledState.ToString(vmWmiObj.EnabledState));
                     var ex = new WmiException(errMsg);
@@ -197,45 +210,46 @@ namespace HypervResource
             logger.DebugFormat("Going ahead with create VM {0}, {1} vcpus, {2}MB RAM", vmName, vcpus, memSize);
             var newVm = WmiCalls.CreateVM(vmName, memSize, vcpus);
 
-            // disks
-            var diskDrives = vmInfo.disks;
-
             foreach (var diskDrive in diskDrives)
             {
                 string vhdFile = null;
                 string diskName = null;
-
                 VolumeObjectTO volInfo = VolumeObjectTO.ParseJson(diskDrive.data);
                 if (volInfo != null)
                 {
                     // assert
-                    string errMsg = vmName + ": volume missing datastore for disk " + diskDrive.ToString();
-                    if (volInfo.dataStore == null)
+                    errMsg = vmName + ": volume missing primaryDataStore for disk " + diskDrive.ToString();
+                    if (volInfo.primaryDataStore == null)
                     {
                         logger.Error(errMsg);
                         throw new ArgumentException(errMsg);
                     }
-
                     diskName = volInfo.name;
-                    PrimaryDataStoreTO storeTO = PrimaryDataStoreTO.ParseJson(volInfo.dataStore);
 
                     // assert
                     errMsg = vmName + ": can't deal with DataStore type for disk " + diskDrive.ToString();
-                    if (storeTO == null)
+                    if (volInfo.primaryDataStore == null)
                     {
                         logger.Error(errMsg);
                         throw new ArgumentException(errMsg);
                     }
                     errMsg = vmName + ": Malformed PrimaryDataStore for disk " + diskDrive.ToString();
-                    if (String.IsNullOrEmpty(storeTO.path))
+                    if (String.IsNullOrEmpty(volInfo.primaryDataStore.path))
                     {
                         logger.Error(errMsg);
                         throw new ArgumentException(errMsg);
                     }
-                    vhdFile = System.IO.Path.Combine(storeTO.path, diskName);
-                    errMsg = vmName + ": non-existent volume, missing " + vhdFile + " for drive " + diskDrive.ToString();
+                    errMsg = vmName + ": Missing folder PrimaryDataStore for disk " + diskDrive.ToString() + ", missing path: " +  volInfo.primaryDataStore.path;
+                    if (!Directory.Exists(volInfo.primaryDataStore.path))
+                    {
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
+                    }
+
+                    vhdFile = volInfo.FullFileName;
                     if (!System.IO.File.Exists(vhdFile))
                     {
+                        errMsg = vmName + ": non-existent volume, missing " + vhdFile + " for drive " + diskDrive.ToString();
                         logger.Error(errMsg);
                         throw new ArgumentException(errMsg);
                     }
@@ -257,7 +271,7 @@ namespace HypervResource
                         break;
                     default: 
                         // TODO: double check exception type
-                        var errMsg = string.Format("Unknown disk type {0} for disk {1}, vm named {2}", 
+                        errMsg = string.Format("Unknown disk type {0} for disk {1}, vm named {2}", 
                                 string.IsNullOrEmpty(driveType) ? "NULL" : driveType,
                                 string.IsNullOrEmpty(diskName) ? "NULL" : diskName, vmName);
                         var ex = new WmiException(errMsg);
@@ -275,14 +289,14 @@ namespace HypervResource
                 string mac = nic.mac;
                 string vlan = null;
                 string isolationUri = nic.isolationUri;
-                if (isolationUri != null && isolationUri.StartsWith("vlan://"))
+                if (isolationUri != null && isolationUri.StartsWith("vlan://") && !isolationUri.Equals("vlan://untagged"))
                 {
                     vlan = isolationUri.Substring("vlan://".Length);
                     int tmp;
                     if (!int.TryParse(vlan, out tmp))
                     {
                         // TODO: double check exception type
-                        var errMsg = string.Format("Invalid VLAN value {0} for on vm {1} for nic uuid {2}", isolationUri, vmName, nic.uuid);
+                        errMsg = string.Format("Invalid VLAN value {0} for on vm {1} for nic uuid {2}", isolationUri, vmName, nic.uuid);
                         var ex = new WmiException(errMsg);
                         logger.Error(errMsg, ex);
                         throw ex;
