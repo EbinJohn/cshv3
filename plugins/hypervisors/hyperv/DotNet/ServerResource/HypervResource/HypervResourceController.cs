@@ -496,6 +496,24 @@ namespace HypervResource
             }
         }
 
+        // POST api/HypervResource/CheckSshCommand
+        // TODO: create test
+        [HttpPost]
+        [ActionName(CloudStackTypes.CheckSshCommand)]
+        public JContainer CheckSshCommand([FromBody]dynamic cmd)
+        {
+            using (log4net.NDC.Push(Guid.NewGuid().ToString()))
+            {
+                logger.Info(CloudStackTypes.CheckSshCommand + cmd.ToString());
+                object ansContent = new
+                {
+                    result = true,
+                    details = "NOP, TODO: implement properly"
+                };
+                return ReturnCloudStackTypedJArray(ansContent, CloudStackTypes.CheckSshAnswer);
+            }
+        }
+
         // POST api/HypervResource/CheckVirtualMachineCommand
         [HttpPost]
         [ActionName(CloudStackTypes.CheckVirtualMachineCommand)]
