@@ -2467,7 +2467,13 @@ public class NetworkManagerImpl extends ManagerBase implements NetworkManager, L
             }
         }
 
-        if (vlanId != null) {
+        if (vlanSpecified) {
+            //don't allow to specify vlan tag used by physical network for dynamic vlan allocation
+            if (_dcDao.findVnet(zoneId, pNtwk.getId(), vlanId).size() > 0) {
+                throw new InvalidParameterValueException("The VLAN tag " + vlanId
+                        + " is already being used for dynamic vlan allocation for the guest network in zone " + zone.getName());
+            }
+            
             String uri = "vlan://" + vlanId;
             // For Isolated networks, don't allow to create network with vlan that already exists in the zone
             if (ntwkOff.getGuestType() == GuestType.Isolated) {
@@ -2970,7 +2976,7 @@ public class NetworkManagerImpl extends ManagerBase implements NetworkManager, L
         public void run() {
             try {
                 List<Long> shutdownList = new ArrayList<Long>();
-                long currentTime = System.currentTimeMillis() >> 10;
+                long currentTime = System.currentTimeMillis() / 1000 ;
                 HashMap<Long, Long> stillFree = new HashMap<Long, Long>();
 
                 List<Long> networkIds = _networksDao.findNetworksToGarbageCollect();

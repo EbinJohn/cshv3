@@ -542,7 +542,7 @@
   <bean id="OvmDiscoverer" class="com.cloud.ovm.hypervisor.OvmDiscoverer">
     <property name="name" value="Ovm Discover"/>
   </bean>
-  
+
   <bean id="dummyHostDiscoverer" class="com.cloud.resource.DummyHostDiscoverer">
     <property name="name" value="dummyHostDiscoverer" />
   </bean>

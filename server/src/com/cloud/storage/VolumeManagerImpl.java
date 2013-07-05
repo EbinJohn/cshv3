@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutionException;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -41,10 +42,9 @@ import org.apache.cloudstack.api.command.user.volume.DetachVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ExtractVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.MigrateVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.UpdateVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.UploadVolumeCmd;
-
-import com.cloud.storage.dao.*;
-import org.apache.cloudstack.api.command.user.volume.*;
+import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;
@@ -55,7 +55,6 @@ import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
-import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
@@ -73,7 +72,6 @@ import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.apache.cloudstack.storage.image.datastore.ImageStoreEntity;
-import org.apache.commons.lang.StringUtils;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
@@ -99,6 +97,7 @@ import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
+import com.cloud.dc.Pod;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.HostPodDao;
@@ -142,6 +141,7 @@ import com.cloud.storage.dao.VMTemplatePoolDao;
 import com.cloud.storage.dao.VMTemplateS3Dao;
 import com.cloud.storage.dao.VMTemplateSwiftDao;
 import com.cloud.storage.dao.VolumeDao;
+import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.storage.download.DownloadMonitor;
 import com.cloud.storage.s3.S3Manager;
 import com.cloud.storage.secondary.SecondaryStorageVmManager;
@@ -154,8 +154,8 @@ import com.cloud.template.TemplateManager;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.ResourceLimitService;
-import com.cloud.user.VmDiskStatisticsVO;
 import com.cloud.user.UserContext;
+import com.cloud.user.VmDiskStatisticsVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDao;
 import com.cloud.user.dao.VmDiskStatisticsDao;
@@ -527,15 +527,14 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
 
     @DB
     protected VolumeInfo createVolumeFromSnapshot(VolumeVO volume,
-            SnapshotVO snapshot) {
+            SnapshotVO snapshot) throws StorageUnavailableException {
         Account account = _accountDao.findById(volume.getAccountId());
 
         final HashSet<StoragePool> poolsToAvoid = new HashSet<StoragePool>();
         StoragePool pool = null;
 
         Set<Long> podsToAvoid = new HashSet<Long>();
-        Pair<HostPodVO, Long> pod = null;
-
+        Pair<Pod, Long> pod = null;
 
         DiskOfferingVO diskOffering = _diskOfferingDao
                 .findByIdIncludingRemoved(volume.getDiskOfferingId());
@@ -544,15 +543,19 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
                 snapshot.getHypervisorType());
 
         // Determine what pod to store the volume in
-        while ((pod = _resourceMgr.findPod(null, null, dc, account.getId(),
-                podsToAvoid)) != null) {
+        while ((pod = _resourceMgr.findPod(null, null, dc, account.getId(), podsToAvoid)) != null) {
             podsToAvoid.add(pod.first().getId());
             // Determine what storage pool to store the volume in
             while ((pool = storageMgr.findStoragePool(dskCh, dc, pod.first(), null, null,
                     null, poolsToAvoid)) != null) {
                 break;
-
             }
+        }
+
+        if (pool == null) {
+            String msg = "There are no available storage pools to store the volume in";
+            s_logger.info(msg);
+            throw new StorageUnavailableException(msg, -1);
         }
 
         VolumeInfo vol = volFactory.getVolume(volume.getId());
@@ -605,7 +608,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         }
     }
 
-    protected VolumeVO createVolumeFromSnapshot(VolumeVO volume, long snapshotId) {
+    protected VolumeVO createVolumeFromSnapshot(VolumeVO volume, long snapshotId) throws StorageUnavailableException {
         VolumeInfo createdVolume = null;
         SnapshotVO snapshot = _snapshotDao.findById(snapshotId);
         createdVolume = createVolumeFromSnapshot(volume,
@@ -1341,7 +1344,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
                             ResourceType.volume);
                     /* If volume is in primary storage, decrement primary storage count else decrement secondary
                      storage count (in case of upload volume). */
-                    if (volume.getFolder() != null) {
+                    if (volume.getFolder() != null || volume.getState() == Volume.State.Allocated) {
                         _resourceLimitMgr.decrementResourceCount(volume.getAccountId(), ResourceType.primary_storage,
                                 new Long(volume.getSize()));
                     } else {
@@ -1409,7 +1412,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             vol.setDeviceId(1l);
         }
 
-        vol.setFormat(this.getSupportedImageFormatForCluster(vm.getHypervisorType()));
+        vol.setFormat(getSupportedImageFormatForCluster(vm.getHypervisorType()));
         vol = _volsDao.persist(vol);
 
         // Save usage event and update resource count for user vm volumes
@@ -1440,7 +1443,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         VolumeVO vol = new VolumeVO(type, name, vm.getDataCenterId(),
                 owner.getDomainId(), owner.getId(), offering.getId(), size,
                 offering.getMinIops(), offering.getMaxIops(), null);
-        vol.setFormat(this.getSupportedImageFormatForCluster(template.getHypervisorType()));
+        vol.setFormat(getSupportedImageFormatForCluster(template.getHypervisorType()));
         if (vm != null) {
             vol.setInstanceId(vm.getId());
         }
@@ -1552,10 +1555,10 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             }
         }
 
-        VolumeVO volVO = this._volsDao.findById(vol.getId());
-        volVO.setFormat(this.getSupportedImageFormatForCluster(rootDiskHyperType));
-        this._volsDao.update(volVO.getId(), volVO);
-        return this.volFactory.getVolume(volVO.getId());
+        VolumeVO volVO = _volsDao.findById(vol.getId());
+        volVO.setFormat(getSupportedImageFormatForCluster(rootDiskHyperType));
+        _volsDao.update(volVO.getId(), volVO);
+        return volFactory.getVolume(volVO.getId());
     }
 
     private boolean needMoveVolume(VolumeVO rootVolumeOfVm, VolumeInfo volume) {
@@ -2762,15 +2765,15 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
 
         // Clean up code to remove all those previous uploadVO and uploadMonitor code. Previous code is trying to fake an async operation purely in
         // db table with uploadVO and async_job entry, but internal implementation is actually synchronous.
-        StoragePool srcPool = (StoragePool) this.dataStoreMgr.getPrimaryDataStore(volume.getPoolId());
-        ImageStoreEntity secStore = (ImageStoreEntity) this.dataStoreMgr.getImageStore(zoneId);
+        StoragePool srcPool = (StoragePool) dataStoreMgr.getPrimaryDataStore(volume.getPoolId());
+        ImageStoreEntity secStore = (ImageStoreEntity) dataStoreMgr.getImageStore(zoneId);
         String secondaryStorageURL = secStore.getUri();
 
-        String value = this._configDao.getValue(Config.CopyVolumeWait.toString());
+        String value = _configDao.getValue(Config.CopyVolumeWait.toString());
         int copyvolumewait = NumbersUtil.parseInt(value, Integer.parseInt(Config.CopyVolumeWait.getDefaultValue()));
         // Copy volume from primary to secondary storage
-        VolumeInfo srcVol = this.volFactory.getVolume(volume.getId());
-        AsyncCallFuture<VolumeApiResult> cvAnswer = this.volService.copyVolume(srcVol, secStore);
+        VolumeInfo srcVol = volFactory.getVolume(volume.getId());
+        AsyncCallFuture<VolumeApiResult> cvAnswer = volService.copyVolume(srcVol, secStore);
         // Check if you got a valid answer.
         VolumeApiResult cvResult = null;
         try {

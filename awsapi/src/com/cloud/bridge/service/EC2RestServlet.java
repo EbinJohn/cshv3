@@ -208,7 +208,7 @@ public class EC2RestServlet extends HttpServlet {
             }
             String keystore  = EC2Prop.getProperty( "keystore" );
             keystorePassword = EC2Prop.getProperty( "keystorePass" );
-            wsdlVersion      = EC2Prop.getProperty( "WSDLVersion", "2010-11-15" );
+            wsdlVersion      = EC2Prop.getProperty( "WSDLVersion", "2012-08-15" );
             version = EC2Prop.getProperty( "cloudbridgeVersion", "UNKNOWN VERSION" );
 
             String installedPath = System.getenv("CATALINA_HOME");
@@ -399,14 +399,12 @@ public class EC2RestServlet extends HttpServlet {
         }
         try {
             txn = Transaction.open(Transaction.AWSAPI_DB);
+            txn.start();
             // -> use the keys to see if the account actually exists
             ServiceProvider.getInstance().getEC2Engine().validateAccount( accessKey[0], secretKey[0] );
-            /*    	    UserCredentialsDao credentialDao = new UserCredentialsDao();
-    	    credentialDao.setUserKeys(  ); 
-             */    	    UserCredentialsVO user = new UserCredentialsVO(accessKey[0], secretKey[0]);
-             ucDao.persist(user);
-             txn.commit();
-
+            UserCredentialsVO user = new UserCredentialsVO(accessKey[0], secretKey[0]);
+            ucDao.persist(user);
+            txn.commit();
         } catch( Exception e ) {
             logger.error("SetUserKeys " + e.getMessage(), e);
             response.setStatus(401);
@@ -472,10 +470,8 @@ public class EC2RestServlet extends HttpServlet {
             // [C] Associate the cert's uniqueId with the Cloud API keys
             String uniqueId = AuthenticationUtils.X509CertUniqueId( userCert );
             logger.debug( "SetCertificate, uniqueId: " + uniqueId );
-            /*    	    UserCredentialsDao credentialDao = new UserCredentialsDao();
-    	    credentialDao.setCertificateId( accessKey[0], uniqueId );
-             */	        
             txn = Transaction.open(Transaction.AWSAPI_DB);
+            txn.start();
             UserCredentialsVO user = ucDao.getByAccessKey(accessKey[0]);
             user.setCertUniqueId(uniqueId);
             ucDao.update(user.getId(), user);
@@ -1259,8 +1255,12 @@ public class EC2RestServlet extends HttpServlet {
             String key = (String)names.nextElement();
             if ( key.startsWith("SecurityGroup")) {
                 String[] value = request.getParameterValues(key);
-                if (null != value && 0 < value.length)
-                    EC2request.addGroupName( value[0]);
+                if (null != value && 0 < value.length) {
+                    if ( key.startsWith("SecurityGroupId"))
+                        EC2request.addSecuritGroupId( value[0]);
+                    else
+                        EC2request.addSecuritGroupName( value[0]);
+                }
             }
         }
 

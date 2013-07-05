@@ -27,11 +27,12 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
+
 import org.apache.cloudstack.framework.messagebus.MessageBus;
 import org.apache.cloudstack.framework.messagebus.PublishScope;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.log4j.Logger;
-import org.springframework.stereotype.Component;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.Listener;
@@ -47,6 +48,7 @@ import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.dc.ClusterDetailsDao;
+import com.cloud.dc.ClusterVO;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.exception.ConnectionException;
 import com.cloud.host.Host;
@@ -499,8 +501,8 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
     @Override
     public long getAllocatedPoolCapacity(StoragePoolVO pool, VMTemplateVO templateForVmCreation){
 
-        // Get size for all the volumes
-        Pair<Long, Long> sizes = _volumeDao.getCountAndTotalByPool(pool.getId());
+        // Get size for all the non-destroyed volumes
+        Pair<Long, Long> sizes = _volumeDao.getNonDestroyedCountAndTotalByPool(pool.getId());
         long totalAllocatedSize = sizes.second() + sizes.first() * _extraBytesPerVolume;
 
         // Get size for VM Snapshots
@@ -623,15 +625,21 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
 	        }
         }else {
         	Transaction txn = Transaction.currentTxn();
-            CapacityState capacityState = _configMgr.findClusterAllocationState(ApiDBUtils.findClusterById(host.getClusterId())) == AllocationState.Disabled ?
-            							  CapacityState.Disabled : CapacityState.Enabled;
         	txn.start();
         	CapacityVO capacity = new CapacityVO(host.getId(),
                     host.getDataCenterId(), host.getPodId(), host.getClusterId(), usedMemory,
                     host.getTotalMemory(),
                     CapacityVO.CAPACITY_TYPE_MEMORY);
             capacity.setReservedCapacity(reservedMemory);
-            capacity.setCapacityState(capacityState);
+            CapacityState capacityState = CapacityState.Enabled;
+            if (host.getClusterId() != null) {
+                ClusterVO cluster = ApiDBUtils.findClusterById(host.getClusterId());
+                if (cluster != null) {
+                    capacityState = _configMgr.findClusterAllocationState(cluster) == AllocationState.Disabled ? CapacityState.Disabled
+                            : CapacityState.Enabled;
+                    capacity.setCapacityState(capacityState);
+                }
+            }
             _capacityDao.persist(capacity);
 
             capacity = new CapacityVO(
@@ -899,7 +907,7 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
 	}
 
     @Override
-    public boolean checkIfHostReachMaxGuestLimit(HostVO host) {
+    public boolean checkIfHostReachMaxGuestLimit(Host host) {
         Long vmCount = _vmDao.countRunningByHostId(host.getId());
         HypervisorType hypervisorType = host.getHypervisorType();
         String hypervisorVersion = host.getHypervisorVersion();
