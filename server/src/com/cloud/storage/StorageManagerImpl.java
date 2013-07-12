@@ -717,7 +717,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         params.put("capacityIops", cmd.getCapacityIops());
 
         DataStoreLifeCycle lifeCycle = storeProvider.getDataStoreLifeCycle();
-        DataStore store;
+        DataStore store = null;
         try {
             store = lifeCycle.initialize(params);
             if (scopeType == ScopeType.CLUSTER) {
@@ -729,6 +729,10 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
             }
         } catch (Exception e) {
             s_logger.debug("Failed to add data store", e);
+            // clean up the db
+            if (store != null) {
+                lifeCycle.deleteDataStore(store);
+            }
             throw new CloudRuntimeException("Failed to add data store", e);
         }
 
@@ -1501,10 +1505,14 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         if (requestedVolumes == null || requestedVolumes.isEmpty() || pool == null) {
             return false;
         }
-
+        // Only Solidfire type primary storage is using/setting Iops.
+        // This check will fix to return the storage has enough Iops when capacityIops is set to NULL for any PS Storage provider
+        if (pool.getCapacityIops() == null ) {
+            return true;
+        }
         long currentIops = 0;
-
         List<VolumeVO> volumesInPool = _volumeDao.findByPoolId(pool.getId(), null);
+
 
         for (VolumeVO volumeInPool : volumesInPool) {
             Long minIops = volumeInPool.getMinIops();

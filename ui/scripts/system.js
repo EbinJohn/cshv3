@@ -2628,11 +2628,11 @@
                               validation: { required: true },
                               select: function(args) {
                                 $.ajax({
-                                  url: createURL("listHosts&VirtualMachineId=" + args.context.routers[0].id),
+                                  url: createURL("findHostsForMigration&VirtualMachineId=" + args.context.routers[0].id),
                                   dataType: "json",
                                   async: true,
                                   success: function(json) {
-                                    var hostObjs = json.listhostsresponse.host;
+                                    var hostObjs = json.findhostsformigrationresponse.host;
                                     var items = [];
                                     $(hostObjs).each(function() {
                                       items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
@@ -3072,11 +3072,11 @@
                               validation: { required: true },
                               select: function(args) {
                                 $.ajax({
-                                  url: createURL("listHosts&VirtualMachineId=" + args.context.internallbinstances[0].id),
+                                  url: createURL("findHostsForMigration&VirtualMachineId=" + args.context.internallbinstances[0].id),
                                   dataType: "json",
                                   async: true,
                                   success: function(json) {
-                                    var hostObjs = json.listhostsresponse.host;
+                                    var hostObjs = json.findhostsformigrationresponse.host;
                                     var items = [];
                                     $(hostObjs).each(function() {
                                       items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
@@ -3645,11 +3645,11 @@
                               validation: { required: true },
                               select: function(args) {
                                 $.ajax({
-                                  url: createURL("listHosts&VirtualMachineId=" + args.context.routers[0].id),
+                                  url: createURL("findHostsForMigration&VirtualMachineId=" + args.context.routers[0].id),
                                   dataType: "json",
                                   async: true,
                                   success: function(json) {
-                                    var hostObjs = json.listhostsresponse.host;
+                                    var hostObjs = json.findhostsformigrationresponse.host;
                                     var items = [];
                                     $(hostObjs).each(function() {
                                       items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
@@ -6152,14 +6152,15 @@
 												  converter:cloudStack.converters.toBooleanText
                         }
                       },
-
-                       {
-
-                       isdedicated:{label:'Dedicated'},
-                       domainid:{label:'Domain ID'}
-
+                      {
+                       isdedicated: {label:'Dedicated'},
+                       domainid: {label:'Domain ID'}
+                      },
+                      {
+                        vmwaredcName: { label: 'VMware datacenter Name' },
+                        vmwaredcVcenter: { label: 'VMware datacenter vcenter' },
+                        vmwaredcId: { label: 'VMware datacenter Id' }
                       }
-
                     ],
                     dataProvider: function(args) {
                       $.ajax({
@@ -6169,30 +6170,51 @@
                         },
                         success: function(json) {
                           selectedZoneObj = json.listzonesresponse.zone[0];
-                             $.ajax({
-                                                    url:createURL("listDedicatedZones&zoneid=" +args.context.physicalResources[0].id),
-                                                    dataType:"json",
-                                                    async:false,
-                                                    success:function(json){
-                                                        if(json.listdedicatedzonesresponse.dedicatedzone != undefined){
-                                                          var zoneItem = json.listdedicatedzonesresponse.dedicatedzone[0];
-                                                            if (zoneItem.domainid != null) {
-                                                            $.extend(selectedZoneObj, zoneItem , { isdedicated: 'Yes' });
-                                                          }
-                                                        }
-                                                        else
-                                                            $.extend(selectedZoneObj,{ isdedicated: 'No' })
-
-                                                    },
-                                                  error:function(json){
-                                                       args.response.error(parseXMLHttpResponse(XMLHttpResponse));
-                                                  }
-                                              });
-                          args.response.success({
-                                                actionFilter: zoneActionfilter,
-                                                data: selectedZoneObj
+                          $.ajax({
+                            url: createURL("listDedicatedZones&zoneid=" +args.context.physicalResources[0].id),
+                            dataType: "json",
+                            async: false,
+                            success: function(json){
+                              if(json.listdedicatedzonesresponse.dedicatedzone != undefined) {
+                                var zoneItem = json.listdedicatedzonesresponse.dedicatedzone[0];
+                                if (zoneItem.domainid != null) {
+                                  $.extend(selectedZoneObj, zoneItem , { isdedicated: 'Yes' });
+                                }
+                              }
+                              else {
+                                $.extend(selectedZoneObj, { isdedicated: 'No' })
+                              }
+                            }
                           });
-
+                           
+                          $.ajax({
+                            url: createURL('listVmwareDcs'),
+                            data: {
+                              zoneid: args.context.physicalResources[0].id
+                            },
+                            async: false,
+                            success: function(json) { //e.g. json == { "listvmwaredcsresponse" { "count":1 ,"VMwareDC" [ {"id":"c3c2562d-65e9-4fc7-92e2-773c2efe8f37","zoneid":1,"name":"datacenter","vcenter":"10.10.20.20"} ] } } 
+                              var vmwaredcs = json.listvmwaredcsresponse.VMwareDC;
+                              if(vmwaredcs != null) {
+                                selectedZoneObj.vmwaredcName = vmwaredcs[0].name;
+                                selectedZoneObj.vmwaredcVcenter = vmwaredcs[0].vcenter;
+                                selectedZoneObj.vmwaredcId = vmwaredcs[0].id;
+                              }                              
+                            }                         
+                          });                            
+                           
+                          // for testing only (begin)
+                          /*
+                          selectedZoneObj.vmwaredcName = "datacenter";
+                          selectedZoneObj.vmwaredcVcenter = "10.10.20.20";
+                          selectedZoneObj.vmwaredcId = "c3c2562d-65e9-4fc7-92e2-773c2efe8f37";
+                          */
+                          // for testing only (end)
+                          
+                          args.response.success({
+                            actionFilter: zoneActionfilter,
+                            data: selectedZoneObj
+                          });
                         }
                       });
                     }
@@ -6497,12 +6519,12 @@
                                       dataType: "json",
                                       async: true,
                                       success: function(json) {
-                                        var hostObjs = json.listhostsresponse.host;
+                                        var hostObjs = json.findhostsformigrationresponse.host;
                                         var items = [];
                                         $(hostObjs).each(function() {
                                           if(this.requiresStorageMotion == false){
-                                          items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
-                                           }
+                                            items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
+                                          }
                                         });
                                         args.response.success({data: items});
                                       }
@@ -6927,6 +6949,7 @@
 
               return listView;
             },
+
             secondaryStorage: function() {
               var listView = $.extend(
                 true, {},
@@ -7436,11 +7459,11 @@
                       validation: { required: true },
                       select: function(args) {
                         $.ajax({
-                          url: createURL("listHosts&VirtualMachineId=" + args.context.routers[0].id),
+                          url: createURL("findHostsForMigration&VirtualMachineId=" + args.context.routers[0].id),
                           dataType: "json",
                           async: true,
                           success: function(json) {
-                            var hostObjs = json.listhostsresponse.host;
+                            var hostObjs = json.findhostsformigrationresponse.host;
                             var items = [];
                             $(hostObjs).each(function() {
                               items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
@@ -7984,11 +8007,11 @@
                           dataType: "json",
                           async: true,
                           success: function(json) {
-                            var hostObjs = json.listhostsresponse.host;
+                            var hostObjs = json.findhostsformigrationresponse.host;
                             var items = [];
                             $(hostObjs).each(function() {
                               if(this.requiresStorageMotion == false){
-                              items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
+                                items.push({id: this.id, description: (this.name + " (" + (this.suitableformigration? "Suitable": "Not Suitable") + ")")});
                               }
                             });
                             args.response.success({data: items});
@@ -9463,6 +9486,10 @@
 
                      }
                     }
+                   else {
+                      args.response.success({data: item});
+                    }
+
                   },
                   error: function(XMLHttpResponse) {
                     var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -10141,13 +10168,11 @@
                   },
                   vCenterUsername: {
                     label: 'label.vcenter.username',
-                    docID: 'helpClustervCenterUsername',
-                    validation: { required: true }
+                    docID: 'helpClustervCenterUsername'
                   },
                   vCenterPassword: {
                     label: 'label.vcenter.password',
                     docID: 'helpClustervCenterPassword',
-                    validation: { required: true },
                     isPassword: true
                   },
                   vCenterDatacenter: {
@@ -10350,7 +10375,24 @@
 
                   var hostname = args.data.vCenterHost;
                   var dcName = args.data.vCenterDatacenter;
-
+                 
+                  if(hostname.length == 0 && dcName.length == 0) {
+                    $.ajax({
+                      url: createURL('listVmwareDcs'),
+                      data: {
+                        zoneid: args.data.zoneid
+                      },
+                      async: false,
+                      success: function(json) { //e.g. json == { "listvmwaredcsresponse" { "count":1 ,"VMwareDC" [ {"id":"c3c2562d-65e9-4fc7-92e2-773c2efe8f37","zoneid":1,"name":"datacenter","vcenter":"10.10.20.20"} ] } } 
+                        var vmwaredcs = json.listvmwaredcsresponse.VMwareDC;                        
+                        if(vmwaredcs != null) {
+                          hostname = vmwaredcs[0].vcenter;
+                          dcName = vmwaredcs[0].name;
+                        }                              
+                      }                         
+                    });    
+                  }                              
+                  
                   var url;
                   if(hostname.indexOf("http://") == -1)
                     url = "http://" + hostname;
@@ -10373,36 +10415,36 @@
                   
                     //EXPLICIT DEDICATION
                     var array2 = [];
-                    if(args.$form.find('.form-item[rel=isDedicated]').find('input[type=checkbox]').is(':Checked')== true){
+                    if(args.$form.find('.form-item[rel=isDedicated]').find('input[type=checkbox]').is(':Checked')== true) {
                       if(args.data.accountId != "")
                         array2.push("&account=" +todb(args.data.accountId));
                     
+                      if(clusterId != null){
+                        $.ajax({
+                          url:createURL("dedicateCluster&clusterId=" +clusterId +"&domainId=" +args.data.domainId + array2.join("")),
+                          dataType:"json",
+                          success:function(json){
+                            var jid = json.dedicateclusterresponse.jobid;
+                            args.response.success({
+                              _custom:
+                              {      jobId: jid
+                              },
+                              notification: {
+                                poll: pollAsyncJobResult
+                              },
 
-                    if(clusterId != null){
-                      $.ajax({
-                        url:createURL("dedicateCluster&clusterId=" +clusterId +"&domainId=" +args.data.domainId + array2.join("")),
-                        dataType:"json",
-                        success:function(json){
-                          var jid = json.dedicateclusterresponse.jobid;
-                          args.response.success({
-                            _custom:
-                            {      jobId: jid
-                            },
-                            notification: {
-                              poll: pollAsyncJobResult
-                            },
+                              data:$.extend(item, {state:'Enabled'})
+										        });
 
-                            data:$.extend(item, {state:'Enabled'})
-										      });
-
-                        },
-
-                        error:function(json){
-                          args.response.error(parseXMLHttpResponse(XMLHttpResponse));
-                        }
-                      });
+                          },
+                          error:function(json){
+                            args.response.error(parseXMLHttpResponse(XMLHttpResponse));
+                          }
+                        });
+                      }
+                    } else {
+                      args.response.success({data: item});
                     }
-                   }
                   },
                   error: function(XMLHttpResponse) {
                     var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -11501,6 +11543,10 @@
                       });
                     }
                   }
+                  else {
+                      args.response.success({data: item});
+                    }
+
                   },
 
                   error: function(XMLHttpResponse) {
@@ -12955,6 +13001,310 @@
           }
         }
       },
+
+      ucs: {
+        title: 'UCS',
+        id: 'ucs',
+        listView: {
+          id: 'ucsManagers',
+          fields: {
+            name: { label: 'label.name' },
+            url: { label: 'label.url' }
+          },
+          dataProvider: function(args) {
+            /*
+            $.ajax({
+              url: createURL('listUcsManager'),
+              data: {
+                zoneid: args.context.physicalResources[0].id
+              },
+              success: function(json) {
+                
+              }
+            });
+            */
+            
+            args.response.success({
+              data: [
+                { id: '11', name: 'UCS Manager 1', url: '10.196.72.1' },
+                { id: '11', name: 'UCS Manager 2', url: '10.196.72.2' }
+              ]
+            });
+          },
+          actions: {            
+            add: {
+              label: 'Add UCS Manager',
+
+              messages: {               
+                notification: function(args) {
+                  return 'Add UCS Manager';
+                }
+              },
+
+              createForm: {
+                title: 'Add UCS Manager',
+                fields: {
+                  name: {
+                    label: 'label.name',                    
+                    validation: { required: false }
+                  },
+                  url: {
+                    label: 'label.url',
+                    validation: { required: true }
+                  },
+                  username: {
+                    label: 'label.username',
+                    validation: { required: true }
+                  },
+                  password: {
+                    label: 'label.password',
+                    validation: { required: true }
+                  }                  
+                }
+              },
+
+              action: function(args) {                
+                var data = {
+                  zoneid: args.context.physicalResources[0].id,
+                  url: args.data.url,
+                  username: args.data.username,
+                  password: args.data.password
+                };    
+                if(args.data.name != null && args.data.name.length > 0) {
+                  $.extend(data, {
+                    name: args.data.name
+                  });
+                }
+                               
+                $.ajax({
+                  url: createURL('addUcsManager'),
+                  data: data,                 
+                  success: function(json) { //e.g. json == { "addUcsManagerResponse" :  { "ucsmanager" : {"id":"11","name":"ucsmanager","url":"10.223.184.2","zoneid":"2"} }  }
+                    var item = json.addUcsManagerResponse.ucsmanager;
+                    args.response.success({ data: item });
+                  },
+                  error: function(data) {
+                    args.response.error(parseXMLHttpResponse(data));
+                  }
+                });   
+              },
+
+              notification: {
+                poll: function(args) {
+                  args.complete();
+                }
+              }
+            }            
+          },
+          
+          detailView: {
+            isMaximized: true,
+            noCompact: true,
+            tabs: {
+              blades: {
+                title: 'Blades',
+                listView: {
+                  id: 'blades',
+                  fields: {
+                    //dn: { label: 'Distinguished Name' },
+                    chassis: { label: 'Chassis' }, 
+                    bladeid: { label: 'Blade ID' },
+                    associatedProfileDn: { label: 'Associated Profile' }
+                  },
+                  dataProvider: function(args) {     
+                    $.ajax({
+                      url: createURL('listUcsBlade'),
+                      data: {
+                        ucsmanagerid: args.context.ucsManagers[0].id
+                      },
+                      success: function(json) {
+                        var data = json.listucsbladeresponse.ucsblade? json.listucsbladeresponse.ucsblade: [];
+                        
+                        for(var i = 0; i < data.length; i++) {
+                          var array1 = data[i].bladedn.split('/');                      
+                          data[i].chassis = array1[1];
+                          data[i].bladeid = array1[2];
+                        }
+
+                        
+                        //for testing only (begin)   
+                        /*
+                        var data = [
+                          {
+                            "id": "58c84a1d-6e46-44e3-b7ec-abaa876d1be3",
+                            "ucsmanagerid": "0c96f848-4306-47e5-a9ac-b76aad3557fb",
+                            "bladedn": "sys/chassis-1/blade-1"
+                          },
+                          {
+                            "id": "de5abadf-f294-4014-9fed-7ee37a9b8724",
+                            "ucsmanagerid": "0c96f848-4306-47e5-a9ac-b76aad3557fb",
+                            "bladedn": "sys/chassis-1/blade-2"
+                          }
+                        ];         
+                        for(var i = 0; i < data.length; i++) {
+                          var array1 = data[i].bladedn.split('/');                      
+                          data[i].chassis = array1[1];
+                          data[i].bladeid = array1[2];
+                        }  
+                        */
+                        //for testing only (end)
+                        
+                        
+                        args.response.success({
+                          data: data
+                        });      
+                      }                      
+                    });  
+                  },                  
+                  actions: {                      
+                    associateProfileToBlade: {
+                      label: 'Associate Profile to Blade',
+                      addRow: 'false',
+                      messages: {
+                        notification: function(args) {
+                          return 'Associate Profile to Blade';
+                        }
+                      },
+                      createForm: {
+                        title: 'Associate Profile to Blade',
+                        fields: {
+                          profiledn: {
+                            label: 'Select Profile',
+                            select: function(args) {
+                              var items = [];     
+                                                            
+                              $.ajax({
+                                url: createURL('listUcsProfile'),
+                                data: {
+                                  ucsmanagerid: args.context.ucsManagers[0].id
+                                },
+                                async: false,
+                                success: function(json) { //e.g. json == { "listucsprofileresponse" : { "count":1 ,"ucsprofile" : [  {"ucsdn":"org-root/ls-testProfile"} ] } }
+                                  var ucsprofiles = json.listucsprofileresponse.ucsprofile;
+                                  if(ucsprofiles != null) {
+                                    for(var i = 0; i < ucsprofiles.length; i++) {
+                                      items.push({ id: ucsprofiles[i].ucsdn, description: ucsprofiles[i].ucsdn });                                      
+                                    }
+                                  }                                  
+                                }
+                              });                              
+
+                              //for testing only (begin)     
+                              /*
+                              items.push({id: 'org-root/ls-testProfile1', description: 'org-root/ls-testProfile1'});
+                              items.push({id: 'org-root/ls-testProfile2', description: 'org-root/ls-testProfile2'});
+                              items.push({id: 'org-root/ls-testProfile3', description: 'org-root/ls-testProfile3'});
+                              items.push({id: 'org-root/ls-testProfile4', description: 'org-root/ls-testProfile4'});
+                              items.push({id: 'org-root/ls-testProfile5', description: 'org-root/ls-testProfile5'});
+                              items.push({id: 'org-root/ls-testProfile6', description: 'org-root/ls-testProfile6'});
+                              items.push({id: 'org-root/ls-testProfile7', description: 'org-root/ls-testProfile7'});    
+                              */                             
+                              //for testing only (end)                              
+                              
+                              args.response.success({ data: items });
+                              
+                            },
+                            validation: { required: true }
+                          }
+                        }
+                      },
+                      action: function(args) {                        
+                        $.ajax({
+                          url: createURL('associatesUcsProfileToBlade'),
+                          data: {
+                            ucsmanagerid: args.context.ucsManagers[0].id,
+                            profiledn: args.data.profiledn, 
+                            bladeid: args.context.blades[0].id
+                          },
+                          success: function(json) {
+                            //json.associateucsprofiletobladeresponse.ucsblade
+                            args.response.success({data: { associatedProfileDn: args.data.profiledn }});
+                          }
+                        });
+                        
+                        //args.response.success({data: { associatedProfileDn: args.data.profiledn }}); //for testing only
+                      },
+                      notification: {
+                        poll: function(args) {
+                          args.complete();
+                        }
+                      }
+                    }                      
+                  }
+                  
+                  /*,                                                     
+                  detailView: {
+                    name: 'blade details',
+                    noCompact: true,
+                    actions: {                      
+                      associateProfileToBlade: {
+                        label: 'Associate Profile to Blade',
+                        messages: {
+                          notification: function(args) {
+                            return 'Associate Profile to Blade';
+                          }
+                        },
+                        createForm: {
+                          title: 'Associate Profile to Blade',
+                          fields: {
+                            profiledn: {
+                              label: 'profile',
+                              select: function(args) {
+                                var items = [];     
+                                
+                                items.push({id: 'profile_1', description: 'profile_1'});
+                                items.push({id: 'profile_2', description: 'profile_2'});
+                                items.push({id: 'profile_3', description: 'profile_3'});
+                                args.response.success({data: items});
+                              },
+                              validation: { required: true }
+                            }
+                          }
+                        },
+                        action: function(args) {                          
+                          args.response.success();
+                        },
+                        notification: {
+                          poll: function(args) {
+                            args.complete();
+                          }
+                        }
+                      }                      
+                    },                    
+                    tabs: {
+                      details: {
+                        title: 'label.details',
+
+                        fields: [
+                          {
+                            fieldA: { label: 'fieldA' }
+                          },
+                          {
+                            fieldB: { label: 'fieldB' }
+                          }
+                        ],
+
+                        dataProvider: function(args) { 
+                          args.response.success(
+                            {                              
+                              data: {
+                                fieldA: 'fieldAAA',
+                                fieldB: 'fieldBBB'
+                              }
+                            }
+                          );
+                        }
+                      }
+                    }                   
+                  } 
+                  */
+                                    
+                }
+              }
+            }
+          }
+        }
+      },      
 
       'secondary-storage': {
         title: 'label.secondary.storage',
@@ -14633,19 +14983,23 @@
     var jsonObj = args.context.item;
     var allowedActions = ['enableSwift'];
 
-    allowedActions.push('addVmwareDc');
-    allowedActions.push('removeVmwareDc');
+    if(jsonObj.vmwaredcId == null)
+      allowedActions.push('addVmwareDc');
+    else
+      allowedActions.push('removeVmwareDc');
     
-     if(jsonObj.domainid != null)
+    if(jsonObj.domainid != null)
       allowedActions.push("releaseDedicatedZone");
     else
-    allowedActions.push("dedicateZone");
+      allowedActions.push("dedicateZone");
 
     allowedActions.push("edit");
+    
     if(jsonObj.allocationstate == "Disabled")
       allowedActions.push("enable");
     else if(jsonObj.allocationstate == "Enabled")
       allowedActions.push("disable");
+    
     allowedActions.push("remove");
     return allowedActions;
   }

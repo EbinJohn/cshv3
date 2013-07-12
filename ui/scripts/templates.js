@@ -280,6 +280,11 @@
                     isBoolean: true
                   },
 
+                  isdynamicallyscalable: {
+                    label: "Dynamically Scalable",                   
+                    isBoolean: true
+                  },
+                  
                   isPublic: {
                     label: "label.public",
                     docID: 'helpRegisterTemplatePublic',
@@ -305,6 +310,7 @@
 									format: args.data.format,
 									isextractable: (args.data.isExtractable=="on"),
 									passwordEnabled: (args.data.isPasswordEnabled=="on"),
+									isdynamicallyscalable: (args.data.isdynamicallyscalable=="on"),
 									osTypeId: args.data.osTypeId,
 									hypervisor: args.data.hypervisor
 								};		
@@ -432,7 +438,8 @@
 									  name: args.data.name,
 										displaytext: args.data.displaytext,
 										ostypeid: args.data.ostypeid,
-										passwordenabled: (args.data.passwordenabled=="on")										
+										passwordenabled: (args.data.passwordenabled=="on"),
+										isdynamicallyscalable: (args.data.isdynamicallyscalable=="on")
 									};	   
                   $.ajax({
                     url: createURL('updateTemplate'),
@@ -591,7 +598,7 @@
                     return 'Downloading template';
                   },
                   complete: function(args) {
-                    var url = decodeURIComponent(args.url);
+                    var url = args.url;
                     var htmlMsg = _l('message.download.template');
                     var htmlMsg2 = htmlMsg.replace(/#/, url).replace(/00000/, url);
                     return htmlMsg2;
@@ -726,6 +733,12 @@
                       isEditable: true,
                       converter:cloudStack.converters.toBooleanText
                     },
+                    isdynamicallyscalable: {
+                      label: 'Dynamically Scalable',
+                      isBoolean: true,
+                      isEditable: true,
+                      converter:cloudStack.converters.toBooleanText
+                    },    
                     ispublic: {
                       label: 'label.public',
                       isBoolean: true,
@@ -1240,7 +1253,7 @@
                     return 'label.action.download.ISO';
                   },
                   complete: function(args) {
-                    var url = decodeURIComponent(args.url);
+                    var url = args.url;
                     var htmlMsg = _l('message.download.ISO');
                     var htmlMsg2 = htmlMsg.replace(/#/, url).replace(/00000/, url);
                     return htmlMsg2;

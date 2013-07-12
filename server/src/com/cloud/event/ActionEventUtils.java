@@ -24,6 +24,7 @@ import com.cloud.user.AccountVO;
 import com.cloud.user.User;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDao;
+import com.cloud.user.UserContext;
 import com.cloud.utils.component.ComponentContext;
 import org.apache.cloudstack.framework.events.EventBus;
 import org.apache.cloudstack.framework.events.EventBusException;
@@ -152,6 +153,15 @@ public class ActionEventUtils {
             return; // no provider is configured to provide events bus, so just return
         }
 
+        // get the entity details for which ActionEvent is generated
+        String entityType = null;
+        String entityUuid = null;
+        UserContext context = UserContext.current();
+        if (context != null) {
+            entityType = context.getEntityType();
+            entityUuid = context.getEntityUUID();
+        }
+
         org.apache.cloudstack.framework.events.Event event = new org.apache.cloudstack.framework.events.Event(
                 ManagementServer.Name,
                 eventCategory,
@@ -161,10 +171,17 @@ public class ActionEventUtils {
         Map<String, String> eventDescription = new HashMap<String, String>();
         Account account = _accountDao.findById(accountId);
         User user = _userDao.findById(userId);
+        // if account has been deleted, this might be called during cleanup of resources and results in null pointer
+        if (account == null)
+            return;
+        if (user == null)
+            return;
         eventDescription.put("user", user.getUuid());
         eventDescription.put("account", account.getUuid());
         eventDescription.put("event", eventType);
         eventDescription.put("status", state.toString());
+        eventDescription.put("entity", entityType);
+        eventDescription.put("entityuuid", entityUuid);
         event.setDescription(eventDescription);
 
         try {

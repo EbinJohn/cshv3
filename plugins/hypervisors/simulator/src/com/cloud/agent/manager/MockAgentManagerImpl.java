@@ -26,11 +26,12 @@ import com.cloud.agent.api.GetHostStatsCommand;
 import com.cloud.agent.api.HostStatsEntry;
 import com.cloud.agent.api.MaintainAnswer;
 import com.cloud.agent.api.PingTestCommand;
+import com.cloud.api.commands.SimulatorAddSecondaryAgent;
 import com.cloud.dc.dao.HostPodDao;
-import com.cloud.resource.AgentResourceBase;
-import com.cloud.resource.AgentRoutingResource;
-import com.cloud.resource.AgentStorageResource;
-import com.cloud.resource.ResourceManager;
+import com.cloud.exception.DiscoveryException;
+import com.cloud.host.HostVO;
+import com.cloud.host.dao.HostDao;
+import com.cloud.resource.*;
 import com.cloud.simulator.MockHost;
 import com.cloud.simulator.MockHostVO;
 import com.cloud.simulator.MockVMVO;
@@ -43,6 +44,7 @@ import com.cloud.utils.db.DB;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
+import org.apache.cloudstack.api.command.admin.host.AddSecondaryStorageCmd;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -79,6 +81,10 @@ public class MockAgentManagerImpl extends ManagerBase implements MockAgentManage
     MockStorageManager _storageMgr = null;
     @Inject
     ResourceManager _resourceMgr;
+    @Inject
+    SimulatorSecondaryDiscoverer discoverer;
+    @Inject
+    HostDao hostDao;
     private SecureRandom random;
     private final Map<String, AgentResourceBase> _resources = new ConcurrentHashMap<String, AgentResourceBase>();
     private ThreadPoolExecutor _executor;
@@ -248,10 +254,8 @@ public class MockAgentManagerImpl extends ManagerBase implements MockAgentManage
             this.mode = "Stop";
         }
 
-        @Override
-        @DB
-        public void run() {
 
+        private void handleSystemVMStop() {
             Transaction txn = Transaction.open(Transaction.SIMULATOR_DB);
             try {
                 if (this.mode.equalsIgnoreCase("Stop")) {
@@ -277,6 +281,25 @@ public class MockAgentManagerImpl extends ManagerBase implements MockAgentManage
                 txn.close();
                 txn = Transaction.open(Transaction.CLOUD_DB);
                 txn.close();
+            }
+
+            //stop ssvm agent
+            HostVO host = hostDao.findByGuid(this.guid);
+            if (host != null) {
+                try {
+                    _resourceMgr.deleteHost(host.getId(), true, true);
+                } catch (Exception e) {
+                    s_logger.debug("Failed to delete host: ", e);
+                }
+            }
+        }
+
+        @Override
+        @DB
+        public void run() {
+            if (this.mode.equalsIgnoreCase("Stop")) {
+                handleSystemVMStop();
+                return;
             }
 
             String resource = null;
@@ -325,6 +348,14 @@ public class MockAgentManagerImpl extends ManagerBase implements MockAgentManage
                     storageResource.configure("secondaryStorage", params);
                     storageResource.start();
                     _resources.put(this.guid, storageResource);
+                    discoverer.setResource(storageResource);
+                    SimulatorAddSecondaryAgent cmd = new SimulatorAddSecondaryAgent("sim://" + this.guid, this.dcId);
+                    try {
+                        _resourceMgr.discoverHosts(cmd);
+                    } catch (DiscoveryException e) {
+                        s_logger.debug("Failed to discover host: " + e.toString());
+                        return;
+                    }
                 } catch (ConfigurationException e) {
                     s_logger.debug("Failed to load secondary storage resource: " + e.toString());
                     return;

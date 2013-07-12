@@ -740,7 +740,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         txn.start();
 
         VolumeVO volume = new VolumeVO(volumeName, zoneId, -1, -1, -1,
-                new Long(-1), null, null, 0, null, null, null, Volume.Type.DATADISK);
+                new Long(-1), null, null, 0, Volume.Type.DATADISK);
         volume.setPoolId(null);
         volume.setDataCenterId(zoneId);
         volume.setPodId(null);
@@ -1012,7 +1012,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         txn.start();
 
         VolumeVO volume = new VolumeVO(userSpecifiedName, -1, -1, -1, -1,
-                new Long(-1), null, null, 0, null, null, null, Volume.Type.DATADISK);
+                new Long(-1), null, null, 0, Volume.Type.DATADISK);
         volume.setPoolId(null);
         volume.setDataCenterId(zoneId);
         volume.setPodId(null);
@@ -1869,8 +1869,8 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             if (s_logger.isInfoEnabled()) {
                 s_logger.info("Trying to attaching volume " + volumeId
                         + " to vm instance:" + vm.getId()
-                        + ", update async job-" + job.getId()
-                        + " progress status");
+                        + ", update async job-" + job.getId() + " = [ " + job.getUuid()
+                        + " ] progress status");
             }
 
             _asyncMgr.updateAsyncJobAttachment(job.getId(), "volume", volumeId);
@@ -1976,8 +1976,8 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             if (s_logger.isInfoEnabled()) {
                 s_logger.info("Trying to attaching volume " + volumeId
                         + "to vm instance:" + vm.getId()
-                        + ", update async job-" + job.getId()
-                        + " progress status");
+                        + ", update async job-" + job.getId() + " = [ " + job.getUuid()
+                        + " ] progress status");
             }
 
             _asyncMgr.updateAsyncJobAttachment(job.getId(), "volume", volumeId);
@@ -2388,15 +2388,15 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
                             DiskOfferingVO diskOffering = _diskOfferingDao
                                     .findById(vol.getDiskOfferingId());
                             if (diskOffering.getUseLocalStorage()) {
+                                // Currently migration of local volume is not supported so bail out
                                 if (s_logger.isDebugEnabled()) {
                                     s_logger.debug("Local volume "
                                             + vol
-                                            + " will be recreated on storage pool "
+                                            + " cannot be recreated on storagepool "
                                             + assignedPool
                                             + " assigned by deploymentPlanner");
                                 }
-                                VolumeTask task = new VolumeTask(VolumeTaskType.RECREATE, vol, null);
-                                tasks.add(task);
+                                throw new CloudRuntimeException("Local volume " + vol + " cannot be recreated on storagepool " + assignedPool + " assigned by deploymentPlanner");
                             } else {
                                 if (s_logger.isDebugEnabled()) {
                                     s_logger.debug("Shared volume "

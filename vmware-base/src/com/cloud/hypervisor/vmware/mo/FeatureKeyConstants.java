@@ -14,24 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package com.cloud.agent;
 
-import java.io.Serializable;
+package com.cloud.hypervisor.vmware.mo;
 
-public class SimulatorCmd implements Serializable {
-	private static final long serialVersionUID = 1L;
-
-	private String testCase = "DEFAULT";
-
-	public SimulatorCmd(String testCase) {
-		this.testCase = testCase;
-	}
-
-	public String getTestCase() {
-		return testCase;
-	}
-
-	public void setTestCase(String testCase) {
-		this.testCase = testCase;
-	}
+public interface FeatureKeyConstants {
+    public final static String HOTPLUG = "hotplug";
+    public final static String DVS = "dvs";
+    public final static String DRS = "drs";
+    public final static String STORAGEDRS = "storagedrs";
+    public final static String SVMOTION = "svmotion";
 }

@@ -46,7 +46,6 @@
     <module>hypervisors/xen</module>
     <module>hypervisors/kvm</module>
     <module>event-bus/rabbitmq</module>
-    <module>hypervisors/simulator</module>
     <module>hypervisors/baremetal</module>
     <module>hypervisors/ucs</module>
     <module>hypervisors/hyperv</module>
@@ -66,7 +65,6 @@
     <module>storage/image/swift</module>
     <module>storage/image/default</module>
     <module>storage/image/sample</module>
-    <module>storage/image/simulator</module>
     <module>storage/volume/solidfire</module>
     <module>storage/volume/default</module>
     <module>storage/volume/sample</module>
@@ -171,7 +169,6 @@
       </activation>
       <modules>
         <module>hypervisors/simulator</module>
-        <module>storage/image/simulator</module>
       </modules>
      </profile>
   </profiles>

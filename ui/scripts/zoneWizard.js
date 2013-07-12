@@ -396,6 +396,7 @@
 									  firstOption = "KVM";
 										nonSupportedHypervisors["VMware"] = 1;
 										nonSupportedHypervisors["BareMetal"] = 1;
+										nonSupportedHypervisors["Hyperv"] = 1;
 										nonSupportedHypervisors["Ovm"] = 1;
 										nonSupportedHypervisors["LXC"] = 1;
 									}
@@ -885,12 +886,10 @@
             validation: { required: true }
           },
           vCenterUsername: {
-            label: 'label.vcenter.username',
-            validation: { required: true }
+            label: 'label.vcenter.username'
           },
           vCenterPassword: {
             label: 'label.vcenter.password',
-            validation: { required: true },
             isPassword: true
           },
           vCenterDatacenter: {

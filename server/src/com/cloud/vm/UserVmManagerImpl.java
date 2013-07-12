@@ -818,6 +818,10 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
             _resourceLimitMgr.decrementResourceCount(caller.getAccountId(), ResourceType.memory, new Long (currentMemory - newMemory));
         }
 
+        // Generate usage event for VM upgrade
+        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VM_UPGRADE, vmInstance.getAccountId(), vmInstance.getDataCenterId(), vmInstance.getId(), vmInstance.getHostName(),
+                vmInstance.getServiceOfferingId(), vmInstance.getTemplateId(), vmInstance.getHypervisorType().toString(), VirtualMachine.class.getName(), vmInstance.getUuid());
+
         return _vmDao.findById(vmInstance.getId());
 
     }
@@ -859,27 +863,24 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
         }
 
         // Perform account permission check on network
-        if (network.getGuestType() != Network.GuestType.Shared) {
-            // Check account permissions
-            List<NetworkVO> networkMap = _networkDao.listBy(caller.getId(), network.getId());
-            if ((networkMap == null || networkMap.isEmpty() ) && caller.getType() != Account.ACCOUNT_TYPE_ADMIN) {
-                throw new PermissionDeniedException("Unable to modify a vm using network with id " + network.getId() + ", permission denied");
-            }
-        }
+        _accountMgr.checkAccess(caller, AccessType.UseNetwork, false, network);
 
         //ensure network belongs in zone
         if (network.getDataCenterId() != vmInstance.getDataCenterId()) {
             throw new CloudRuntimeException(vmInstance + " is in zone:" + vmInstance.getDataCenterId() + " but " + network + " is in zone:" + network.getDataCenterId());
         }
 
-        if(_networkModel.getNicInNetwork(vmInstance.getId(),network.getId()) != null){
-            s_logger.debug(vmInstance + " already in " + network + " going to add another NIC");
-        } else {
-            //* get all vms hostNames in the network
-            List<String> hostNames = _vmInstanceDao.listDistinctHostNames(network.getId());
-            //* verify that there are no duplicates
-            if (hostNames.contains(vmInstance.getHostName())) {
-                throw new CloudRuntimeException(network + " already has a vm with host name: '" + vmInstance.getHostName());
+        // Get all vms hostNames in the network
+        List<String> hostNames = _vmInstanceDao.listDistinctHostNames(network.getId());
+        // verify that there are no duplicates, listDistictHostNames could return hostNames even if the NIC
+        //in the network is removed, so also check if the NIC is present and then throw an exception.
+        //This will also check if there are multiple nics of same vm in the network
+        if (hostNames.contains(vmInstance.getHostName())) {
+            for (String hostName : hostNames) {
+                VMInstanceVO vm = _vmInstanceDao.findVMByHostName(hostName);
+                if(_networkModel.getNicInNetwork(vm.getId(),network.getId())!=null && vm.getHostName().equals(vmInstance.getHostName())) {
+                    throw new CloudRuntimeException(network + " already has a vm with host name: " + vmInstance.getHostName());
+                }
             }
         }
 
@@ -936,13 +937,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
         }
 
         // Perform account permission check on network
-        if (network.getGuestType() != Network.GuestType.Shared) {
-            // Check account permissions
-            List<NetworkVO> networkMap = _networkDao.listBy(caller.getId(), network.getId());
-            if ((networkMap == null || networkMap.isEmpty() ) && caller.getType() != Account.ACCOUNT_TYPE_ADMIN) {
-                throw new PermissionDeniedException("Unable to modify a vm using network with id " + network.getId() + ", permission denied");
-            }
-        }
+        _accountMgr.checkAccess(caller, AccessType.UseNetwork, false, network);
 
         boolean nicremoved = false;
 
@@ -1833,24 +1828,30 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Use
     private boolean updateUserDataInternal(UserVm vm)
             throws ResourceUnavailableException, InsufficientCapacityException {
         VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-        Nic defaultNic = _networkModel.getDefaultNic(vm.getId());
-        if (defaultNic == null) {
-            s_logger.error("Unable to update userdata for vm id=" + vm.getId() + " as the instance doesn't have default nic");
-            return false;
+
+        List<? extends Nic> nics = _nicDao.listByVmId(vm.getId());
+        if (nics == null || nics.isEmpty()) {
+           s_logger.error("unable to find any nics for vm " + vm.getUuid());
+           return false;
         }
 
-        Network defaultNetwork = _networkDao.findById(defaultNic.getNetworkId());
-        NicProfile defaultNicProfile = new NicProfile(defaultNic, defaultNetwork, null, null, null,
-                _networkModel.isSecurityGroupSupportedInNetwork(defaultNetwork),
-                _networkModel.getNetworkTag(template.getHypervisorType(), defaultNetwork));
+        for (Nic nic : nics) {
+             Network network = _networkDao.findById(nic.getNetworkId());
+             NicProfile nicProfile = new NicProfile(nic, network, null, null, null,
+                 _networkModel.isSecurityGroupSupportedInNetwork(network),
+                 _networkModel.getNetworkTag(template.getHypervisorType(), network));
 
-        VirtualMachineProfile<VMInstanceVO> vmProfile = new VirtualMachineProfileImpl<VMInstanceVO>((VMInstanceVO)vm);
+             VirtualMachineProfile<VMInstanceVO> vmProfile = new VirtualMachineProfileImpl<VMInstanceVO>((VMInstanceVO)vm);
 
-        UserDataServiceProvider element = _networkModel.getUserDataUpdateProvider(defaultNetwork);
-        if (element == null) {
-            throw new CloudRuntimeException("Can't find network element for " + Service.UserData.getName() + " provider needed for UserData update");
+             UserDataServiceProvider element = _networkModel.getUserDataUpdateProvider(network);
+             if (element == null) {
+                 throw new CloudRuntimeException("Can't find network element for " + Service.UserData.getName() + " provider needed for UserData update");
+             }
+             boolean result = element.saveUserData(network, nicProfile, vmProfile);
+             if (!result) {
+                 s_logger.error("Failed to update userdata for vm " + vm + " and nic " + nic);
+             }
         }
-        boolean result = element.saveUserData(defaultNetwork, defaultNicProfile, vmProfile);
 
         return true;
     }
