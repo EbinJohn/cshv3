@@ -173,27 +173,34 @@ namespace HypervResource
                         throw new ArgumentException(errMsg);
                     }
 
-                    VolumeObjectTO volInfo = VolumeObjectTO.ParseJson(cmd.volume);
-                    String infoMsg = "No 'volume' at " + volInfo.FullFileName;
-                    if (String.IsNullOrEmpty(volInfo.format))
+                    // Assert
+                    errMsg = "No valide path in DestroyCommand in " + CloudStackTypes.DestroyCommand + " " + (String)cmd.ToString();
+                    if (cmd.volume.path == null)
                     {
-                        logger.Info(CloudStackTypes.DestroyCommand + ", but volume at pass already deleted " + volInfo.format);  
+                        logger.Error(errMsg);
+                        throw new ArgumentException(errMsg);
                     }
 
-                    // TODO: detach volume
-                    string vmName = cmd.vmName;
-                    var imgmgr = WmiCalls.GetImageManagementService();
-                    if (!string.IsNullOrEmpty(vmName) && File.Exists(volInfo.FullFileName) )
+                    String path = (string)cmd.volume.path;
+                    if (!File.Exists(path))
                     {
-                        var returncode = imgmgr.Unmount(volInfo.FullFileName);
+                        logger.Info(CloudStackTypes.DestroyCommand + ", but volume at pass already deleted " + path);
+                    }
+
+                    // TODO: will we have to detach volume?
+                    string vmName = (string)cmd.vmName;
+                    if (!string.IsNullOrEmpty(vmName) && File.Exists(path))
+                    {
+                        var imgmgr = WmiCalls.GetImageManagementService();
+                        var returncode = imgmgr.Unmount(path);
                         if (returncode != ReturnCode.Completed)
                         {
-                            details = "Could not detach driver from vm " + vmName + " for drive " + volInfo.FullFileName;
+                            details = "Could not detach driver from vm " + vmName + " for drive " + path;
                             logger.Error(details);
                         }
                     }
 
-                    File.Delete(volInfo.FullFileName);
+                    File.Delete(path);
                     result = true;
                 }
                 catch (Exception sysEx)

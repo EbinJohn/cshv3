@@ -225,13 +225,20 @@ namespace ServerResource.Tests
         [TestMethod]
         public void TestDestroyCommand()
         {
-            // TODO: destory commands have changed.
             // Arrange
             String sampleVolume = getSampleVolumeObjectTO();
-            String destoryCmd = "{\"volume\":" + getSampleVolumeObjectTO() + "}";
+            String destoryCmd = //"{\"volume\":" + getSampleVolumeObjectTO() + "}";
+                            "{\"volume\":{\"name\":\"" + testSampleVolumeTempUUIDNoExt
+                                    + "\",\"storagePoolType\":\"Filesystem\","
+                                    + "\"mountPoint\":"
+                                    + testLocalStorePathJSON
+                                   + ",\"path\":" + testSampleVolumeTempURIJSON
+                                    + ",\"storagePoolUuid\":\"" + testLocalStoreUUID
+                                    + "\","
+                                    + "\"type\":\"ROOT\",\"id\":9,\"size\":0}}";
+
             HypervResourceController rsrcServer = new HypervResourceController();
             dynamic jsonDestoryCmd = JsonConvert.DeserializeObject(destoryCmd);
-            VolumeObjectTO volInfo = VolumeObjectTO.ParseJson(jsonDestoryCmd.volume);
 
             // Act
             dynamic destoryAns = rsrcServer.DestroyCommand(jsonDestoryCmd);
@@ -239,9 +246,9 @@ namespace ServerResource.Tests
             // Assert
             JObject ansAsProperty2 = destoryAns[0];
             dynamic ans = ansAsProperty2.GetValue(CloudStackTypes.Answer);
-
+            String path = jsonDestoryCmd.volume.path;
             Assert.IsTrue((bool)ans.result, "DestroyCommand did not succeed " + ans.details);
-            Assert.IsTrue(!File.Exists(volInfo.FullFileName), "Failed to delete file " + volInfo.FullFileName);
+            Assert.IsTrue(!File.Exists(path), "Failed to delete file " + path);
         }
 
         [TestMethod]
