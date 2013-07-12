@@ -19,53 +19,50 @@ package com.cloud.hypervisor.hyperv.guru;
 import javax.ejb.Local;
 import javax.inject.Inject;
 
-import com.cloud.agent.api.Command;
 import com.cloud.agent.api.to.VirtualMachineTO;
-import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.HypervisorGuru;
 import com.cloud.hypervisor.HypervisorGuruBase;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.dao.GuestOSDao;
-import com.cloud.template.VirtualMachineTemplate.BootloaderType;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineProfile;
 
 /**
- * Implementation of Hypervisor guru for Hyper-V
+ * Implementation of Hypervisor guru for Hyper-V.
  **/
-
-// HypervisorGuruBase --> AdapterBase implements Adapter, adapter allow object to participate in plugin system (dynamic component loader)
-// HypervisorGuruBase implements HypervisorGuru, HypervisorGuru
-
-@Local(value=HypervisorGuru.class)
+@Local(value = HypervisorGuru.class)
 public class HypervGuru extends HypervisorGuruBase implements HypervisorGuru {
 
-    @Inject GuestOSDao _guestOsDao;
+    @Inject
+    private GuestOSDao _guestOsDao;
 
     @Override
-    public HypervisorType getHypervisorType() {
+    public final HypervisorType getHypervisorType() {
         return HypervisorType.Hyperv;
     }
-	
+    /**
+     * Prevent direct creation.
+     */
     protected HypervGuru() {
-    	super();
+        super();
     }
-    
+
     @Override
-    public <T extends VirtualMachine> VirtualMachineTO implement(
-			VirtualMachineProfile<T> vm) {
+    public final <T extends VirtualMachine> VirtualMachineTO implement(
+            final VirtualMachineProfile<T> vm) {
         VirtualMachineTO to = toVirtualMachineTO(vm);
 
         // Determine the VM's OS description
-        GuestOSVO guestOS = _guestOsDao.findById(vm.getVirtualMachine().getGuestOSId());
+        GuestOSVO guestOS = _guestOsDao.findById(vm.getVirtualMachine()
+                .getGuestOSId());
         to.setOs(guestOS.getDisplayName());
 
         return to;
     }
-    
+
     @Override
-    public boolean trackVmHostChange() {
-    	return false;
+    public final boolean trackVmHostChange() {
+        return false;
     }
 }
