@@ -474,7 +474,7 @@ public class HypervDirectConnectResourceTest {
                         + "\"nfs://10.70.176.36/mnt/cshv3/secondarystorage\","
                         + "\"primaryStorageUrl\":"
                         + "\"nfs://10.70.176.29E:\\\\Disks\\\\Disks\","
-                        + "\"url\":\""
+                        + "\"url\":"
                         + "\"nfs://10.70.176.36/mnt/cshv3/secondarystorage/template/tmpl//2/204//af39aa7f-2b12-37e1-86d3-e23f2f005101.vhdx\","
                         + "\"format\":\"VHDX\",\"accountId\":2,"
                         + "\"name\":"
