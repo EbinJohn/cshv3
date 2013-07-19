@@ -22,13 +22,17 @@
 -- Disable foreign key checking
 SET foreign_key_checks = 0;
 
+-- All new inserts to the hypervisor_capabilities table should be after this
+ALTER TABLE `cloud`.`hypervisor_capabilities` ADD CONSTRAINT `uc_hypervisor` UNIQUE (`hypervisor_type`, `hypervisor_version`);
+
 ALTER TABLE `cloud`.`hypervisor_capabilities` ADD COLUMN `max_hosts_per_cluster` int unsigned DEFAULT NULL COMMENT 'Max. hosts in cluster supported by hypervisor';
 ALTER TABLE `cloud`.`hypervisor_capabilities` ADD COLUMN `storage_motion_supported` int(1) unsigned DEFAULT 0 COMMENT 'Is storage motion supported';
 UPDATE `cloud`.`hypervisor_capabilities` SET `max_hosts_per_cluster`=32 WHERE `hypervisor_type`='VMware';
 INSERT IGNORE INTO `cloud`.`hypervisor_capabilities`(uuid, hypervisor_type, hypervisor_version, max_guests_limit, security_group_enabled, max_data_volumes_limit, storage_motion_supported) VALUES (UUID(), 'XenServer', '6.1.0', 50, 1, 13, 1);
+INSERT IGNORE INTO `cloud`.`hypervisor_capabilities`(uuid, hypervisor_type, hypervisor_version, max_guests_limit, security_group_enabled, max_data_volumes_limit, storage_motion_supported) VALUES (UUID(), 'XenServer', '6.2.0', 50, 1, 13, 1);
 INSERT IGNORE INTO `cloud`.`hypervisor_capabilities`(uuid, hypervisor_type, hypervisor_version, max_guests_limit, security_group_enabled, max_hosts_per_cluster) VALUES (UUID(), 'VMware', '5.1', 128, 0, 32);
-UPDATE `cloud`.`hypervisor_capabilities` SET `storage_motion_supported`=true WHERE id=16;
-UPDATE `cloud`.`hypervisor_capabilities` SET `storage_motion_supported`=true WHERE id=11;
+UPDATE `cloud`.`hypervisor_capabilities` SET `storage_motion_supported`=true WHERE `hypervisor_type`='VMware' AND `hypervisor_version`='5.1';
+UPDATE `cloud`.`hypervisor_capabilities` SET `storage_motion_supported`=true WHERE `hypervisor_type`='VMware' AND `hypervisor_version`='5.0';
 DELETE FROM `cloud`.`configuration` where name='vmware.percluster.host.max';
 DELETE FROM `cloud`.`configuration` where name='router.template.id';
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'AgentManager', 'xen.nics.max', '7', 'Maximum allowed nics for Vms created on Xen');
@@ -79,6 +83,8 @@ CREATE TABLE  `cloud`.`object_datastore_ref` (
 --  `uuid` varchar(255) NOT NULL COMMENT 'uuid of primary data store provider',
 --  PRIMARY KEY(`id`)
 -- ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 's3.rrs.enabled', 'false', 'enable s3 reduced redundancy storage');
 
 CREATE TABLE `cloud`.`image_store` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
@@ -268,6 +274,12 @@ INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALU
 INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (166, UUID(), 6, 'Windows 8 (64-bit)');
 INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (167, UUID(), 6, 'Windows Server 2012 (64-bit)');
 INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (168, UUID(), 6, 'Windows Server 8 (64-bit)');
+
+INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (169, 10, 'Ubuntu 11.04 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (170, 10, 'Ubuntu 11.04 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (171, 1, 'CentOS 6.3 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (172, 1, 'CentOS 6.3 (64-bit)');
+
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("VmWare", 'Windows 8 (32-bit)', 165);
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("VmWare", 'Windows 8 (64-bit)', 166);
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("VmWare", 'Windows Server 2012 (64-bit)', 167);
@@ -2165,6 +2177,12 @@ INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'manag
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'interval.baremetal.securitygroup.agent.echo', 10, 'Interval to echo baremetal security group agent, in seconds');
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'timeout.baremetal.securitygroup.agent.echo', 3600, 'Timeout to echo baremetal security group agent, in seconds, the provisioning process will be treated as a failure');
 
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'NetworkManager', 'router.template.hyperv', 'SystemVM Template (HyperV)', 'Name of the default router template on Hyperv.');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'NetworkManager', 'router.template.kvm', 'SystemVM Template (KVM)', 'Name of the default router template on KVM.');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'NetworkManager', 'router.template.lxc', 'SystemVM Template (LXC)', 'Name of the default router template on LXC.');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'NetworkManager', 'router.template.vmware', 'SystemVM Template (vSphere)', 'Name of the default router template on Vmware.');
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'NetworkManager', 'router.template.xen', 'SystemVM Template (XenServer)', 'Name of the default router template on Xenserver.');
+
 alter table `cloud`.`network_offerings` add column egress_default_policy boolean default false;
 
 -- Add stratospher ssp tables
@@ -2231,3 +2249,11 @@ CREATE VIEW `cloud`.`project_view` AS
             and resource_tags.resource_type = 'Project'
             left join
         `cloud`.`project_account` pacct ON projects.id = pacct.project_id;
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Network', 'DEFAULT', 'management-server', 'network.loadbalancer.haproxy.max.conn', '4096', 'Load Balancer(haproxy) maximum number of concurrent connections(global max)');
+
+ALTER TABLE `cloud`.`network_offerings` ADD COLUMN `concurrent_connections` int(10) unsigned COMMENT 'Load Balancer(haproxy) maximum number of concurrent connections(global max)';
+
+        
+ALTER TABLE `cloud`.`sync_queue` MODIFY `queue_size` smallint(6) NOT NULL DEFAULT '0' COMMENT 'number of items being processed by the queue';
+ALTER TABLE `cloud`.`sync_queue` MODIFY `queue_size_limit` smallint(6) NOT NULL DEFAULT '1' COMMENT 'max number of items the queue can process concurrently';

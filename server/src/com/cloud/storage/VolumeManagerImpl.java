@@ -44,6 +44,7 @@ import org.apache.cloudstack.api.command.user.volume.MigrateVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.UpdateVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.UploadVolumeCmd;
+import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
@@ -139,7 +140,6 @@ import com.cloud.storage.dao.UploadDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VMTemplatePoolDao;
 import com.cloud.storage.dao.VMTemplateS3Dao;
-import com.cloud.storage.dao.VMTemplateSwiftDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.storage.download.DownloadMonitor;
@@ -154,7 +154,6 @@ import com.cloud.template.TemplateManager;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.ResourceLimitService;
-import com.cloud.user.UserContext;
 import com.cloud.user.VmDiskStatisticsVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDao;
@@ -236,8 +235,6 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
     protected TemplateDataStoreDao _vmTemplateStoreDao = null;
     @Inject
     protected VMTemplatePoolDao _vmTemplatePoolDao = null;
-    @Inject
-    protected VMTemplateSwiftDao _vmTemplateSwiftDao = null;
     @Inject
     protected VMTemplateS3Dao _vmTemplateS3Dao;
     @Inject
@@ -389,7 +386,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_UPLOAD, eventDescription = "uploading volume", async = true)
     public VolumeVO uploadVolume(UploadVolumeCmd cmd)
             throws ResourceAllocationException {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
         long ownerId = cmd.getEntityOwnerId();
         Account owner = _accountDao.findById(ownerId);
         Long zoneId = cmd.getZoneId();
@@ -756,7 +753,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
                 .getDomainId());
         volume.setFormat(ImageFormat.valueOf(format));
         volume = _volsDao.persist(volume);
-        UserContext.current().setEventDetails("Volume Id: " + volume.getId());
+        CallContext.current().setEventDetails("Volume Id: " + volume.getId());
 
         // Increment resource count during allocation; if actual creation fails,
         // decrement it
@@ -826,7 +823,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
     public VolumeVO allocVolume(CreateVolumeCmd cmd)
             throws ResourceAllocationException {
         // FIXME: some of the scheduled event stuff might be missing here...
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
 
         long ownerId = cmd.getEntityOwnerId();
         Boolean displayVolumeEnabled = cmd.getDisplayVolume();
@@ -1046,7 +1043,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             _usageEventDao.persist(usageEvent);
         }
 
-        UserContext.current().setEventDetails("Volume Id: " + volume.getId());
+        CallContext.current().setEventDetails("Volume Id: " + volume.getId());
 
         // Increment resource count during allocation; if actual creation fails,
         // decrement it
@@ -1123,7 +1120,8 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
 
         /* Only works for KVM/Xen for now */
         if (_volsDao.getHypervisorType(volume.getId()) != HypervisorType.KVM
-                && _volsDao.getHypervisorType(volume.getId()) != HypervisorType.XenServer) {
+                && _volsDao.getHypervisorType(volume.getId()) != HypervisorType.XenServer
+                && _volsDao.getHypervisorType(volume.getId()) != HypervisorType.VMware) {
             throw new InvalidParameterValueException(
                     "Cloudstack currently only supports volumes marked as KVM or XenServer hypervisor for resize");
         }
@@ -1180,8 +1178,8 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             if (newDiskOffering.getDomainId() == null) {
                 // do nothing as offering is public
             } else {
-                _configMgr.checkDiskOfferingAccess(UserContext.current()
-                        .getCaller(), newDiskOffering);
+                _configMgr.checkDiskOfferingAccess(CallContext.current()
+                        .getCallingAccount(), newDiskOffering);
             }
 
             if (newDiskOffering.isCustomized()) {
@@ -1209,7 +1207,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         }
 
         /* does the caller have the authority to act on this volume? */
-        _accountMgr.checkAccess(UserContext.current().getCaller(), null, true,
+        _accountMgr.checkAccess(CallContext.current().getCallingAccount(), null, true,
                 volume);
 
         UserVmVO userVm = _userVmDao.findById(volume.getInstanceId());
@@ -1344,7 +1342,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
                             ResourceType.volume);
                     /* If volume is in primary storage, decrement primary storage count else decrement secondary
                      storage count (in case of upload volume). */
-                    if (volume.getFolder() != null || volume.getState() == Volume.State.Allocated) {
+                    if (volume.getFolder() != null || volume.getPath() != null || volume.getState() == Volume.State.Allocated) {
                         _resourceLimitMgr.decrementResourceCount(volume.getAccountId(), ResourceType.primary_storage,
                                 new Long(volume.getSize()));
                     } else {
@@ -1648,10 +1646,10 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
                 volumeToAttach = _volsDao.findById(volumeToAttach.getId());
 
                 if (volumeToAttachStoragePool.isManaged() &&
-                	volumeToAttach.getPath() == null) {
-                	volumeToAttach.setPath(answer.getDisk().getVdiUuid());
+                    volumeToAttach.getPath() == null) {
+                    volumeToAttach.setPath(answer.getDisk().getVdiUuid());
 
-                	_volsDao.update(volumeToAttach.getId(), volumeToAttach);
+                    _volsDao.update(volumeToAttach.getId(), volumeToAttach);
                 }
             } else {
                 _volsDao.attachVolume(volumeToAttach.getId(), vm.getId(), deviceId);
@@ -1704,7 +1702,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         Long vmId = command.getVirtualMachineId();
         Long volumeId = command.getId();
         Long deviceId = command.getDeviceId();
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
 
         // Check that the volume ID is valid
         VolumeInfo volume = volFactory.getVolume(volumeId);
@@ -1903,7 +1901,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_DETACH, eventDescription = "detaching volume", async = true)
     public Volume detachVolumeFromVM(DetachVolumeCmd cmmd) {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
         if ((cmmd.getId() == null && cmmd.getDeviceId() == null && cmmd
                 .getVirtualMachineId() == null)
                 || (cmmd.getId() != null && (cmmd.getDeviceId() != null || cmmd
@@ -1999,6 +1997,9 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             DettachCommand cmd = new DettachCommand(disk, vm.getInstanceName());
 
             cmd.setManaged(volumePool.isManaged());
+
+            cmd.setStorageHost(volumePool.getHostAddress());
+            cmd.setStoragePort(volumePool.getPort());
 
             cmd.set_iScsiName(volume.get_iScsiName());
 
@@ -2665,7 +2666,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
 
     @Override
     public Snapshot allocSnapshot(Long volumeId, Long policyId) throws ResourceAllocationException {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
 
         VolumeInfo volume = volFactory.getVolume(volumeId);
         if (volume == null) {
@@ -2706,7 +2707,7 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         Long volumeId = cmd.getId();
         Long zoneId = cmd.getZoneId();
         String mode = cmd.getMode();
-        Account account = UserContext.current().getCaller();
+        Account account = CallContext.current().getCallingAccount();
 
         if (!_accountMgr.isRootAdmin(account.getType()) && ApiDBUtils.isExtractionDisabled()) {
             throw new PermissionDeniedException("Extraction has been disabled by admin");

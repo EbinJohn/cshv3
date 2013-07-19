@@ -37,7 +37,7 @@ import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.api.query.vo.VolumeJoinVO;
 import com.cloud.user.Account;
-import com.cloud.user.UserContext;
+
 import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.api.ApiConstants.HostDetails;
 import org.apache.cloudstack.api.ApiConstants.VMDetails;
@@ -62,11 +62,13 @@ import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
-import org.apache.log4j.Logger;
+import org.apache.cloudstack.context.CallContext;
 
+import org.apache.log4j.Logger;
 
 import com.cloud.api.query.vo.ImageStoreJoinVO;
 import com.cloud.api.query.vo.TemplateJoinVO;
+
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Hashtable;
@@ -118,7 +120,7 @@ public class ViewResponseHelper {
     }
 
     public static List<UserVmResponse> createUserVmResponse(String objectName, EnumSet<VMDetails> details, UserVmJoinVO... userVms) {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
 
         Hashtable<Long, UserVmResponse> vmDataList = new Hashtable<Long, UserVmResponse>();
         // Initialise the vmdatalist with the input data
@@ -139,7 +141,7 @@ public class ViewResponseHelper {
     }
 
     public static List<DomainRouterResponse> createDomainRouterResponse(DomainRouterJoinVO... routers) {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
         Hashtable<Long, DomainRouterResponse> vrDataList = new Hashtable<Long, DomainRouterResponse>();
         // Initialise the vrdatalist with the input data
         for (DomainRouterJoinVO vr : routers) {
@@ -159,7 +161,7 @@ public class ViewResponseHelper {
 
 
     public static List<SecurityGroupResponse> createSecurityGroupResponses(List<SecurityGroupJoinVO> securityGroups) {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
         Hashtable<Long, SecurityGroupResponse> vrDataList = new Hashtable<Long, SecurityGroupResponse>();
         // Initialise the vrdatalist with the input data
         for (SecurityGroupJoinVO vr : securityGroups) {
@@ -366,9 +368,9 @@ public class ViewResponseHelper {
     }
 
     public static List<TemplateResponse> createTemplateResponse(TemplateJoinVO... templates) {
-        Hashtable<Long, TemplateResponse> vrDataList = new Hashtable<Long, TemplateResponse>();
+        Hashtable<String, TemplateResponse> vrDataList = new Hashtable<String, TemplateResponse>();
         for (TemplateJoinVO vr : templates) {
-            TemplateResponse vrData = vrDataList.get(vr.getId());
+            TemplateResponse vrData = vrDataList.get(vr.getTempZonePair());
             if ( vrData == null ){
                 // first time encountering this volume
                 vrData = ApiDBUtils.newTemplateResponse(vr);
@@ -377,7 +379,7 @@ public class ViewResponseHelper {
                 // update tags
                 vrData = ApiDBUtils.fillTemplateDetails(vrData, vr);
             }
-            vrDataList.put(vr.getId(), vrData);
+            vrDataList.put(vr.getTempZonePair(), vrData);
         }
         return new ArrayList<TemplateResponse>(vrDataList.values());
     }
@@ -400,9 +402,9 @@ public class ViewResponseHelper {
     }
 
     public static List<TemplateResponse> createIsoResponse(TemplateJoinVO... templates) {
-        Hashtable<Long, TemplateResponse> vrDataList = new Hashtable<Long, TemplateResponse>();
+        Hashtable<String, TemplateResponse> vrDataList = new Hashtable<String, TemplateResponse>();
         for (TemplateJoinVO vr : templates) {
-            TemplateResponse vrData = vrDataList.get(vr.getId());
+            TemplateResponse vrData = vrDataList.get(vr.getTempZonePair());
             if ( vrData == null ){
                 // first time encountering this volume
                 vrData = ApiDBUtils.newIsoResponse(vr);
@@ -411,7 +413,7 @@ public class ViewResponseHelper {
                 // update tags
                 vrData = ApiDBUtils.fillTemplateDetails(vrData, vr);
             }
-            vrDataList.put(vr.getId(), vrData);
+            vrDataList.put(vr.getTempZonePair(), vrData);
         }
         return new ArrayList<TemplateResponse>(vrDataList.values());
     }

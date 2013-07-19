@@ -16,8 +16,6 @@
 // under the License.
 package org.apache.cloudstack.engine.cloud.entity.api;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +29,7 @@ import org.apache.cloudstack.engine.cloud.entity.api.db.dao.VMEntityDao;
 import org.apache.cloudstack.engine.cloud.entity.api.db.dao.VMReservationDao;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
 import com.cloud.dc.DataCenter;
@@ -47,12 +46,10 @@ import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InsufficientServerCapacityException;
 import com.cloud.exception.OperationTimedoutException;
 import com.cloud.exception.ResourceUnavailableException;
-import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.org.Cluster;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.StoragePool;
-import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.VMTemplateDao;
@@ -69,6 +66,8 @@ import com.cloud.vm.dao.VMInstanceDao;
 
 @Component
 public class VMEntityManagerImpl implements VMEntityManager {
+
+    private static final Logger s_logger = Logger.getLogger(VMEntityManagerImpl.class);
 
     @Inject
     protected VMInstanceDao _vmDao;
@@ -115,6 +114,7 @@ public class VMEntityManagerImpl implements VMEntityManager {
 
     @Inject
     protected AffinityGroupVMMapDao _affinityGroupVMMapDao;
+
 
 	@Override
 	public VMEntityVO loadVirtualMachine(String vmId) {
@@ -181,38 +181,35 @@ public class VMEntityManagerImpl implements VMEntityManager {
 
         }
 
-        DeployDestination dest;
-        try {
-            dest = _dpMgr.planDeployment(vmProfile, plan, exclude);
-        } catch (AffinityConflictException e) {
-            throw new CloudRuntimeException("Unable to create deployment, affinity rules associted to the VM conflict");
-        }
-
-        if (dest != null) {
-           //save destination with VMEntityVO
-            VMReservationVO vmReservation = new VMReservationVO(vm.getId(), dest.getDataCenter().getId(), dest.getPod().getId(), dest.getCluster().getId(), dest.getHost().getId());
-            Map<Long,Long> volumeReservationMap = new HashMap<Long,Long>();
-
-            if (vm.getHypervisorType() != HypervisorType.BareMetal) {
-                for(Volume vo : dest.getStorageForDisks().keySet()){
-                    volumeReservationMap.put(vo.getId(), dest.getStorageForDisks().get(vo).getId());
-                }
-                vmReservation.setVolumeReservation(volumeReservationMap);
+        while (true) {
+            DeployDestination dest = null;
+            try {
+                dest = _dpMgr.planDeployment(vmProfile, plan, exclude);
+            } catch (AffinityConflictException e) {
+                throw new CloudRuntimeException(
+                        "Unable to create deployment, affinity rules associted to the VM conflict");
             }
 
-            vmEntityVO.setVmReservation(vmReservation);
-            _vmEntityDao.persist(vmEntityVO);
-
-            return vmReservation.getUuid();
-        } else if (planChangedByReadyVolume) {
-            // we could not reserve in the Volume's cluster - let the deploy
-            // call retry it.
-            return UUID.randomUUID().toString();
-        }else{
-            throw new InsufficientServerCapacityException("Unable to create a deployment for " + vmProfile,
-                    DataCenter.class, plan.getDataCenterId(), areAffinityGroupsAssociated(vmProfile));
+            if (dest != null) {
+                String reservationId = _dpMgr.finalizeReservation(dest, vmProfile, plan, exclude);
+                if(reservationId != null){
+                    return reservationId;
+                } else {
+                    if (s_logger.isDebugEnabled()) {
+                        s_logger.debug("Cannot finalize the VM reservation for this destination found, retrying");
+                    }
+                    exclude.addHost(dest.getHost().getId());
+                    continue;
+                }
+            } else if (planChangedByReadyVolume) {
+                // we could not reserve in the Volume's cluster - let the deploy
+                // call retry it.
+                return UUID.randomUUID().toString();
+            } else {
+                throw new InsufficientServerCapacityException("Unable to create a deployment for " + vmProfile,
+                        DataCenter.class, plan.getDataCenterId(), areAffinityGroupsAssociated(vmProfile));
+            }
         }
-
     }
 
     @Override
@@ -231,8 +228,14 @@ public class VMEntityManagerImpl implements VMEntityManager {
                         _accountDao.findById(vm.getAccountId()), reservedPlan);
             } catch (Exception ex) {
                 // Retry the deployment without using the reservation plan
+                DataCenterDeployment plan = new DataCenterDeployment(0, null, null, null, null, null);
+
+                if (reservedPlan.getAvoids() != null) {
+                    plan.setAvoids(reservedPlan.getAvoids());
+                }
+
                 _itMgr.start(vm, params, _userDao.findById(new Long(caller)), _accountDao.findById(vm.getAccountId()),
-                        null);
+                        plan);
             }
         } else {
             // no reservation found. Let VirtualMachineManager retry

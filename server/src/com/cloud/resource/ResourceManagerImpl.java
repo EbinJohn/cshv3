@@ -43,13 +43,11 @@ import org.apache.cloudstack.api.command.admin.host.PrepareForMaintenanceCmd;
 import org.apache.cloudstack.api.command.admin.host.ReconnectHostCmd;
 import org.apache.cloudstack.api.command.admin.host.UpdateHostCmd;
 import org.apache.cloudstack.api.command.admin.host.UpdateHostPasswordCmd;
-import org.apache.cloudstack.api.command.admin.storage.AddS3Cmd;
-import org.apache.cloudstack.api.command.admin.storage.ListS3sCmd;
-import org.apache.cloudstack.api.command.admin.swift.AddSwiftCmd;
-import org.apache.cloudstack.api.command.admin.swift.ListSwiftsCmd;
+import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.region.dao.RegionDao;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+import org.apache.cloudstack.utils.identity.ManagementServerNode;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.AgentManager.TapAgentsAction;
@@ -71,7 +69,6 @@ import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.cluster.ClusterManager;
-import com.cloud.cluster.ManagementServerNode;
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.dao.ConfigurationDao;
@@ -123,27 +120,21 @@ import com.cloud.org.Grouping.AllocationState;
 import com.cloud.org.Managed;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.storage.GuestOSCategoryVO;
-import com.cloud.storage.S3;
-import com.cloud.storage.S3VO;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.StoragePoolHostVO;
 import com.cloud.storage.StoragePoolStatus;
 import com.cloud.storage.StorageService;
-import com.cloud.storage.Swift;
-import com.cloud.storage.SwiftVO;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.StoragePoolHostDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.s3.S3Manager;
 import com.cloud.storage.secondary.SecondaryStorageVmManager;
-import com.cloud.storage.swift.SwiftManager;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.User;
-import com.cloud.user.UserContext;
 import com.cloud.utils.Pair;
 import com.cloud.utils.StringUtils;
 import com.cloud.utils.UriUtils;
@@ -195,8 +186,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     protected CapacityDao _capacityDao;
     @Inject
     protected HostDao _hostDao;
-    @Inject
-    protected SwiftManager _swiftMgr;
     @Inject
     protected S3Manager _s3Mgr;
     @Inject
@@ -389,7 +378,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
             throw ex;
         }
 
-        Account account = UserContext.current().getCaller();
+        Account account = CallContext.current().getCallingAccount();
         if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(account.getType())) {
             PermissionDeniedException ex = new PermissionDeniedException(
                     "Cannot perform this operation, Zone with specified id is currently disabled");
@@ -584,7 +573,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
         String password = cmd.getPassword();
         List<String> hostTags = cmd.getHostTags();
 
-        dcId = _accountMgr.checkAccessAndSpecifyAuthority(UserContext.current().getCaller(), dcId);
+        dcId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), dcId);
 
         // this is for standalone option
         if (clusterName == null && clusterId == null) {
@@ -623,28 +612,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
         return discoverHostsFull(dcId, null, null, null, url, null, null, "SecondaryStorage", null, null, false);
     }
 
-    @Override
-    public Swift discoverSwift(AddSwiftCmd cmd) throws DiscoveryException {
-        return _swiftMgr.addSwift(cmd);
-    }
-
-    @Override
-    public Pair<List<? extends Swift>, Integer> listSwifts(ListSwiftsCmd cmd) {
-        Pair<List<SwiftVO>, Integer> swifts = _swiftMgr.listSwifts(cmd);
-        return new Pair<List<? extends Swift>, Integer>(swifts.first(), swifts.second());
-    }
-
-    @Override
-    public S3 discoverS3(final AddS3Cmd cmd) throws DiscoveryException {
-        return _s3Mgr.addS3(cmd);
-    }
-
-    @Override
-    public List<S3VO> listS3s(final ListS3sCmd cmd) {
-        return _s3Mgr.listS3s(cmd);
-    }
-
-
     private List<HostVO> discoverHostsFull(Long dcId, Long podId, Long clusterId, String clusterName, String url, String username, String password,
             String hypervisorType, List<String> hostTags, Map<String, String> params, boolean deferAgentCreation) throws IllegalArgumentException,
             DiscoveryException, InvalidParameterValueException {
@@ -656,7 +623,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
             throw new InvalidParameterValueException("Can't find zone by id " + dcId);
         }
 
-        Account account = UserContext.current().getCaller();
+        Account account = CallContext.current().getCallingAccount();
         if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(account.getType())) {
             PermissionDeniedException ex = new PermissionDeniedException(
                     "Cannot perform this operation, Zone with specified id is currently disabled");
@@ -851,13 +818,13 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @DB
     protected boolean doDeleteHost(long hostId, boolean isForced, boolean isForceDeleteStorage) {
-        User caller = _accountMgr.getActiveUser(UserContext.current().getCallerUserId());
+        User caller = _accountMgr.getActiveUser(CallContext.current().getCallingUserId());
         // Verify that host exists
         HostVO host = _hostDao.findById(hostId);
         if (host == null) {
             throw new InvalidParameterValueException("Host with id " + hostId + " doesn't exist");
         }
-        _accountMgr.checkAccessAndSpecifyAuthority(UserContext.current().getCaller(), host.getDataCenterId());
+        _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), host.getDataCenterId());
 
         if (!isForced && host.getResourceState() != ResourceState.Maintenance) {
             throw new CloudRuntimeException("Host " + host.getUuid() + " cannot be deleted as it is not in maintenance mode. Either put the host into maintenance or perform a forced deletion.");
@@ -2076,7 +2043,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
             s_logger.debug("Deleting Host: " + host.getId() + " Guid:" + host.getGuid());
         }
 
-        User caller = _accountMgr.getActiveUser(UserContext.current().getCallerUserId());
+        User caller = _accountMgr.getActiveUser(CallContext.current().getCallingUserId());
 
         if (forceDestroyStorage) {
             // put local storage into mainenance mode, will set all the VMs on

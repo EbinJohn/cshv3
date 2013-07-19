@@ -84,8 +84,9 @@ specify a valid config file" % cfgFile)
             clusterresponse = self.apiClient.addCluster(clustercmd)
             clusterId = clusterresponse[0].id
 
-            self.addHosts(cluster.hosts, zoneId, podId, clusterId,
-                          cluster.hypervisor)
+            if cluster.hypervisor.lower() != "vmware":
+                self.addHosts(cluster.hosts, zoneId, podId, clusterId,
+                              cluster.hypervisor)
             self.createPrimaryStorages(cluster.primaryStorages, zoneId, podId,
                                        clusterId)
 
@@ -158,7 +159,7 @@ specify a valid config file" % cfgFile)
             secondarycmd.provider = secondary.provider
             secondarycmd.details = []
 
-            if secondarycmd.provider == 'S3':
+            if secondarycmd.provider == 'S3' or secondarycmd.provider == "Swift":
                 for key, value in vars(secondary.details).iteritems():
                     secondarycmd.details.append({
                                                 'key': key,
@@ -439,8 +440,9 @@ specify a valid config file" % cfgFile)
                 networkId = networkcmdresponse.id
                 self.createpods(zone.pods, zoneId, networkId)
 
-            self.createSecondaryStorages(zone.secondaryStorages, zoneId)
+            '''Note: Swift needs cache storage first'''
             self.createCacheStorages(zone.cacheStorages, zoneId)
+            self.createSecondaryStorages(zone.secondaryStorages, zoneId)
 
             enabled = getattr(zone, 'enabled', 'True')
             if enabled == 'True' or enabled is None:

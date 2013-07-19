@@ -16,10 +16,15 @@
 // under the License.
 package org.apache.cloudstack.storage;
 
+import java.io.File;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import com.cloud.configuration.Config;
+import com.cloud.configuration.dao.ConfigurationDao;
+import com.cloud.configuration.dao.ConfigurationDaoImpl;
+import com.cloud.utils.component.ComponentContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
 import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
 import org.apache.cloudstack.storage.command.CopyCommand;
@@ -31,13 +36,35 @@ import com.cloud.agent.api.Command;
 import com.cloud.resource.ServerResource;
 import com.cloud.utils.net.NetUtils;
 
+import javax.inject.Inject;
+
 public class LocalHostEndpoint implements EndPoint {
     private ScheduledExecutorService executor;
     protected ServerResource resource;
+    @Inject
+    ConfigurationDao configDao;
 
     public LocalHostEndpoint() {
-        resource = new LocalNfsSecondaryStorageResource();
+
+    }
+
+    private void configure() {
+        // get mount parent folder configured in global setting, if set, this will overwrite _parent in NfsSecondaryStorageResource to work
+        // around permission issue for default /mnt folder
+        String mountParent = configDao.getValue(Config.MountParent.key());
+
+        String path =  mountParent + File.separator + "secStorage";
+
+        LocalNfsSecondaryStorageResource localResource = new LocalNfsSecondaryStorageResource();
+        localResource.setParentPath(path);
+        resource = localResource;
         executor = Executors.newScheduledThreadPool(10);
+    }
+
+    public static EndPoint getEndpoint() {
+        LocalHostEndpoint endpoint = ComponentContext.inject(LocalHostEndpoint.class);
+        endpoint.configure();
+        return endpoint;
     }
 
     @Override

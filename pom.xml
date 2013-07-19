@@ -34,7 +34,6 @@
   </issueManagement>
 
   <properties>
-    <!--skipTests>true</skipTests -->
     <cs.jdk.version>1.6</cs.jdk.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
@@ -182,6 +181,11 @@
         <artifactId>mysql-connector-java</artifactId>
         <version>${cs.mysql.version}</version>
       </dependency>
+      <dependency>
+        <groupId>log4j</groupId>
+        <artifactId>log4j</artifactId>
+        <version>${cs.log4j.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -194,17 +198,12 @@
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
-      <artifactId>spring-core</artifactId>
+      <artifactId>spring-aop</artifactId>
       <version>${org.springframework.version}</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
-      <artifactId>spring-context</artifactId>
-      <version>${org.springframework.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-web</artifactId>
+      <artifactId>spring-beans</artifactId>
       <version>${org.springframework.version}</version>
     </dependency>
     <dependency>
@@ -218,21 +217,6 @@
       <artifactId>spring-test</artifactId>
       <version>${org.springframework.version}</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.aspectj</groupId>
-      <artifactId>aspectjrt</artifactId>
-      <version>1.7.1</version>
-    </dependency>
-    <dependency>
-      <groupId>org.aspectj</groupId>
-      <artifactId>aspectjweaver</artifactId>
-      <version>1.7.1</version>
-    </dependency>
-    <dependency>
-      <groupId>javax.inject</groupId>
-      <artifactId>javax.inject</artifactId>
-      <version>1</version>
     </dependency>
   </dependencies>
 

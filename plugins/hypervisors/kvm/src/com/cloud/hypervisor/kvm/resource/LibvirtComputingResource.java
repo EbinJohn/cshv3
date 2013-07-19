@@ -289,6 +289,7 @@ ServerResource {
     private int _migrateSpeed;
 
     private long _hvVersion;
+    private long _kernelVersion;
     private KVMHAMonitor _monitor;
     private final String _SSHKEYSPATH = "/root/.ssh";
     private final String _SSHPRVKEYPATH = _SSHKEYSPATH + File.separator
@@ -846,6 +847,10 @@ ServerResource {
         storageProcessor.configure(name, params);
         storageHandler = new StorageSubsystemCommandHandlerBase(storageProcessor);
 
+        String unameKernelVersion = Script.runSimpleBashScript("uname -r");
+        String[] kernelVersions = unameKernelVersion.split("[\\.\\-]");
+        _kernelVersion = Integer.parseInt(kernelVersions[0]) * 1000 * 1000 + Integer.parseInt(kernelVersions[1]) * 1000 + Integer.parseInt(kernelVersions[2]);
+
         return true;
     }
 
@@ -1065,19 +1070,15 @@ ServerResource {
         }
     }
 
-    private String getVnetId(String vnetId) {
-        return vnetId;
-    }
-
     private void passCmdLine(String vmName, String cmdLine)
             throws InternalErrorException {
-        final Script command = new Script(_patchViaSocketPath, _timeout, s_logger);
+        final Script command = new Script(_patchViaSocketPath, 5*1000, s_logger);
         String result;
         command.add("-n",vmName);
         command.add("-p", cmdLine.replaceAll(" ", "%"));
         result = command.execute();
         if (result != null) {
-            throw new InternalErrorException(result);
+            s_logger.debug("passcmd failed:" + result);
         }
     }
 
@@ -1694,6 +1695,11 @@ ServerResource {
             for (InterfaceDef pluggedNic : pluggedNics) {
                 if (pluggedNic.getMacAddress().equalsIgnoreCase(nic.getMac())) {
                     vm.detachDevice(pluggedNic.toString());
+                    // We don't know which "traffic type" is associated with
+                    // each interface at this point, so inform all vif drivers
+                    for(VifDriver vifDriver : getAllVifDrivers()){
+                        vifDriver.unplug(pluggedNic);
+                    }
                     return new UnPlugNicAnswer(cmd, true, "success");
                 }
             }
@@ -1916,19 +1922,21 @@ ServerResource {
             int i = 0;
             String result = null;
             int nicNum = 0;
+            boolean newNic = false;
             for (IpAddressTO ip : ips) {
                 if (!vlanAllocatedToVM.containsKey(ip.getVlanId())) {
                     /* plug a vif into router */
                     VifHotPlug(conn, routerName, ip.getVlanId(),
                             ip.getVifMacAddress());
                     vlanAllocatedToVM.put(ip.getVlanId(), nicPos++);
+                    newNic = true;
                 }
                 nicNum = vlanAllocatedToVM.get(ip.getVlanId());
                 networkUsage(routerIp, "addVif", "eth" + nicNum);
                 result = _virtRouterResource.assignPublicIpAddress(routerName,
                         routerIp, ip.getPublicIp(), ip.isAdd(), ip.isFirstIP(),
                         ip.isSourceNat(), ip.getVlanId(), ip.getVlanGateway(),
-                        ip.getVlanNetmask(), ip.getVifMacAddress(), nicNum);
+                        ip.getVlanNetmask(), ip.getVifMacAddress(), nicNum, newNic);
 
                 if (result != null) {
                     results[i++] = IpAssocAnswer.errorResult;
@@ -2663,7 +2671,7 @@ ServerResource {
         return command.execute();
     }
 
-    private synchronized Answer execute(MigrateCommand cmd) {
+    private Answer execute(MigrateCommand cmd) {
         String vmName = cmd.getVmName();
 
         State state = null;
@@ -2726,8 +2734,6 @@ ServerResource {
                     vifDriver.unplug(iface);
                 }
             }
-            cleanupVM(conn, vmName,
-                    getVnetId(VirtualMachineName.getVnet(vmName)));
         }
 
         return new MigrateAnswer(cmd, result == null, result, null);
@@ -3043,11 +3049,6 @@ ServerResource {
                 }
             }
 
-            final String result2 = cleanupVnet(conn, cmd.getVnet());
-
-            if (result != null && result2 != null) {
-                result = result2 + result;
-            }
             state = State.Stopped;
             return new StopAnswer(cmd, result, 0, true);
         } catch (LibvirtException e) {
@@ -3268,7 +3269,7 @@ ServerResource {
         }
     }
 
-    protected synchronized StartAnswer execute(StartCommand cmd) {
+    protected StartAnswer execute(StartCommand cmd) {
         VirtualMachineTO vmSpec = cmd.getVirtualMachine();
         vmSpec.setVncAddr(cmd.getHostIp());
         String vmName = vmSpec.getName();
@@ -3318,10 +3319,7 @@ ServerResource {
 
             // pass cmdline info to system vms
             if (vmSpec.getType() != VirtualMachine.Type.User) {
-                String unameKernelVersion = Script.runSimpleBashScript("uname -r");
-                String[] kernelVersions = unameKernelVersion.split("[\\.\\-]");
-                long kernelVersion = Integer.parseInt(kernelVersions[0]) * 1000 * 1000 + Integer.parseInt(kernelVersions[1]) * 1000 + Integer.parseInt(kernelVersions[2]);
-                if ((kernelVersion < 2006034) && (conn.getVersion() < 1001000)) { // CLOUDSTACK-2823: try passCmdLine some times if kernel < 2.6.34 and qemu < 1.1.0 on hypervisor (for instance, CentOS 6.4)
+                if ((_kernelVersion < 2006034) && (conn.getVersion() < 1001000)) { // CLOUDSTACK-2823: try passCmdLine some times if kernel < 2.6.34 and qemu < 1.1.0 on hypervisor (for instance, CentOS 6.4)
                     for (int count = 0; count < 10; count ++) {
                         passCmdLine(vmName, vmSpec.getBootArgs());
                         try {
@@ -4123,16 +4121,6 @@ ServerResource {
         return info;
     }
 
-    protected void cleanupVM(Connect conn, final String vmName,
-            final String vnet) {
-        s_logger.debug("Trying to cleanup the vnet: " + vnet);
-        if (vnet != null) {
-            cleanupVnet(conn, vnet);
-        }
-
-        _vmStats.remove(vmName);
-    }
-
     protected String rebootVM(Connect conn, String vmName) {
         Domain dm = null;
         String msg = null;
@@ -4274,29 +4262,6 @@ ServerResource {
         return null;
     }
 
-    public synchronized String cleanupVnet(Connect conn, final String vnetId) {
-        // VNC proxy VMs do not have vnet
-        if (vnetId == null || vnetId.isEmpty()
-                || isDirectAttachedNetwork(vnetId)) {
-            return null;
-        }
-
-        final List<String> names = getAllVmNames(conn);
-
-        if (!names.isEmpty()) {
-            for (final String name : names) {
-                if (VirtualMachineName.getVnet(name).equals(vnetId)) {
-                    return null; // Can't remove the vnet yet.
-                }
-            }
-        }
-
-        final Script command = new Script(_modifyVlanPath, _timeout, s_logger);
-        command.add("-o", "delete");
-        command.add("-v", vnetId);
-        return command.execute();
-    }
-
     protected Integer getVncPort(Connect conn, String vmName)
             throws LibvirtException {
         LibvirtDomainXMLParser parser = new LibvirtDomainXMLParser();
@@ -4410,26 +4375,11 @@ ServerResource {
         }
     }
 
-    private String getVnetIdFromBrName(String vnetBrName) {
-        if (vnetBrName.contains("cloudVirBr")) {
-            return vnetBrName.replaceAll("cloudVirBr", "");
-        } else {
-            Pattern r = Pattern.compile("-(\\d+)$");
-            Matcher m = r.matcher(vnetBrName);
-            if(m.group(1) != null || !m.group(1).isEmpty()) {
-                return m.group(1);
-            } else {
-                s_logger.debug("unable to get a vlan ID from name " + vnetBrName);
-                return "";
-            }
-        }
-    }
-
     private void cleanupVMNetworks(Connect conn, List<InterfaceDef> nics) {
         if (nics != null) {
             for (InterfaceDef nic : nics) {
-                if (nic.getHostNetType() == hostNicType.VNET) {
-                    cleanupVnet(conn, getVnetIdFromBrName(nic.getBrName()));
+                for(VifDriver vifDriver : getAllVifDrivers()){
+                    vifDriver.unplug(nic);
                 }
             }
         }

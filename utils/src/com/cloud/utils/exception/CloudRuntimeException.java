@@ -17,18 +17,22 @@
 package com.cloud.utils.exception;
 
 import java.util.ArrayList;
+import java.util.List;
 
+import com.cloud.utils.Pair;
 import com.cloud.utils.SerialVersionUID;
 
 /**
  * wrap exceptions that you know there's no point in dealing with.
  */
-public class CloudRuntimeException extends RuntimeException {
+public class CloudRuntimeException extends RuntimeException implements ErrorContext {
 
     private static final long serialVersionUID = SerialVersionUID.CloudRuntimeException;
 
     // This holds a list of uuids and their descriptive names.
     protected ArrayList<ExceptionProxyObject> idList = new ArrayList<ExceptionProxyObject>();
+
+    protected ArrayList<Pair<Class<?>, String>> uuidList = new ArrayList<Pair<Class<?>, String>>();
 
     protected int csErrorCode;
 
@@ -43,7 +47,7 @@ public class CloudRuntimeException extends RuntimeException {
         setCSErrorCode(CSExceptionErrorCode.getCSErrCode(this.getClass().getName()));
     }
 
-    public CloudRuntimeException() {
+    protected CloudRuntimeException() {
         super();
         setCSErrorCode(CSExceptionErrorCode.getCSErrCode(this.getClass().getName()));
     }
@@ -61,19 +65,30 @@ public class CloudRuntimeException extends RuntimeException {
         idList.add(proxy);
     }
 
+    @Override
+    public CloudRuntimeException add(Class<?> entity, String uuid) {
+        uuidList.add(new Pair<Class<?>, String>(entity, uuid));
+        return this;
+    }
+
     public ArrayList<ExceptionProxyObject> getIdProxyList() {
         return idList;
     }
 
     public void setCSErrorCode(int cserrcode) {
-        this.csErrorCode = cserrcode;
+        csErrorCode = cserrcode;
     }
 
     public int getCSErrorCode() {
-        return this.csErrorCode;
+        return csErrorCode;
     }
 
     public CloudRuntimeException(Throwable t) {
-        super(t);
+        super(t.getMessage(), t);
+    }
+
+    @Override
+    public List<Pair<Class<?>, String>> getEntitiesInError() {
+        return uuidList;
     }
 }

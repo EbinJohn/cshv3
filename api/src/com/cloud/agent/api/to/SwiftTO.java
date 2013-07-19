@@ -17,8 +17,9 @@
 package com.cloud.agent.api.to;
 
 import com.cloud.storage.DataStoreRole;
+import com.cloud.utils.SwiftUtil;
 
-public class SwiftTO implements DataStoreTO {
+public class SwiftTO implements DataStoreTO, SwiftUtil.SwiftClientCfg {
     Long id;
     String url;
     String account;
@@ -28,7 +29,8 @@ public class SwiftTO implements DataStoreTO {
 
     public SwiftTO() { }
 
-    public SwiftTO(Long id, String url, String account, String userName, String key) {
+    public SwiftTO(Long id, String url, String account, String userName, String key
+                  ) {
         this.id = id;
         this.url = url;
         this.account = account;
@@ -61,6 +63,8 @@ public class SwiftTO implements DataStoreTO {
         return DataStoreRole.Image;
     }
 
-
-
+    @Override
+    public String getEndPoint() {
+        return this.url;
+    }
 }

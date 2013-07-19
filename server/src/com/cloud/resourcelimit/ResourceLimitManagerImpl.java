@@ -30,8 +30,10 @@ import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
+import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
+
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
@@ -47,7 +49,6 @@ import com.cloud.configuration.ResourceLimitVO;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.configuration.dao.ResourceCountDao;
 import com.cloud.configuration.dao.ResourceLimitDao;
-import com.cloud.dao.EntityManager;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.domain.Domain;
@@ -78,12 +79,12 @@ import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountVO;
 import com.cloud.user.ResourceLimitService;
-import com.cloud.user.UserContext;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.db.DB;
+import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.GenericSearchBuilder;
 import com.cloud.utils.db.JoinBuilder;
@@ -424,7 +425,7 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
 
     @Override
     public List<ResourceLimitVO> searchForLimits(Long id, Long accountId, Long domainId, Integer type, Long startIndex, Long pageSizeVal) {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
         List<ResourceLimitVO> limits = new ArrayList<ResourceLimitVO>();
         boolean isAccount = true;
 
@@ -568,7 +569,7 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
 
     @Override
     public ResourceLimitVO updateResourceLimit(Long accountId, Long domainId, Integer typeId, Long max) {
-        Account caller = UserContext.current().getCaller();
+        Account caller = CallContext.current().getCallingAccount();
 
         if (max == null) {
             max = new Long(Resource.RESOURCE_UNLIMITED);
@@ -666,7 +667,7 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
 
     @Override
     public List<ResourceCountVO> recalculateResourceCount(Long accountId, Long domainId, Integer typeId) throws InvalidParameterValueException, CloudRuntimeException, PermissionDeniedException {
-        Account callerAccount = UserContext.current().getCaller();
+        Account callerAccount = CallContext.current().getCallingAccount();
         long count = 0;
         List<ResourceCountVO> counts = new ArrayList<ResourceCountVO>();
         List<ResourceType> resourceTypes = new ArrayList<ResourceType>();
@@ -811,13 +812,15 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
         _resourceCountDao.lockRows(sc, null, true);
 
         ResourceCountVO accountRC = _resourceCountDao.findByOwnerAndType(accountId, ResourceOwnerType.Account, type);
-        long oldCount = accountRC.getCount();
+        long oldCount = 0;
+        if (accountRC != null)
+            oldCount = accountRC.getCount();
 
         if (type == Resource.ResourceType.user_vm) {
             newCount = _userVmDao.countAllocatedVMsForAccount(accountId);
         } else if (type == Resource.ResourceType.volume) {
             newCount = _volumeDao.countAllocatedVolumesForAccount(accountId);
-            long virtualRouterCount = _vmDao.countAllocatedVirtualRoutersForAccount(accountId);
+            long virtualRouterCount = _vmDao.findIdsOfAllocatedVirtualRoutersForAccount(accountId).size();
             newCount = newCount - virtualRouterCount; // don't count the volumes of virtual router
         } else if (type == Resource.ResourceType.snapshot) {
             newCount = _snapshotDao.countSnapshotsForAccount(accountId);
@@ -836,7 +839,8 @@ public class ResourceLimitManagerImpl extends ManagerBase implements ResourceLim
         } else if (type == Resource.ResourceType.memory) {
             newCount = calculateMemoryForAccount(accountId);
         } else if (type == Resource.ResourceType.primary_storage) {
-            newCount = _volumeDao.primaryStorageUsedForAccount(accountId);
+            List<Long> virtualRouters = _vmDao.findIdsOfAllocatedVirtualRoutersForAccount(accountId);
+            newCount = _volumeDao.primaryStorageUsedForAccount(accountId, virtualRouters);
         } else if (type == Resource.ResourceType.secondary_storage) {
             newCount = calculateSecondaryStorageForAccount(accountId);
         } else {

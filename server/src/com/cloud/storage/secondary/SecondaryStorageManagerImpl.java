@@ -29,12 +29,15 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.log4j.Logger;
+
+import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.ZoneScope;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreVO;
-import org.apache.log4j.Logger;
+import org.apache.cloudstack.utils.identity.ManagementServerNode;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
@@ -51,12 +54,9 @@ import com.cloud.agent.api.StopAnswer;
 import com.cloud.agent.api.check.CheckSshAnswer;
 import com.cloud.agent.api.check.CheckSshCommand;
 import com.cloud.agent.api.to.NfsTO;
-import com.cloud.agent.api.to.NicTO;
-import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.cluster.ClusterManager;
-import com.cloud.cluster.ManagementServerNode;
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ZoneConfig;
 import com.cloud.configuration.dao.ConfigurationDao;
@@ -79,7 +79,6 @@ import com.cloud.info.RunningHostCountInfo;
 import com.cloud.info.RunningHostInfoAgregator;
 import com.cloud.info.RunningHostInfoAgregator.ZoneHostInfo;
 import com.cloud.keystore.KeystoreManager;
-import com.cloud.network.Network;
 import com.cloud.network.NetworkManager;
 import com.cloud.network.NetworkModel;
 import com.cloud.network.Networks.TrafficType;
@@ -109,14 +108,12 @@ import com.cloud.template.TemplateManager;
 import com.cloud.user.Account;
 import com.cloud.user.AccountService;
 import com.cloud.user.User;
-import com.cloud.user.UserContext;
 import com.cloud.utils.DateUtil;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.db.SearchCriteria.Op;
-import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.SearchCriteria2;
 import com.cloud.utils.db.SearchCriteriaService;
 import com.cloud.utils.events.SubscriptionMgr;
@@ -297,7 +294,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
                 return false;
             }
 
-            List<DataStore> ssStores = this._dataStoreMgr.getImageStoresByScope(new ZoneScope(zoneId));
+            List<DataStore> ssStores = _dataStoreMgr.getImageStoresByScope(new ZoneScope(zoneId));
              for( DataStore ssStore : ssStores ) {
                  if (!(ssStore.getTO() instanceof NfsTO ))
                      continue; // only do this for Nfs
@@ -315,7 +312,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
                     SecStorageSetupAnswer an = (SecStorageSetupAnswer) answer;
                     if (an.get_dir() != null){
                         // update the parent path in image_store table for this image store
-                        ImageStoreVO svo = this._imageStoreDao.findById(ssStore.getId());
+                        ImageStoreVO svo = _imageStoreDao.findById(ssStore.getId());
                         svo.setParent(an.get_dir());
                         _imageStoreDao.update(ssStore.getId(), svo);
                     }
@@ -517,7 +514,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
     }
 
     protected Map<String, Object> createSecStorageVmInstance(long dataCenterId, SecondaryStorageVm.Role role) {
-        DataStore secStore = this._dataStoreMgr.getImageStore(dataCenterId);
+        DataStore secStore = _dataStoreMgr.getImageStore(dataCenterId);
         if (secStore == null) {
             String msg = "No secondary storage available in zone " + dataCenterId + ", cannot create secondary storage vm";
             s_logger.warn(msg);
@@ -578,8 +575,10 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
 
         SecondaryStorageVmVO secStorageVm = new SecondaryStorageVmVO(id, _serviceOffering.getId(), name, template.getId(), template.getHypervisorType(), template.getGuestOSId(), dataCenterId,
                 systemAcct.getDomainId(), systemAcct.getId(), role, _serviceOffering.getOfferHA());
+        secStorageVm = _secStorageVmDao.persist(secStorageVm);
         try {
-            secStorageVm = _itMgr.allocate(secStorageVm, template, _serviceOffering, networks, plan, null, systemAcct);
+            _itMgr.allocate(name, template, _serviceOffering, networks, plan, null);
+            secStorageVm = _secStorageVmDao.findById(secStorageVm.getId());
         } catch (InsufficientCapacityException e) {
             s_logger.warn("InsufficientCapacity", e);
             throw new CloudRuntimeException("Insufficient capacity exception", e);
@@ -726,7 +725,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
                 return false;
             }
 
-            List<DataStore> stores = this._dataStoreMgr.getImageStoresByScope(new ZoneScope(dataCenterId));
+            List<DataStore> stores = _dataStoreMgr.getImageStoresByScope(new ZoneScope(dataCenterId));
             if (stores.size() < 1) {
                 s_logger.debug("No image store added  in zone " + dataCenterId + ", wait until it is ready to launch secondary storage vm");
                 return false;
@@ -893,14 +892,6 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
     }
 
     @Override
-    public Long convertToId(String vmName) {
-        if (!VirtualMachineName.isValidSystemVmName(vmName, _instance, "s")) {
-            return null;
-        }
-        return VirtualMachineName.getSystemVmId(vmName);
-    }
-
-    @Override
     public boolean stopSecStorageVm(long secStorageVmId) {
         SecondaryStorageVmVO secStorageVm = _secStorageVmDao.findById(secStorageVmId);
         if (secStorageVm == null) {
@@ -1014,21 +1005,8 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
     }
 
     @Override
-    public SecondaryStorageVmVO findByName(String name) {
-        if (!VirtualMachineName.isValidSecStorageVmName(name, null)) {
-            return null;
-        }
-        return findById(VirtualMachineName.getSystemVmId(name));
-    }
-
-    @Override
     public SecondaryStorageVmVO findById(long id) {
         return _secStorageVmDao.findById(id);
-    }
-
-    @Override
-    public SecondaryStorageVmVO persist(SecondaryStorageVmVO vm) {
-        return _secStorageVmDao.persist(vm);
     }
 
     @Override
@@ -1038,7 +1016,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
         Map<String, String> details = _vmDetailsDao.findDetails(vm.getId());
         vm.setDetails(details);
 
-        DataStore secStore = this._dataStoreMgr.getImageStore(dest.getDataCenter().getId());
+        DataStore secStore = _dataStoreMgr.getImageStore(dest.getDataCenter().getId());
         assert (secStore != null);
 
         StringBuilder buf = profile.getBootArgsBuilder();
@@ -1211,9 +1189,9 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
         //release elastic IP here
         IPAddressVO ip = _ipAddressDao.findByAssociatedVmId(profile.getId());
         if (ip != null && ip.getSystem()) {
-            UserContext ctx = UserContext.current();
+            CallContext ctx = CallContext.current();
             try {
-                _rulesMgr.disableStaticNat(ip.getId(), ctx.getCaller(), ctx.getCallerUserId(), true);
+                _rulesMgr.disableStaticNat(ip.getId(), ctx.getCallingAccount(), ctx.getCallingUserId(), true);
             } catch (Exception ex) {
                 s_logger.warn("Failed to disable static nat and release system ip " + ip + " as a part of vm " + profile.getVirtualMachine() + " stop due to exception ", ex);
             }
@@ -1281,7 +1259,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
         List<SecondaryStorageVmVO> ssVms = _secStorageVmDao.getSecStorageVmListInStates(SecondaryStorageVm.Role.templateProcessor, dataCenterId, State.Running, State.Migrating,
                 State.Starting,  State.Stopped, State.Stopping );
         int vmSize = (ssVms == null)? 0 : ssVms.size();
-        List<DataStore> ssStores = this._dataStoreMgr.getImageStoresByScope(new ZoneScope(dataCenterId));
+        List<DataStore> ssStores = _dataStoreMgr.getImageStoresByScope(new ZoneScope(dataCenterId));
         int storeSize = (ssStores == null)? 0 : ssStores.size();
         if ( storeSize > vmSize ) {
             s_logger.info("No secondary storage vms found in datacenter id=" + dataCenterId + ", starting a new one");
@@ -1380,7 +1358,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
         if (dcId != null) {
             sc.addAnd(sc.getEntity().getDataCenterId(), Op.EQ, dcId);
         }
-		sc.addAnd(sc.getEntity().getStatus(), Op.IN, com.cloud.host.Status.Up, com.cloud.host.Status.Connecting);
+        sc.addAnd(sc.getEntity().getState(), Op.IN, com.cloud.host.Status.Up, com.cloud.host.Status.Connecting);
 		sc.addAnd(sc.getEntity().getType(), Op.EQ, Host.Type.SecondaryStorageVM);
 	    return sc.list();
     }
@@ -1399,23 +1377,6 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
             return ssAHosts.get(0);
         }
         return null;
-    }
-
-
-    @Override
-    public boolean plugNic(Network network, NicTO nic, VirtualMachineTO vm,
-            ReservationContext context, DeployDestination dest) throws ConcurrentOperationException, ResourceUnavailableException,
-            InsufficientCapacityException {
-        //not supported
-        throw new UnsupportedOperationException("Plug nic is not supported for vm of type " + vm.getType());
-    }
-
-
-    @Override
-    public boolean unplugNic(Network network, NicTO nic, VirtualMachineTO vm,
-            ReservationContext context, DeployDestination dest) throws ConcurrentOperationException, ResourceUnavailableException {
-        //not supported
-        throw new UnsupportedOperationException("Unplug nic is not supported for vm of type " + vm.getType());
     }
 
 	@Override

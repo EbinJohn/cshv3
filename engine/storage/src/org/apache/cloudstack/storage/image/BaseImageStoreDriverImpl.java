@@ -20,8 +20,10 @@ package org.apache.cloudstack.storage.image;
 
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.storage.DownloadAnswer;
+import com.cloud.agent.api.storage.Proxy;
 import com.cloud.agent.api.to.DataObjectType;
 import com.cloud.agent.api.to.DataTO;
+import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.storage.VMTemplateStorageResourceAssoc;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.VolumeVO;
@@ -46,12 +48,14 @@ import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.apache.log4j.Logger;
 
 import javax.inject.Inject;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Date;
 
 public abstract class BaseImageStoreDriverImpl implements ImageStoreDriver {
     private static final Logger s_logger = Logger.getLogger(BaseImageStoreDriverImpl.class);
     @Inject
-    VMTemplateDao _templateDao;
+    protected VMTemplateDao _templateDao;
     @Inject
     DownloadMonitor _downloadMonitor;
     @Inject
@@ -62,6 +66,22 @@ public abstract class BaseImageStoreDriverImpl implements ImageStoreDriver {
     TemplateDataStoreDao _templateStoreDao;
     @Inject
     EndPointSelector _epSelector;
+    @Inject
+    ConfigurationDao configDao;
+    protected String _proxy = null;
+
+    protected Proxy getHttpProxy() {
+        if (_proxy == null) {
+            return null;
+        }
+        try {
+            URI uri = new URI(_proxy);
+            Proxy prx = new Proxy(uri);
+            return prx;
+        } catch (URISyntaxException e) {
+            return null;
+        }
+    }
 
     @Override
     public DataTO getTO(DataObject data) {
@@ -77,6 +97,14 @@ public abstract class BaseImageStoreDriverImpl implements ImageStoreDriver {
         }
     }
 
+    protected Long getMaxTemplateSizeInBytes() {
+        try {
+            return Long.parseLong(configDao.getValue("max.template.iso.size")) * 1024L * 1024L * 1024L;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     @Override
     public void createAsync(DataStore dataStore, DataObject data, AsyncCompletionCallback<CreateCmdResult> callback) {
         CreateContext<CreateCmdResult> context = new CreateContext<CreateCmdResult>(callback, data);
@@ -85,15 +113,24 @@ public abstract class BaseImageStoreDriverImpl implements ImageStoreDriver {
         caller.setContext(context);
         if (data.getType() == DataObjectType.TEMPLATE) {
             caller.setCallback(caller.getTarget().createTemplateAsyncCallback(null, null));
+            if (s_logger.isDebugEnabled()) {
+                s_logger.debug("Downloading template to data store " + dataStore.getId());
+            }
             _downloadMonitor.downloadTemplateToStorage(data, caller);
         } else if (data.getType() == DataObjectType.VOLUME) {
             caller.setCallback(caller.getTarget().createVolumeAsyncCallback(null, null));
+            if (s_logger.isDebugEnabled()) {
+                s_logger.debug("Downloading volume to data store " + dataStore.getId());
+            }
             _downloadMonitor.downloadVolumeToStorage(data, caller);
         }
     }
 
     protected Void createTemplateAsyncCallback(AsyncCallbackDispatcher<? extends BaseImageStoreDriverImpl, DownloadAnswer> callback,
             CreateContext<CreateCmdResult> context) {
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Performing image store createTemplate async callback");
+        }
         DownloadAnswer answer = callback.getResult();
         DataObject obj = context.data;
         DataStore store = obj.getDataStore();

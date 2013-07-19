@@ -114,6 +114,9 @@ Requires: %{name}-common = %{_ver}
 Requires: libvirt
 Requires: bridge-utils
 Requires: ebtables
+Requires: iptables
+Requires: ethtool
+Requires: vconfig
 Requires: ipset
 Requires: jsvc
 Requires: jakarta-commons-daemon
@@ -133,6 +136,7 @@ Requires: java >= 1.6.0
 Requires: jsvc
 Requires: jakarta-commons-daemon
 Requires: jakarta-commons-daemon-jsvc
+Group: System Environment/Libraries
 Obsoletes: cloud-usage < 4.1.0
 Provides: cloud-usage 
 %description usage
@@ -142,6 +146,7 @@ The CloudStack usage calculation service
 Summary: Apache CloudStack CLI
 Provides: python-cloudmonkey
 Provides: python-marvin
+Group: System Environment/Libraries
 %description cli
 Apache CloudStack command line interface
 
@@ -150,6 +155,7 @@ Summary: Apache CloudStack AWS API compatibility wrapper
 Requires: %{name}-management = %{_ver}
 Obsoletes: cloud-aws-api < 4.1.0
 Provides: cloud-aws-api
+Group: System Environment/Libraries
 %description awsapi
 Apache Cloudstack AWS API compatibility wrapper
 

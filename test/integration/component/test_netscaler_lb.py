@@ -2571,6 +2571,8 @@ class TestVmWithLb(cloudstackTestCase):
         self.debug("Starting VM instance: %s" % self.vm_2.name)
         self.vm_2.start(self.apiclient)
         self.debug("Starting VM: %s" % self.vm_2.name)
+        self.debug("Sleeping for netscaler to recognize service is up")
+        time.sleep( 120 )
 
         try:
             self.debug(
@@ -2776,11 +2778,27 @@ class TestVmWithLb(cloudstackTestCase):
             hostnames.append(result)
             self.debug("Hostnames: %s" % str(hostnames))
 
-            self.assertNotEqual(
+            if hostnames[0] == hostnames[1]:
+                ssh_3 = self.vm_2.get_ssh_client(
+                                ipaddress=self.public_ip_1.ipaddress.ipaddress,
+                                reconnect=True
+                                )
+                self.debug("Command: hostname")
+                result = ssh_3.execute("hostname")
+                self.debug("Output: %s" % result)
+                hostnames.append(result)
+
+                self.assertNotEqual(
+                    hostnames[0],
+                    hostnames[2],
+                    "Both request should be served by different instances"
+                )
+            else:
+                 self.assertNotEqual(
                     hostnames[0],
                     hostnames[1],
                     "Both request should be served by different instances"
-                )
+                 )
         except Exception as e:
             self.fail("Exception occured during SSH: %s - %s" % (
                                         self.public_ip_1.ipaddress.ipaddress,

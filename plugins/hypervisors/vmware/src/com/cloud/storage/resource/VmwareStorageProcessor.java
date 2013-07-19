@@ -42,6 +42,7 @@ import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.log4j.Logger;
 
 import com.cloud.agent.api.Answer;
+import com.cloud.agent.api.AttachVolumeCommand;
 import com.cloud.agent.api.BackupSnapshotAnswer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.CreateVolumeFromSnapshotAnswer;
@@ -724,14 +725,16 @@ public class VmwareStorageProcessor implements StorageProcessor {
 						hostService.getWorkerName(context, cmd, 1));
 
 				success = (snapshotBackupUuid != null);
-				if (success) {
-					details = "Successfully backedUp the snapshotUuid: " + snapshotUuid + " to secondary storage.";
-					return new CopyCmdAnswer(details);
-				} else {
-					SnapshotObjectTO newSnapshot = new SnapshotObjectTO();
-					newSnapshot.setPath(snapshotBackupUuid);
-					return new CopyCmdAnswer(newSnapshot);
-				}
+
+                if (!success) {
+                    details = "Failed to backUp the snapshot with uuid: " + snapshotUuid + " to secondary storage.";
+                    return new CopyCmdAnswer(details);
+                } else {
+                    details = "Successfully backedUp the snapshot with Uuid: " + snapshotUuid + " to secondary storage.";
+                    SnapshotObjectTO newSnapshot = new SnapshotObjectTO();
+                    newSnapshot.setPath(destSnapshot.getPath() + "/" + snapshotBackupUuid);
+                    return new CopyCmdAnswer(newSnapshot);
+                }
 			} finally {
 				if(vmMo != null){
 					ManagedObjectReference snapshotMor = vmMo.getSnapshotMor(snapshotUuid);
@@ -767,12 +770,20 @@ public class VmwareStorageProcessor implements StorageProcessor {
 		return this.attachIso(cmd.getDisk(), true, cmd.getVmName());
 	}
 
-	@Override
-	public Answer attachVolume(AttachCommand cmd) {
-		return this.attachVolume(cmd, cmd.getDisk(), true, cmd.getVmName());
-	}
-	
-	private Answer attachVolume(Command cmd, DiskTO disk, boolean isAttach, String vmName) {
+    @Override
+    public Answer attachVolume(AttachCommand cmd) {
+        return this.attachVolume(cmd, cmd.getDisk(), true, cmd.isManaged(), cmd.getVmName(), cmd.get_iScsiName(),
+                cmd.getStorageHost(), cmd.getStoragePort(), cmd.getChapInitiatorUsername(), cmd.getChapInitiatorPassword(),
+                cmd.getChapTargetUsername(), cmd.getChapTargetPassword());
+    }
+
+    private Answer attachVolume(Command cmd, DiskTO disk, boolean isAttach, boolean isManaged, String vmName, String iScsiName, String storageHost, int storagePort) {
+        return attachVolume(cmd, disk, isAttach, isManaged, vmName, iScsiName, storageHost, storagePort, null, null, null, null);
+    }
+
+	private Answer attachVolume(Command cmd, DiskTO disk, boolean isAttach, boolean isManaged, String vmName,
+	        String iScsiName, String storageHost, int storagePort, String initiatorUsername, String initiatorPassword,
+	        String targetUsername, String targetPassword) {
 
 		VolumeObjectTO volumeTO = (VolumeObjectTO)disk.getData();
 		PrimaryDataStoreTO primaryStore = (PrimaryDataStoreTO)volumeTO.getDataStore();
@@ -785,15 +796,26 @@ public class VmwareStorageProcessor implements StorageProcessor {
 				throw new Exception(msg);
 			}
 
-			ManagedObjectReference morDs = HypervisorHostHelper.findDatastoreWithBackwardsCompatibility(hyperHost, primaryStore.getUuid());
-			if (morDs == null) {
-				String msg = "Unable to find the mounted datastore to execute AttachVolumeCommand, vmName: " + vmName;
-				s_logger.error(msg);
-				throw new Exception(msg);
-			}
+            ManagedObjectReference morDs = null;
+
+            if (isAttach && isManaged) {
+                morDs = this.hostService.handleDatastoreAndVmdkAttach(cmd, iScsiName, storageHost, storagePort,
+                            initiatorUsername, initiatorPassword, targetUsername, targetPassword);
+            }
+            else {
+                morDs = HypervisorHostHelper.findDatastoreWithBackwardsCompatibility(hyperHost, isManaged ? VmwareResource.getDatastoreName(iScsiName) : primaryStore.getUuid());
+            }
+
+            if (morDs == null) {
+                String msg = "Unable to find the mounted datastore to execute AttachVolumeCommand, vmName: " + vmName;
+                s_logger.error(msg);
+                throw new Exception(msg);
+            }
 
 			DatastoreMO dsMo = new DatastoreMO(this.hostService.getServiceContext(null), morDs);
-			String datastoreVolumePath = String.format("[%s] %s.vmdk", dsMo.getName(), volumeTO.getPath());
+			String datastoreVolumePath = String.format("[%s] %s.vmdk", dsMo.getName(), isManaged ? dsMo.getName() : volumeTO.getPath());
+
+            disk.setVdiUuid(datastoreVolumePath);
 
 			AttachAnswer answer = new AttachAnswer(disk);
 			if (isAttach) {
@@ -801,6 +823,10 @@ public class VmwareStorageProcessor implements StorageProcessor {
 			} else {
 				vmMo.removeAllSnapshots();
 				vmMo.detachDisk(datastoreVolumePath, false);
+
+                if (isManaged) {
+                    this.hostService.handleDatastoreAndVmdkDetach(iScsiName, storageHost, storagePort);
+                }
 			}
 
 			return answer;
@@ -845,7 +871,9 @@ public class VmwareStorageProcessor implements StorageProcessor {
 	            }
 	            TemplateObjectTO iso = (TemplateObjectTO)disk.getData();
 	            NfsTO nfsImageStore = (NfsTO)iso.getDataStore();
-	            String storeUrl = nfsImageStore.getUrl();
+	            String storeUrl = null;
+	            if (nfsImageStore != null)
+	                storeUrl = nfsImageStore.getUrl();
 	            if (storeUrl == null) {
 	                if (!iso.getName().equalsIgnoreCase("vmware-tools.iso")) {
 	                    String msg = "ISO store root url is not found in AttachIsoCommand";
@@ -916,7 +944,7 @@ public class VmwareStorageProcessor implements StorageProcessor {
 
 	@Override
 	public Answer dettachVolume(DettachCommand cmd) {
-		return this.attachVolume(cmd, cmd.getDisk(), false, cmd.getVmName());
+		return this.attachVolume(cmd, cmd.getDisk(), false, cmd.isManaged(), cmd.getVmName(), cmd.get_iScsiName(), cmd.getStorageHost(), cmd.getStoragePort());
 	}
 
 	protected VirtualMachineMO prepareVolumeHostDummyVm(VmwareHypervisorHost hyperHost, DatastoreMO dsMo, String vmName) throws Exception {

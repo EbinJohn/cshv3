@@ -316,7 +316,6 @@
   <bean id="storagePoolHostDaoImpl" class="com.cloud.storage.dao.StoragePoolHostDaoImpl" />
   <bean id="storagePoolJoinDaoImpl" class="com.cloud.api.query.dao.StoragePoolJoinDaoImpl" />
   <bean id="storagePoolWorkDaoImpl" class="com.cloud.storage.dao.StoragePoolWorkDaoImpl" />
-  <bean id="swiftDaoImpl" class="com.cloud.storage.dao.SwiftDaoImpl" />
   <bean id="syncQueueDaoImpl" class="com.cloud.async.dao.SyncQueueDaoImpl" />
   <bean id="syncQueueItemDaoImpl" class="com.cloud.async.dao.SyncQueueItemDaoImpl" />
   <bean id="templatePrimaryDataStoreDaoImpl" class="org.apache.cloudstack.storage.volume.db.TemplatePrimaryDataStoreDaoImpl" />
@@ -356,7 +355,6 @@
   <bean id="vMTemplateHostDaoImpl" class="com.cloud.storage.dao.VMTemplateHostDaoImpl" />
   <bean id="vMTemplatePoolDaoImpl" class="com.cloud.storage.dao.VMTemplatePoolDaoImpl" />
   <bean id="vMTemplateS3DaoImpl" class="com.cloud.storage.dao.VMTemplateS3DaoImpl" />
-  <bean id="vMTemplateSwiftDaoImpl" class="com.cloud.storage.dao.VMTemplateSwiftDaoImpl" />
   <bean id="vMTemplateZoneDaoImpl" class="com.cloud.storage.dao.VMTemplateZoneDaoImpl" />
   <bean id="versionDaoImpl" class="com.cloud.upgrade.dao.VersionDaoImpl" />
   <bean id="virtualRouterProviderDaoImpl" class="com.cloud.network.dao.VirtualRouterProviderDaoImpl" />
@@ -801,7 +799,6 @@
   <bean id="snapshotManagerImpl" class="com.cloud.storage.snapshot.SnapshotManagerImpl" />
   <bean id="snapshotSchedulerImpl" class="com.cloud.storage.snapshot.SnapshotSchedulerImpl" />
   <bean id="storageNetworkManagerImpl" class="com.cloud.network.StorageNetworkManagerImpl" />
-  <bean id="swiftManagerImpl" class="com.cloud.storage.swift.SwiftManagerImpl" />
   <bean id="syncQueueManagerImpl" class="com.cloud.async.SyncQueueManagerImpl" />
   <bean id="taggedResourceManagerImpl" class="com.cloud.tags.TaggedResourceManagerImpl" />
   <bean id="resourceMetaDataManagerImpl" class="com.cloud.metadata.ResourceMetaDataManagerImpl" />
@@ -843,7 +840,6 @@
   <bean id="statsCollector" class="com.cloud.server.StatsCollector" />
   <bean id="storagePoolAutomationImpl" class="com.cloud.storage.StoragePoolAutomationImpl" />
   <bean id="usageEventUtils" class="com.cloud.event.UsageEventUtils" />
-  <bean id="userContextInitializer" class="com.cloud.user.UserContextInitializer" />
   <bean id="vMEntityManagerImpl" class="org.apache.cloudstack.engine.cloud.entity.api.VMEntityManagerImpl" />
   <bean id="virtualMachineEntityFactory" class="org.apache.cloudstack.engine.cloud.entity.api.VirtualMachineEntityFactory" />
   <bean id="virtualMachineEntityImpl" class="org.apache.cloudstack.engine.cloud.entity.api.VirtualMachineEntityImpl" />
@@ -852,7 +848,7 @@
   <bean id="volumeTypeHelper" class="org.apache.cloudstack.engine.subsystem.api.storage.type.VolumeTypeHelper" />
   <bean id="zoneRestService" class="org.apache.cloudstack.engine.rest.service.api.ZoneRestService" />
   <bean id="cloudZonesStartupProcessor" class="com.cloud.hypervisor.CloudZonesStartupProcessor" />
-  <bean id="managementServerNode" class="com.cloud.cluster.ManagementServerNode" />
+  <bean id="managementServerNode" class="org.apache.cloudstack.utils.identity.ManagementServerNode" />
   <bean id="testingAllocator" class="com.cloud.agent.manager.allocator.impl.TestingAllocator" />
   <bean id="domainManagerImpl" class="com.cloud.user.DomainManagerImpl" />
   <bean id="downloadMonitorImpl" class="com.cloud.storage.download.DownloadMonitorImpl" />
@@ -911,7 +907,9 @@
 
   <bean id="UcsManager" class="com.cloud.ucs.manager.UcsManagerImpl" />
 
-  <bean id="AffinityGroupServiceImpl" class="org.apache.cloudstack.affinity.AffinityGroupServiceImpl"/>
+  <bean id="AffinityGroupServiceImpl" class="org.apache.cloudstack.affinity.AffinityGroupServiceImpl">
+  	<property name="AffinityGroupProcessors" value="#{affinityProcessors.Adapters}" />
+  </bean>
   <bean id="DeploymentPlanningManager" class="com.cloud.deploy.DeploymentPlanningManagerImpl">
     <property name="Planners" value="#{deploymentPlanners.Adapters}" />
 	<property name="AffinityGroupProcessors" value="#{affinityProcessors.Adapters}" />

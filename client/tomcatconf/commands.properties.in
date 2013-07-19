@@ -214,6 +214,7 @@ ldapConfig=1
 ldapRemove=1
 listCapabilities=15
 listDeploymentPlanners=1
+cleanVMReservations=1
 
 #### pod commands
 createPod=1
@@ -240,10 +241,6 @@ deleteAlerts=1
 
 #### system capacity commands
 listCapacity=3
-
-#### swift commands
-addSwift=1
-listSwifts=1
 
 #### s3 commands
 addS3=1
@@ -275,6 +272,7 @@ releaseHostReservation=1
 #### VmWare DC
 addVmwareDc=1
 removeVmwareDc=1
+listVmwareDcs=1
 
 #### volume commands
 attachVolume=15
