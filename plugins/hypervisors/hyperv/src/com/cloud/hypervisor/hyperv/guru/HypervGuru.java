@@ -49,8 +49,8 @@ public class HypervGuru extends HypervisorGuruBase implements HypervisorGuru {
     }
 
     @Override
-    public final <T extends VirtualMachine> VirtualMachineTO implement(
-            final VirtualMachineProfile<T> vm) {
+    public final VirtualMachineTO implement(
+            VirtualMachineProfile vm) {
         VirtualMachineTO to = toVirtualMachineTO(vm);
 
         // Determine the VM's OS description
