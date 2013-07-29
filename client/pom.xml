@@ -184,7 +184,6 @@
     <dependency>
       <groupId>mysql</groupId>
       <artifactId>mysql-connector-java</artifactId>
-      <version>${cs.mysql.version}</version>
       <scope>runtime</scope>
     </dependency>
     <dependency>
@@ -340,6 +339,7 @@
         <artifactId>maven-jetty-plugin</artifactId>
         <version>6.1.26</version>
         <configuration>
+          <scanIntervalSeconds>0</scanIntervalSeconds>
           <stopPort>9966</stopPort>
           <stopKey>stop-jetty</stopKey>
           <connectors>

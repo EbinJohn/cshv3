@@ -298,7 +298,7 @@
                                 array.push("&bindpass=" + todb(args.data.password));
                                 array.push("&hostname=" + todb(args.data.hostname));
                                 array.push("&searchbase=" + todb(args.data.searchbase));
-                                array.push("&queryfilter=" + todb(args.data.queryfilter));
+                                array.push("&queryfilter=" + todb(args.data.queryfilter).replace('&amp;', '%26'));
                                 array.push("&port=" + todb(args.data.port));
 
                                 if (args.$form.find('.form-item[rel=ssl]').find('input[type=checkbox]').is(':Checked') == true) {
@@ -316,7 +316,7 @@
                                 $.ajax({
                                     url: createURL("ldapConfig" + array.join("")),
                                     dataType: "json",
-                                    async: true,
+                                    type: "POST",                               
                                     success: function(json) {
                                         var items = json.ldapconfigresponse.ldapconfig;
                                         args.response.success({

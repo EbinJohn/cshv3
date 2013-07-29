@@ -35,13 +35,17 @@ UPDATE `cloud`.`hypervisor_capabilities` SET `storage_motion_supported`=true WHE
 UPDATE `cloud`.`hypervisor_capabilities` SET `storage_motion_supported`=true WHERE `hypervisor_type`='VMware' AND `hypervisor_version`='5.0';
 DELETE FROM `cloud`.`configuration` where name='vmware.percluster.host.max';
 DELETE FROM `cloud`.`configuration` where name='router.template.id';
+DELETE FROM `cloud`.`configuration` where name='swift.enable';
+DELETE FROM `cloud`.`configuration` where name='s3.enable';
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'AgentManager', 'xen.nics.max', '7', 'Maximum allowed nics for Vms created on Xen');
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Network', 'DEFAULT', 'management-server', 'midonet.apiserver.address', 'http://localhost:8081', 'Specify the address at which the Midonet API server can be contacted (if using Midonet)');
 INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Network', 'DEFAULT', 'management-server', 'midonet.providerrouter.id', 'd7c5e6a3-e2f4-426b-b728-b7ce6a0448e5', 'Specifies the UUID of the Midonet provider router (if using Midonet)');
 ALTER TABLE `cloud`.`load_balancer_vm_map` ADD state VARCHAR(40) NULL COMMENT 'service status updated by LB healthcheck manager';
 
 ALTER TABLE `cloud`.`vm_template` ADD COLUMN `dynamically_scalable` tinyint(1) unsigned NOT NULL DEFAULT 0  COMMENT 'true if template contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory';
+ALTER TABLE `cloud`.`vm_instance` ADD COLUMN `dynamically_scalable` tinyint(1) unsigned NOT NULL DEFAULT 0  COMMENT 'true if VM contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory';
 UPDATE `cloud`.`vm_template` SET dynamically_scalable = 1 WHERE name = "CentOS 5.6(64-bit) no GUI (XenServer)" AND type = "BUILTIN";
+UPDATE `cloud`.`vm_template` SET dynamically_scalable = 1 WHERE name = "SystemVM Template (vSphere)" AND type = "SYSTEM";
 
 alter table storage_pool add hypervisor varchar(32);
 alter table storage_pool change storage_provider_id storage_provider_name varchar(255);
@@ -161,7 +165,7 @@ CREATE TABLE  `cloud`.`template_store_ref` (
   `destroyed` tinyint(1) COMMENT 'indicates whether the template_store entry was destroyed by the user or not',
   `is_copy` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'indicates whether this was copied ',
   `update_count` bigint unsigned,
-  `ref_cnt` bigint unsigned,
+  `ref_cnt` bigint unsigned DEFAULT 0,
   `updated` datetime, 
   PRIMARY KEY  (`id`),
 --  CONSTRAINT `fk_template_store_ref__store_id` FOREIGN KEY `fk_template_store_ref__store_id` (`store_id`) REFERENCES `image_store` (`id`) ON DELETE CASCADE,
@@ -198,6 +202,7 @@ CREATE TABLE  `cloud`.`snapshot_store_ref` (
   `update_count` bigint unsigned,
   `ref_cnt` bigint unsigned,
   `updated` datetime,   
+  `volume_id` bigint unsigned,
   PRIMARY KEY  (`id`),
   INDEX `i_snapshot_store_ref__store_id`(`store_id`),
   CONSTRAINT `fk_snapshot_store_ref__snapshot_id` FOREIGN KEY `fk_snapshot_store_ref__snapshot_id` (`snapshot_id`) REFERENCES `snapshots` (`id`),
@@ -275,10 +280,21 @@ INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALU
 INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (167, UUID(), 6, 'Windows Server 2012 (64-bit)');
 INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (168, UUID(), 6, 'Windows Server 8 (64-bit)');
 
-INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (169, 10, 'Ubuntu 11.04 (32-bit)');
-INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (170, 10, 'Ubuntu 11.04 (64-bit)');
-INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (171, 1, 'CentOS 6.3 (32-bit)');
-INSERT IGNORE INTO `cloud`.`guest_os` (id, category_id, display_name) VALUES (172, 1, 'CentOS 6.3 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (169, UUID(), 10, 'Ubuntu 11.04 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (170, UUID(), 10, 'Ubuntu 11.04 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (171, UUID(), 1, 'CentOS 6.3 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (172, UUID(), 1, 'CentOS 6.3 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (173, UUID(), 1, 'CentOS 5.8 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (174, UUID(), 1, 'CentOS 5.8 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (175, UUID(), 1, 'CentOS 5.9 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (176, UUID(), 1, 'CentOS 5.9 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (177, UUID(), 1, 'CentOS 6.1 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (178, UUID(), 1, 'CentOS 6.1 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (179, UUID(), 1, 'CentOS 6.2 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (180, UUID(), 1, 'CentOS 6.2 (64-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (181, UUID(), 1, 'CentOS 6.4 (32-bit)');
+INSERT IGNORE INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (182, UUID(), 1, 'CentOS 6.4 (64-bit)');
+
 
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("VmWare", 'Windows 8 (32-bit)', 165);
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("VmWare", 'Windows 8 (64-bit)', 166);
@@ -288,6 +304,26 @@ INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("XenServer", 'Windows 8 (64-bit)', 166);
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("XenServer", 'Windows Server 2012 (64-bit)', 167);
 INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES ("XenServer", 'Windows Server 8 (64-bit)', 168);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.5 (32-bit)', 111);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.5 (64-bit)', 112);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.6 (32-bit)', 141);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.6 (64-bit)', 142);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.7 (32-bit)', 161);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.7 (64-bit)', 162);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.8 (32-bit)', 173);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.8 (64-bit)', 174);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.9 (32-bit)', 175);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 5.9 (64-bit)', 176);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.0 (32-bit)', 143);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.0 (64-bit)', 144);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.1 (32-bit)', 177);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.1 (64-bit)', 178);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.2 (32-bit)', 179);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.2 (64-bit)', 180);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.3 (32-bit)', 171);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.3 (64-bit)', 172);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.4 (32-bit)', 181);
+INSERT IGNORE INTO `cloud`.`guest_os_hypervisor` (hypervisor_type, guest_os_name, guest_os_id) VALUES  ("XenServer", 'CentOS 6.4 (64-bit)', 182);
 
 INSERT INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (211, UUID(), 7, 'Apple Mac OS X 10.6 (32-bit)');
 INSERT INTO `cloud`.`guest_os` (id, uuid, category_id, display_name) VALUES (212, UUID(), 7, 'Apple Mac OS X 10.6 (64-bit)');
@@ -892,114 +928,6 @@ CREATE VIEW `cloud`.`host_view` AS
             and async_job.instance_type = 'Host'
             and async_job.job_status = 0;
         
-DROP VIEW IF EXISTS `cloud`.`volume_view`;
-CREATE VIEW `cloud`.`volume_view` AS
-    select 
-        volumes.id,
-        volumes.uuid,
-        volumes.name,
-        volumes.device_id,
-        volumes.volume_type,
-        volumes.size,
-        volumes.min_iops,
-        volumes.max_iops,
-        volumes.created,
-        volumes.state,
-        volumes.attached,
-        volumes.removed,
-        volumes.pod_id,
-        account.id account_id,
-        account.uuid account_uuid,
-        account.account_name account_name,
-        account.type account_type,
-        domain.id domain_id,
-        domain.uuid domain_uuid,
-        domain.name domain_name,
-        domain.path domain_path,
-        projects.id project_id,
-        projects.uuid project_uuid,
-        projects.name project_name,
-        data_center.id data_center_id,
-        data_center.uuid data_center_uuid,
-        data_center.name data_center_name,
-        data_center.networktype data_center_type,
-        vm_instance.id vm_id,
-        vm_instance.uuid vm_uuid,
-        vm_instance.name vm_name,
-        vm_instance.state vm_state,
-        vm_instance.vm_type,
-        user_vm.display_name vm_display_name,
-        volume_host_ref.size volume_host_size,
-        volume_host_ref.created volume_host_created,
-        volume_host_ref.format,
-        volume_host_ref.download_pct,
-        volume_host_ref.download_state,
-        volume_host_ref.error_str,
-        disk_offering.id disk_offering_id,
-        disk_offering.uuid disk_offering_uuid,
-        disk_offering.name disk_offering_name,
-        disk_offering.display_text disk_offering_display_text,
-        disk_offering.use_local_storage,
-        disk_offering.system_use,
-        disk_offering.bytes_read_rate,
-        disk_offering.bytes_write_rate,
-        disk_offering.iops_read_rate,
-        disk_offering.iops_write_rate,
-        storage_pool.id pool_id,
-        storage_pool.uuid pool_uuid,
-        storage_pool.name pool_name,
-        cluster.hypervisor_type,
-        vm_template.id template_id,
-        vm_template.uuid template_uuid,
-        vm_template.extractable,
-        vm_template.type template_type,
-        resource_tags.id tag_id,
-        resource_tags.uuid tag_uuid,
-        resource_tags.key tag_key,
-        resource_tags.value tag_value,
-        resource_tags.domain_id tag_domain_id,
-        resource_tags.account_id tag_account_id,
-        resource_tags.resource_id tag_resource_id,
-        resource_tags.resource_uuid tag_resource_uuid,
-        resource_tags.resource_type tag_resource_type,
-        resource_tags.customer tag_customer,
-        async_job.id job_id,
-        async_job.uuid job_uuid,
-        async_job.job_status job_status,
-        async_job.account_id job_account_id
-    from
-        `cloud`.`volumes`
-            inner join
-        `cloud`.`account` ON volumes.account_id = account.id
-            inner join
-        `cloud`.`domain` ON volumes.domain_id = domain.id
-            left join
-        `cloud`.`projects` ON projects.project_account_id = account.id
-            left join
-        `cloud`.`data_center` ON volumes.data_center_id = data_center.id
-            left join
-        `cloud`.`vm_instance` ON volumes.instance_id = vm_instance.id
-            left join
-        `cloud`.`user_vm` ON user_vm.id = vm_instance.id
-            left join
-        `cloud`.`volume_host_ref` ON volumes.id = volume_host_ref.volume_id
-            and volumes.data_center_id = volume_host_ref.zone_id
-            left join
-        `cloud`.`disk_offering` ON volumes.disk_offering_id = disk_offering.id
-            left join
-        `cloud`.`storage_pool` ON volumes.pool_id = storage_pool.id
-            left join
-        `cloud`.`cluster` ON storage_pool.cluster_id = cluster.id
-            left join
-        `cloud`.`vm_template` ON volumes.template_id = vm_template.id
-            left join
-        `cloud`.`resource_tags` ON resource_tags.resource_id = volumes.id
-            and resource_tags.resource_type = 'Volume'
-            left join
-        `cloud`.`async_job` ON async_job.instance_id = volumes.id
-            and async_job.instance_type = 'Volume'
-            and async_job.job_status = 0;                       
- 
 DROP VIEW IF EXISTS `cloud`.`storage_pool_view`;
 CREATE VIEW `cloud`.`storage_pool_view` AS
     select 
@@ -1694,7 +1622,7 @@ CREATE VIEW `cloud`.`user_vm_view` AS
         affinity_group.uuid affinity_group_uuid,
         affinity_group.name affinity_group_name,
         affinity_group.description affinity_group_description,
-        vm_details.value dynamically_scalable
+        vm_instance.dynamically_scalable dynamically_scalable
 
     from
         `cloud`.`user_vm`
@@ -1758,10 +1686,7 @@ CREATE VIEW `cloud`.`user_vm_view` AS
             left join
         `cloud`.`affinity_group_vm_map` ON vm_instance.id = affinity_group_vm_map.instance_id
             left join
-        `cloud`.`affinity_group` ON affinity_group_vm_map.affinity_group_id = affinity_group.id
-            left join
-        `cloud`.`user_vm_details` vm_details ON vm_details.vm_id = vm_instance.id
-            and vm_details.name = 'enable.dynamic.scaling';
+        `cloud`.`affinity_group` ON affinity_group_vm_map.affinity_group_id = affinity_group.id;
 
 DROP VIEW IF EXISTS `cloud`.`volume_view`;
 CREATE VIEW `cloud`.`volume_view` AS
@@ -1780,6 +1705,7 @@ CREATE VIEW `cloud`.`volume_view` AS
         volumes.removed,
         volumes.pod_id,
 	volumes.display_volume,
+        volumes.format,
         account.id account_id,
         account.uuid account_uuid,
         account.account_name account_name,
@@ -1801,12 +1727,11 @@ CREATE VIEW `cloud`.`volume_view` AS
         vm_instance.state vm_state,
         vm_instance.vm_type,
         user_vm.display_name vm_display_name,
-        volume_host_ref.size volume_host_size,
-        volume_host_ref.created volume_host_created,
-        volume_host_ref.format,
-        volume_host_ref.download_pct,
-        volume_host_ref.download_state,
-        volume_host_ref.error_str,
+        volume_store_ref.size volume_store_size,
+        volume_store_ref.download_pct,
+        volume_store_ref.download_state,
+        volume_store_ref.error_str,
+        volume_store_ref.created created_on_store,
         disk_offering.id disk_offering_id,
         disk_offering.uuid disk_offering_uuid,
         disk_offering.name disk_offering_name,
@@ -1854,8 +1779,7 @@ CREATE VIEW `cloud`.`volume_view` AS
             left join
         `cloud`.`user_vm` ON user_vm.id = vm_instance.id
             left join
-        `cloud`.`volume_host_ref` ON volumes.id = volume_host_ref.volume_id
-            and volumes.data_center_id = volume_host_ref.zone_id
+        `cloud`.`volume_store_ref` ON volumes.id = volume_store_ref.volume_id
             left join
         `cloud`.`disk_offering` ON volumes.disk_offering_id = disk_offering.id
             left join
@@ -1964,7 +1888,7 @@ CREATE VIEW `cloud`.`template_view` AS
             left join
         `cloud`.`vm_template` source_template ON source_template.id = vm_template.source_template_id    
             left join
-        `cloud`.`template_store_ref` ON template_store_ref.template_id = vm_template.id
+        `cloud`.`template_store_ref` ON template_store_ref.template_id = vm_template.id and template_store_ref.store_role = 'Image'
             left join
         `cloud`.`image_store` ON image_store.removed is NULL AND template_store_ref.store_id is not NULL AND image_store.id = template_store_ref.store_id 
         	left join
@@ -2257,3 +2181,10 @@ ALTER TABLE `cloud`.`network_offerings` ADD COLUMN `concurrent_connections` int(
         
 ALTER TABLE `cloud`.`sync_queue` MODIFY `queue_size` smallint(6) NOT NULL DEFAULT '0' COMMENT 'number of items being processed by the queue';
 ALTER TABLE `cloud`.`sync_queue` MODIFY `queue_size_limit` smallint(6) NOT NULL DEFAULT '1' COMMENT 'max number of items the queue can process concurrently';
+
+INSERT IGNORE INTO `cloud`.`configuration` VALUES ('Advanced', 'DEFAULT', 'management-server', 'ucs.sync.blade.interval', '3600', 'the interval cloudstack sync with UCS manager for available blades in case user remove blades from chassis without notifying CloudStack');
+
+ALTER TABLE `cloud`.`usage_event` ADD COLUMN `virtual_size` bigint unsigned;
+ALTER TABLE `cloud_usage`.`usage_event` ADD COLUMN `virtual_size` bigint unsigned;
+ALTER TABLE `cloud_usage`.`usage_storage` ADD COLUMN `virtual_size` bigint unsigned;
+ALTER TABLE `cloud_usage`.`cloud_usage` ADD COLUMN `virtual_size` bigint unsigned;

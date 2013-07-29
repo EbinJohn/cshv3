@@ -19,7 +19,8 @@ package com.cloud.event;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.cloud.configuration.Configuration;
+import org.apache.cloudstack.config.Configuration;
+
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.Pod;
 import com.cloud.dc.StorageNetworkIpRange;
@@ -443,6 +444,8 @@ public class EventTypes {
     public static final String EVENT_DEDICATE_RESOURCE_RELEASE = "DEDICATE.RESOURCE.RELEASE";
 
     public static final String EVENT_CLEANUP_VM_RESERVATION = "VM.RESERVATION.CLEANUP";
+    
+    public static final String EVENT_UCS_ASSOCIATED_PROFILE = "UCS.ASSOCIATEPROFILE";
 
     static {
 

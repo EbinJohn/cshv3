@@ -95,9 +95,12 @@ def get_first_text_block(email_message_instance):
         return email_message_instance.get_payload()
 
 
-def random_gen(size=6, chars=string.ascii_uppercase + string.digits):
+def random_gen(id=None, size=6, chars=string.ascii_uppercase + string.digits):
     """Generate Random Strings of variable length"""
-    return ''.join(random.choice(chars) for x in range(size))
+    randomstr = ''.join(random.choice(chars) for x in range(size))
+    if id:
+        return ''.join([id, '-', randomstr])
+    return randomstr
 
 
 def cleanup_resources(api_client, resources):
@@ -106,24 +109,21 @@ def cleanup_resources(api_client, resources):
         obj.delete(api_client)
 
 
-def is_server_ssh_ready(ipaddress, port, username, password, retries=50, keyPairFileLocation=None):
+def is_server_ssh_ready(ipaddress, port, username, password, retries=5, timeout=20, keyPairFileLocation=None):
     """Return ssh handle else wait till sshd is running"""
-    loop_cnt = retries
-    while True:
-        try:
-            ssh = remoteSSHClient(
-                host=ipaddress,
-                port=port,
-                user=username,
-                passwd=password,
-                keyPairFileLocation=keyPairFileLocation)
-        except Exception as e:
-            if loop_cnt == 0:
-                raise e
-            loop_cnt = loop_cnt - 1
-            time.sleep(30)
-        else:
-            return ssh
+    try:
+        ssh = remoteSSHClient(
+            host=ipaddress,
+            port=port,
+            user=username,
+            passwd=password,
+            keyPairFileLocation=keyPairFileLocation,
+            retries=retries,
+            delay=timeout)
+    except Exception, e:
+        raise Exception("Failed to bring up ssh service in time. Waited %ss. Error is %s" % (retries * timeout, e))
+    else:
+        return ssh
 
 
 def format_volume_to_ext3(ssh_client, device="/dev/sda"):
@@ -152,6 +152,7 @@ def fetch_api_client(config_file='datacenterCfg'):
             testClientLogger
         )
     )
+
 
 
 def get_process_status(hostip, port, username, password, linklocalip, process, hypervisor=None):

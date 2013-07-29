@@ -16,6 +16,8 @@
 // under the License.
 package com.cloud.agent.resource.virtualnetwork;
 
+import com.google.gson.Gson;
+
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.BumpUpPriorityCommand;
 import com.cloud.agent.api.CheckRouterAnswer;
@@ -51,12 +53,12 @@ import com.cloud.agent.api.routing.SetStaticRouteCommand;
 import com.cloud.agent.api.routing.Site2SiteVpnCfgCommand;
 import com.cloud.agent.api.routing.VmDataCommand;
 import com.cloud.agent.api.routing.VpnUsersCfgCommand;
+import com.cloud.agent.api.to.DhcpTO;
 import com.cloud.agent.api.to.FirewallRuleTO;
 import com.cloud.agent.api.to.IpAddressTO;
 import com.cloud.agent.api.to.PortForwardingRuleTO;
 import com.cloud.agent.api.to.StaticNatRuleTO;
 import com.cloud.exception.InternalErrorException;
-import com.cloud.network.DnsMasqConfigurator;
 import com.cloud.network.HAProxyConfigurator;
 import com.cloud.network.LoadBalancerConfigurator;
 import com.cloud.network.rules.FirewallRule;
@@ -85,6 +87,7 @@ import java.net.InetSocketAddress;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.channels.SocketChannel;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -463,61 +466,21 @@ public class VirtualRoutingResource implements Manager {
 
     protected Answer execute(VmDataCommand cmd) {
         List<String[]> vmData = cmd.getVmData();
+        String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        Map<String, List<String[]>> data = new HashMap<String, List<String[]>>();
+        data.put(cmd.getVmIpAddress(), cmd.getVmData());
+ 
+        String json = new Gson().toJson(data);
+        s_logger.debug("JSON IS:" + json);
 
-        for (String[] vmDataEntry : vmData) {
-            String folder = vmDataEntry[0];
-            String file = vmDataEntry[1];
-            String data = vmDataEntry[2];
-            File tmpFile = null;
+        json = Base64.encodeBase64String(json.getBytes());
 
-            byte[] dataBytes = null;
-            if (data != null) {
-                if (folder.equals("userdata")) {
-                    dataBytes = Base64.decodeBase64(data);//userdata is supplied in url-safe unchunked mode
-                } else {
-                    dataBytes = data.getBytes();
-                }
-            }
+        String args = "-d " + json;
 
-            try {
-                tmpFile = File.createTempFile("vmdata_", null);
-                FileOutputStream outStream = new FileOutputStream(tmpFile);
-                if (dataBytes != null)
-                    outStream.write(dataBytes); 
-                outStream.close();
-            } catch (IOException e) {
-                String tmpDir = System.getProperty("java.io.tmpdir");
-                s_logger.warn("Failed to create temporary file: is " + tmpDir + " full?", e);
-                return new Answer(cmd, false, "Failed to create or write to temporary file: is " + tmpDir + " full? " + e.getMessage() );
-            }
-       
-
-            final Script command  = new Script(_vmDataPath, _timeout, s_logger);
-            command.add("-r", cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP));
-            command.add("-v", cmd.getVmIpAddress());
-            command.add("-F", folder);
-            command.add("-f", file);
-
-            if (tmpFile != null) {
-                command.add("-d", tmpFile.getAbsolutePath());
-            }
-
-            final String result = command.execute();
-
-            if (tmpFile != null) {
-                boolean deleted = tmpFile.delete();
-                if (!deleted) {
-                    s_logger.warn("Failed to clean up temp file after sending vmdata");
-                    tmpFile.deleteOnExit();
-                }
-            }
-
-            if (result != null) {
-                return new Answer(cmd, false, result);        	
-            }        	
-
+        final String result = routerProxy("vmdata_kvm.py", routerIp, args);
+        if (result != null) {
+            return new Answer(cmd, false, "VmDataCommand failed, check agent logs");
         }
-
         return new Answer(cmd);
     }
 
@@ -665,25 +628,15 @@ public class VirtualRoutingResource implements Manager {
     protected Answer execute(final DnsMasqConfigCommand cmd) {
         final Script command  = new Script(_callDnsMasqPath, _timeout, s_logger);
         String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
-        DnsMasqConfigurator configurator = new DnsMasqConfigurator();
-        String [] config = configurator.generateConfiguration(cmd);
-        String cfgFileName = routerIp.replace(".","-")+"dns.cgf";
-        String tmpCfgFileContents = "";
-        for (int i = 0; i < config.length; i++) {
-            tmpCfgFileContents += config[i];
-            tmpCfgFileContents += "\n";
+        List<DhcpTO> dhcpTos = cmd.getIps();
+        String args ="";
+        for(DhcpTO dhcpTo : dhcpTos) {
+            args = args + dhcpTo.getRouterIp()+":"+dhcpTo.getGateway()+":"+dhcpTo.getNetmask()+":"+dhcpTo.getStartIpOfSubnet()+"-";
         }
-        File permKey = new File("/root/.ssh/id_rsa.cloud");
-        String cfgFilePath = "/tmp/"+cfgFileName;
-        try {
-            SshHelper.scpTo(routerIp, 3922, "root", permKey, null, "/tmp/", tmpCfgFileContents.getBytes(), cfgFileName, null);
-            command.add(routerIp);
-            command.add(cfgFilePath);
-            final String result = command.execute();
-            return new Answer(cmd, result == null, result);
-        } catch (Exception e) {
-            return new Answer(cmd, false, e.getMessage());
-        }
+        command.add(routerIp);
+        command.add(args);
+        final String result = command.execute();
+        return new Answer(cmd, result == null, result);
     }
 
     public String getRouterStatus(String routerIP) {
@@ -1190,11 +1143,6 @@ public class VirtualRoutingResource implements Manager {
         _dhcpEntryPath = findScript("dhcp_entry.sh");
         if(_dhcpEntryPath == null) {
             throw new ConfigurationException("Unable to find dhcp_entry.sh");
-        }
-
-        _vmDataPath = findScript("vm_data.sh");
-        if(_vmDataPath == null) {
-            throw new ConfigurationException("Unable to find user_data.sh");
         }
 
         _publicEthIf = (String)params.get("public.network.device");

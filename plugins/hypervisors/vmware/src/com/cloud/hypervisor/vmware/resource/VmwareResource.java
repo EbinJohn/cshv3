@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.concurrent.*;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
@@ -43,6 +44,7 @@ import java.util.UUID;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import com.cloud.agent.api.to.DhcpTO;
 import org.apache.log4j.Logger;
 import org.apache.log4j.NDC;
 
@@ -286,7 +288,6 @@ import com.cloud.hypervisor.vmware.mo.VmwareHypervisorHostResourceSummary;
 import com.cloud.hypervisor.vmware.util.VmwareContext;
 import com.cloud.hypervisor.vmware.util.VmwareGuestOsMapper;
 import com.cloud.hypervisor.vmware.util.VmwareHelper;
-import com.cloud.network.DnsMasqConfigurator;
 import com.cloud.network.HAProxyConfigurator;
 import com.cloud.network.LoadBalancerConfigurator;
 import com.cloud.network.Networks;
@@ -1008,7 +1009,97 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
         return new SetStaticNatRulesAnswer(cmd, results, endResult);
     }
 
+    protected Answer VPCLoadBalancerConfig(final LoadBalancerConfigCommand cmd) {
+        VmwareManager mgr = getServiceContext().getStockObject(VmwareManager.CONTEXT_STOCK_NAME);
+        File keyFile = mgr.getSystemVMKeyFile();
+
+        String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        String controlIp = getRouterSshControlIp(cmd);
+
+        assert(controlIp != null);
+
+        LoadBalancerConfigurator cfgtr = new HAProxyConfigurator();
+        String[] config = cfgtr.generateConfiguration(cmd);
+
+        String tmpCfgFilePath = "/etc/haproxy/haproxy.cfg.new";
+        String tmpCfgFileContents = "";
+        for (int i = 0; i < config.length; i++) {
+            tmpCfgFileContents += config[i];
+            tmpCfgFileContents += "\n";
+        }
+
+        try {
+            SshHelper.scpTo(controlIp, DEFAULT_DOMR_SSHPORT, "root", keyFile, null, "/etc/haproxy/", tmpCfgFileContents.getBytes(), "haproxy.cfg.new", null);
+
+            try {
+                String[][] rules = cfgtr.generateFwRules(cmd);
+
+                String[] addRules = rules[LoadBalancerConfigurator.ADD];
+                String[] removeRules = rules[LoadBalancerConfigurator.REMOVE];
+                String[] statRules = rules[LoadBalancerConfigurator.STATS];
+
+                String args = "";
+                String ip = cmd.getNic().getIp();
+                args += " -i " + ip;
+                StringBuilder sb = new StringBuilder();
+                if (addRules.length > 0) {
+                    for (int i = 0; i < addRules.length; i++) {
+                        sb.append(addRules[i]).append(',');
+                    }
+
+                    args += " -a " + sb.toString();
+                }
+
+                sb = new StringBuilder();
+                if (removeRules.length > 0) {
+                    for (int i = 0; i < removeRules.length; i++) {
+                        sb.append(removeRules[i]).append(',');
+                    }
+
+                    args += " -d " + sb.toString();
+                }
+
+                sb = new StringBuilder();
+                if (statRules.length > 0) {
+                    for (int i = 0; i < statRules.length; i++) {
+                        sb.append(statRules[i]).append(',');
+                    }
+
+                    args += " -s " + sb.toString();
+                }
+
+                // Invoke the command
+                Pair<Boolean, String> result = SshHelper.sshExecute(controlIp, DEFAULT_DOMR_SSHPORT, "root", mgr.getSystemVMKeyFile(), null, "/opt/cloud/bin/vpc_loadbalancer.sh " + args);
+
+                if (!result.first()) {
+                    String msg = "LoadBalancerConfigCommand on domain router " + routerIp + " failed. message: " + result.second();
+                    s_logger.error(msg);
+
+                    return new Answer(cmd, false, msg);
+                }
+
+                if (s_logger.isInfoEnabled()) {
+                    s_logger.info("VPCLoadBalancerConfigCommand on domain router " + routerIp + " completed");
+                }
+            } finally {
+                SshHelper.sshExecute(controlIp, DEFAULT_DOMR_SSHPORT, "root", mgr.getSystemVMKeyFile(), null, "rm " + tmpCfgFilePath);
+            }
+            return new Answer(cmd);
+        } catch (Throwable e) {
+            s_logger.error("Unexpected exception: " + e.toString(), e);
+            return new Answer(cmd, false, "VPCLoadBalancerConfigCommand failed due to " + VmwareHelper.getExceptionMessage(e));
+        }
+
+
+    }
+
+
     protected Answer execute(final LoadBalancerConfigCommand cmd) {
+
+        if ( cmd.getVpcId() != null ) {
+            return VPCLoadBalancerConfig(cmd);
+        }
+
         VmwareManager mgr = getServiceContext().getStockObject(VmwareManager.CONTEXT_STOCK_NAME);
         File keyFile = mgr.getSystemVMKeyFile();
 
@@ -2135,47 +2226,35 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
 
         assert(controlIp != null);
 
-        DnsMasqConfigurator configurator = new DnsMasqConfigurator();
-        String [] config = configurator.generateConfiguration(cmd);
-        String tmpConfigFilePath = "/tmp/"+ routerIp.replace(".","_")+".cfg";
-        String tmpConfigFileContents = "";
-        for (int i = 0; i < config.length; i++) {
-            tmpConfigFileContents += config[i];
-            tmpConfigFileContents += "\n";
-        }
-        if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Run command on domR " + cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP) + ", /root/dnsmasq.sh " +"config file at" + tmpConfigFilePath);
+        List<DhcpTO> dhcpTos = cmd.getIps();
+        String args ="";
+        for(DhcpTO dhcpTo : dhcpTos) {
+            args = args + dhcpTo.getRouterIp()+":"+dhcpTo.getGateway()+":"+dhcpTo.getNetmask()+":"+dhcpTo.getStartIpOfSubnet()+"-";
         }
         VmwareManager mgr = getServiceContext().getStockObject(VmwareManager.CONTEXT_STOCK_NAME);
         File keyFile = mgr.getSystemVMKeyFile();
 
         try {
-            SshHelper.scpTo(controlIp, DEFAULT_DOMR_SSHPORT, "root", keyFile, null, "/tmp/", tmpConfigFileContents.getBytes(), routerIp.replace('.', '_') + ".cfg", null);
-
-            try {
-
-                Pair<Boolean, String> result = SshHelper.sshExecute(controlIp, DEFAULT_DOMR_SSHPORT, "root", mgr.getSystemVMKeyFile(), null, "/root/dnsmasq.sh " + tmpConfigFilePath);
-                if (s_logger.isDebugEnabled()) {
-                    s_logger.debug("Run command on domain router " + routerIp + ",  /root/dnsmasq.sh");
-                }
-
-                if (!result.first()) {
-                    s_logger.error("Unable to copy dnsmasq configuration file");
-                    return new Answer(cmd, false, "dnsmasq config failed due to uanble to copy dnsmasq configuration file");
-                }
-
-                if (s_logger.isInfoEnabled()) {
-                    s_logger.info("dnsmasq config command on domain router " + routerIp + " completed");
-                }
-            } finally {
-                SshHelper.sshExecute(controlIp, DEFAULT_DOMR_SSHPORT, "root", mgr.getSystemVMKeyFile(), null, "rm " + tmpConfigFilePath);
+            Pair<Boolean, String> result = SshHelper.sshExecute(controlIp, DEFAULT_DOMR_SSHPORT, "root", mgr.getSystemVMKeyFile(), null, "/root/dnsmasq.sh " + args);
+            if (s_logger.isDebugEnabled()) {
+                s_logger.debug("Run command on domain router " + routerIp + ",  /root/dnsmasq.sh");
             }
 
-            return new Answer(cmd);
-        } catch (Throwable e) {
-            s_logger.error("Unexpected exception: " + e.toString(), e);
-            return new Answer(cmd, false, " DnsmasqConfig command failed due to " + VmwareHelper.getExceptionMessage(e));
+            if (!result.first()) {
+                s_logger.error("Unable update dnsmasq config file");
+                return new Answer(cmd, false, "dnsmasq config update failed due to: " + result.second());
+            }
+
+            if (s_logger.isDebugEnabled()) {
+                s_logger.debug("dnsmasq config command on domain router " + routerIp + " completed");
+            }
+        }catch (Throwable e) {
+            String msg = "Dnsmasqconfig command failed due to " + VmwareHelper.getExceptionMessage(e);
+            s_logger.error(msg, e);
+            return new Answer(cmd, false, msg);
         }
+
+        return new Answer(cmd);
     }
 
     protected CheckS2SVpnConnectionsAnswer execute(CheckS2SVpnConnectionsCommand cmd) {
@@ -3170,6 +3249,12 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
 
     // return Pair<switch name, vlan tagging>
     private Pair<String, String> getTargetSwitch(NicTO nicTo) throws Exception {
+        if (nicTo.getType() == Networks.TrafficType.Guest) {
+            return new Pair<String, String>(_guestTrafficInfo.getVirtualSwitchName(), Vlan.UNTAGGED);
+        } else if (nicTo.getType() == Networks.TrafficType.Public) {
+            return new Pair<String, String>(_publicTrafficInfo.getVirtualSwitchName(), Vlan.UNTAGGED);
+        }
+
         if(nicTo.getName() != null && !nicTo.getName().isEmpty()) {
             String[] tokens = nicTo.getName().split(",");
             // Format of network traffic label is <VSWITCH>,<VLANID>,<VSWITCHTYPE>
@@ -3186,12 +3271,8 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
             }
         }
 
-        if (nicTo.getType() == Networks.TrafficType.Guest) {
-            return new Pair<String, String>(_guestTrafficInfo.getVirtualSwitchName(), Vlan.UNTAGGED);
-        } else if (nicTo.getType() == Networks.TrafficType.Control || nicTo.getType() == Networks.TrafficType.Management) {
+        if (nicTo.getType() == Networks.TrafficType.Control || nicTo.getType() == Networks.TrafficType.Management) {
             return new Pair<String, String>(_privateNetworkVSwitchName, Vlan.UNTAGGED);
-        } else if (nicTo.getType() == Networks.TrafficType.Public) {
-            return new Pair<String, String>(_publicTrafficInfo.getVirtualSwitchName(), Vlan.UNTAGGED);
         } else if (nicTo.getType() == Networks.TrafficType.Storage) {
             return new Pair<String, String>(_privateNetworkVSwitchName, Vlan.UNTAGGED);
         } else if (nicTo.getType() == Networks.TrafficType.Vpn) {
@@ -4073,33 +4154,6 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
         return str.replace('/', '-');
     }
 
-    // This methd can be used to determine if the datastore is active yet.
-    // When an iSCSI target is created on a host and that target already contains
-    // the metadata that represents a datastore, the datastore shows up within
-    // vCenter as existent, but not necessarily active.
-    // Call this method and pass in the datastore's name to wait, if necessary,
-    // for the datastore to become active.
-    private boolean datastoreFileExists(DatastoreMO dsMo, String volumeDatastorePath) {
-        for (int i = 0; i < 10; i++) {
-            try {
-                return dsMo.fileExists(volumeDatastorePath);
-            }
-            catch (Exception e) {
-                if (!e.getMessage().contains("is not accessible")) {
-                    break;
-                }
-            }
-
-            try {
-                Thread.sleep(5000);
-            }
-            catch (Exception e) {
-            }
-        }
-
-        return false;
-    }
-
     @Override
     public ManagedObjectReference handleDatastoreAndVmdkAttach(Command cmd, String iqn, String storageHost, int storagePort,
             String initiatorUsername, String initiatorPassword, String targetUsername, String targetPassword) throws Exception {
@@ -4115,7 +4169,7 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
 
         String volumeDatastorePath = String.format("[%s] %s.vmdk", dsMo.getName(), dsMo.getName());
 
-        if (!datastoreFileExists(dsMo, volumeDatastorePath)) {
+        if (!dsMo.fileExists(volumeDatastorePath)) {
             String dummyVmName = getWorkerName(context, cmd, 0);
 
             VirtualMachineMO vmMo = prepareVolumeHostDummyVm(hyperHost, dsMo, dummyVmName);
@@ -4209,6 +4263,126 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
         }
     }
 
+    private void addRemoveInternetScsiTargetsToAllHosts(final boolean add, final List<HostInternetScsiHbaStaticTarget> lstTargets,
+            final List<Pair<ManagedObjectReference, String>> lstHosts) throws Exception {
+        VmwareContext context = getServiceContext();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(lstHosts.size());
+
+        final List<Exception> exceptions = new ArrayList<Exception>();
+
+        for (Pair<ManagedObjectReference, String> hostPair : lstHosts) {
+            HostMO host = new HostMO(context, hostPair.first());
+            HostStorageSystemMO hostStorageSystem = host.getHostStorageSystemMO();
+
+            boolean iScsiHbaConfigured = false;
+
+            for (HostHostBusAdapter hba : hostStorageSystem.getStorageDeviceInfo().getHostBusAdapter()) {
+                if (hba instanceof HostInternetScsiHba) {
+                    // just finding an instance of HostInternetScsiHba means that we have found at least one configured iSCSI HBA
+                    // at least one iSCSI HBA must be configured before a CloudStack user can use this host for iSCSI storage
+                    iScsiHbaConfigured = true;
+
+                    final String iScsiHbaDevice = hba.getDevice();
+
+                    final HostStorageSystemMO hss = hostStorageSystem;
+
+                    executorService.submit(new Thread() {
+                        @Override
+                        public void run() {
+                            try {
+                                if (add) {
+                                    hss.addInternetScsiStaticTargets(iScsiHbaDevice, lstTargets);
+                                }
+                                else {
+                                    hss.removeInternetScsiStaticTargets(iScsiHbaDevice, lstTargets);
+                                }
+
+                                hss.rescanHba(iScsiHbaDevice);
+                                hss.rescanVmfs();
+                            }
+                            catch (Exception ex) {
+                                synchronized (exceptions) {
+                                    exceptions.add(ex);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            if (!iScsiHbaConfigured) {
+                throw new Exception("An iSCSI HBA must be configured before a host can use iSCSI storage.");
+            }
+        }
+
+        executorService.shutdown();
+
+        if (!executorService.awaitTermination(Long.MAX_VALUE, TimeUnit.MINUTES)) {
+            throw new Exception("The system timed out before completing the task 'rescanAllHosts'.");
+        }
+
+        if (exceptions.size() > 0) {
+            throw new Exception(exceptions.get(0).getMessage());
+        }
+    }
+
+    private void rescanAllHosts(final List<Pair<ManagedObjectReference, String>> lstHosts) throws Exception {
+        VmwareContext context = getServiceContext();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(lstHosts.size());
+
+        final List<Exception> exceptions = new ArrayList<Exception>();
+
+        for (Pair<ManagedObjectReference, String> hostPair : lstHosts) {
+            HostMO host = new HostMO(context, hostPair.first());
+            HostStorageSystemMO hostStorageSystem = host.getHostStorageSystemMO();
+
+            boolean iScsiHbaConfigured = false;
+
+            for (HostHostBusAdapter hba : hostStorageSystem.getStorageDeviceInfo().getHostBusAdapter()) {
+                if (hba instanceof HostInternetScsiHba) {
+                    // just finding an instance of HostInternetScsiHba means that we have found at least one configured iSCSI HBA
+                    // at least one iSCSI HBA must be configured before a CloudStack user can use this host for iSCSI storage
+                    iScsiHbaConfigured = true;
+
+                    final String iScsiHbaDevice = hba.getDevice();
+
+                    final HostStorageSystemMO hss = hostStorageSystem;
+
+                    executorService.submit(new Thread() {
+                        @Override
+                        public void run() {
+                            try {
+                                hss.rescanHba(iScsiHbaDevice);
+                                hss.rescanVmfs();
+                            }
+                            catch (Exception ex) {
+                                synchronized (exceptions) {
+                                    exceptions.add(ex);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            if (!iScsiHbaConfigured) {
+                throw new Exception("An iSCSI HBA must be configured before a host can use iSCSI storage.");
+            }
+        }
+
+        executorService.shutdown();
+
+        if (!executorService.awaitTermination(Long.MAX_VALUE, TimeUnit.MINUTES)) {
+            throw new Exception("The system timed out before completing the task 'rescanAllHosts'.");
+        }
+
+        if (exceptions.size() > 0) {
+            throw new Exception(exceptions.get(0).getMessage());
+        }
+    }
+
     private ManagedObjectReference createVmfsDatastore(VmwareHypervisorHost hyperHost, String datastoreName, String storageIpAddress,
             int storagePortNumber, String iqn, String chapName, String chapSecret, String mutualChapName, String mutualChapSecret) throws Exception {
         VmwareContext context = getServiceContext();
@@ -4242,80 +4416,46 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
 
         lstTargets.add(target);
 
-        HostDatastoreSystemMO hostDatastoreSystem = null;
-        HostStorageSystemMO hostStorageSystem = null;
+        addRemoveInternetScsiTargetsToAllHosts(true, lstTargets, lstHosts);
 
-        final List<Thread> threads = new ArrayList<Thread>();
-        final List<Exception> exceptions = new ArrayList<Exception>();
+        rescanAllHosts(lstHosts);
 
-        for (Pair<ManagedObjectReference, String> hostPair : lstHosts) {
-            HostMO host = new HostMO(context, hostPair.first());
-            hostDatastoreSystem = host.getHostDatastoreSystemMO();
-            hostStorageSystem = host.getHostStorageSystemMO();
+        HostMO host = new HostMO(context, lstHosts.get(0).first());
+        HostDatastoreSystemMO hostDatastoreSystem = host.getHostDatastoreSystemMO();
 
-            boolean iScsiHbaConfigured = false;
-
-            for (HostHostBusAdapter hba : hostStorageSystem.getStorageDeviceInfo().getHostBusAdapter()) {
-                if (hba instanceof HostInternetScsiHba) {
-                    // just finding an instance of HostInternetScsiHba means that we have found at least one configured iSCSI HBA
-                    // at least one iSCSI HBA must be configured before a CloudStack user can use this host for iSCSI storage
-                    iScsiHbaConfigured = true;
-
-                    final String iScsiHbaDevice = hba.getDevice();
-
-                    final HostStorageSystemMO hss = hostStorageSystem;
-
-                    threads.add(new Thread() {
-                        @Override
-                        public void run() {
-                            try {
-                                hss.addInternetScsiStaticTargets(iScsiHbaDevice, lstTargets);
-
-                                hss.rescanHba(iScsiHbaDevice);
-                                hss.rescanVmfs();
-                            }
-                            catch (Exception ex) {
-                                synchronized (exceptions) {
-                                    exceptions.add(ex);
-                                }
-                            }
-                        }
-                    });
-                }
-            }
-
-            if (!iScsiHbaConfigured) {
-                throw new Exception("An iSCSI HBA must be configured before a host can use iSCSI storage.");
-            }
-        }
-
-        for (Thread thread : threads) {
-            thread.start();
-        }
-
-        for (Thread thread : threads) {
-            thread.join();
-        }
-
-        if (exceptions.size() > 0) {
-            throw new Exception(exceptions.get(0).getMessage());
-        }
-
-        ManagedObjectReference morDs = hostDatastoreSystem.findDatastoreByName(iqn);
+        ManagedObjectReference morDs = hostDatastoreSystem.findDatastoreByName(datastoreName);
 
         if (morDs != null) {
             return morDs;
         }
 
+        rescanAllHosts(lstHosts);
+
+        HostStorageSystemMO hostStorageSystem = host.getHostStorageSystemMO();
         List<HostScsiDisk> lstHostScsiDisks = hostDatastoreSystem.queryAvailableDisksForVmfs();
 
         HostScsiDisk hostScsiDisk = getHostScsiDisk(hostStorageSystem.getStorageDeviceInfo().getScsiTopology(), lstHostScsiDisks, iqn);
 
         if (hostScsiDisk == null) {
+            // check to see if the datastore actually does exist already
+            morDs = hostDatastoreSystem.findDatastoreByName(datastoreName);
+
+            if (morDs != null) {
+                return morDs;
+            }
+
             throw new Exception("A relevant SCSI disk could not be located to use to create a datastore.");
         }
 
-        return hostDatastoreSystem.createVmfsDatastore(datastoreName, hostScsiDisk);
+        morDs = hostDatastoreSystem.createVmfsDatastore(datastoreName, hostScsiDisk);
+
+        if (morDs != null) {
+            rescanAllHosts(lstHosts);
+
+            return morDs;
+        }
+
+        throw new Exception("Unable to create a datastore");
     }
 
     // the purpose of this method is to find the HostScsiDisk in the passed-in array that exists (if any) because
@@ -4363,46 +4503,9 @@ public class VmwareResource implements StoragePoolResource, ServerResource, Vmwa
 
         lstTargets.add(target);
 
-        final List<Thread> threads = new ArrayList<Thread>();
-        final List<Exception> exceptions = new ArrayList<Exception>();
+        addRemoveInternetScsiTargetsToAllHosts(false, lstTargets, lstHosts);
 
-        for (Pair<ManagedObjectReference, String> hostPair : lstHosts) {
-            final HostMO host = new HostMO(context, hostPair.first());
-            final HostStorageSystemMO hostStorageSystem = host.getHostStorageSystemMO();
-
-            for (HostHostBusAdapter hba : hostStorageSystem.getStorageDeviceInfo().getHostBusAdapter()) {
-                if (hba instanceof HostInternetScsiHba) {
-                    final String iScsiHbaDevice = hba.getDevice();
-
-                    Thread thread = new Thread() {
-                        @Override
-                        public void run() {
-                            try {
-                                hostStorageSystem.removeInternetScsiStaticTargets(iScsiHbaDevice, lstTargets);
-
-                                hostStorageSystem.rescanHba(iScsiHbaDevice);
-                                hostStorageSystem.rescanVmfs();
-                            }
-                            catch (Exception ex) {
-                                exceptions.add(ex);
-                            }
-                        }
-                    };
-
-                    threads.add(thread);
-
-                    thread.start();
-                }
-            }
-        }
-
-        for (Thread thread : threads) {
-            thread.join();
-        }
-
-        if (exceptions.size() > 0) {
-            throw new Exception(exceptions.get(0).getMessage());
-        }
+        rescanAllHosts(lstHosts);
     }
 
     protected Answer execute(AttachIsoCommand cmd) {

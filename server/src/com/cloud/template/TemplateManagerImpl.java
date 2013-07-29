@@ -148,6 +148,7 @@ import com.cloud.storage.dao.StoragePoolHostDao;
 import com.cloud.storage.dao.UploadDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VMTemplateDetailsDao;
+import com.cloud.storage.dao.VMTemplateHostDao;
 import com.cloud.storage.dao.VMTemplatePoolDao;
 import com.cloud.storage.dao.VMTemplateS3Dao;
 import com.cloud.storage.dao.VMTemplateZoneDao;
@@ -279,6 +280,8 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
     EndPointSelector _epSelector;
     @Inject
     UserVmJoinDao _userVmJoinDao;
+    @Inject
+    VMTemplateHostDao _vmTemplateHostDao;
 
     @Inject
     ConfigurationServer _configServer;
@@ -505,8 +508,8 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
                     }
                 });
             } else {
-                s_logger.info("Skip loading template " + template.getId() + " into primary storage " + pool.getId() + " as pool zone "
-                        + pool.getDataCenterId() + " is ");
+                s_logger.info("Skip loading template " + template.getId() + " into primary storage " + pool.getId() + " as pool zone " + pool.getDataCenterId()
+                        + " is different from the requested zone " + zoneId);
             }
         }
     }
@@ -608,7 +611,7 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
     @Override
     @DB
     public boolean copy(long userId, VMTemplateVO template, DataStore srcSecStore, DataCenterVO dstZone) throws StorageUnavailableException,
-            ResourceAllocationException {
+    ResourceAllocationException {
         long tmpltId = template.getId();
         long dstZoneId = dstZone.getId();
         // find all eligible image stores for the destination zone
@@ -655,7 +658,7 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
                 _tmpltDao.addTemplateToZone(template, dstZoneId);
 
                 if (account.getId() != Account.ACCOUNT_ID_SYSTEM) {
-                    UsageEventUtils.publishUsageEvent(copyEventType, account.getId(), dstZoneId, tmpltId, null, null, null, srcTmpltStore.getSize(),
+                    UsageEventUtils.publishUsageEvent(copyEventType, account.getId(), dstZoneId, tmpltId, null, null, null, srcTmpltStore.getPhysicalSize(), srcTmpltStore.getSize(),
                             template.getClass().getName(), template.getUuid());
                 }
                 return true;
@@ -910,7 +913,7 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
         }
 
         boolean result = attachISOToVM(vmId, userId, isoId, false); // attach=false
-                                                                    // => detach
+        // => detach
         if (result) {
             return result;
         } else {
@@ -1253,14 +1256,14 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
         }
 
         if (isExtractable != null && caller.getType() == Account.ACCOUNT_TYPE_ADMIN) {// Only
-                                                                                      // ROOT
-                                                                                      // admins
-                                                                                      // allowed
-                                                                                      // to
-                                                                                      // change
-                                                                                      // this
-                                                                                      // powerful
-                                                                                      // attribute
+            // ROOT
+            // admins
+            // allowed
+            // to
+            // change
+            // this
+            // powerful
+            // attribute
             updatedTemplate.setExtractable(isExtractable.booleanValue());
         } else if (isExtractable != null && caller.getType() != Account.ACCOUNT_TYPE_ADMIN) {
             throw new InvalidParameterValueException("Only ROOT admins are allowed to modify this attribute.");
@@ -1276,7 +1279,7 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
                 if (permittedAccount != null) {
                     if (permittedAccount.getId() == caller.getId()) {
                         continue; // don't grant permission to the template
-                                  // owner, they implicitly have permission
+                        // owner, they implicitly have permission
                     }
                     LaunchPermissionVO existingPermission = _launchPermissionDao.findByTemplateAndAccount(id, permittedAccount.getId());
                     if (existingPermission == null) {
@@ -1333,7 +1336,7 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
 
         try {
             TemplateInfo tmplInfo = this._tmplFactory.getTemplate(templateId, DataStoreRole.Image);
-            Long zoneId = null;
+            long zoneId = 0;
             if (snapshotId != null) {
                 snapshot = _snapshotDao.findById(snapshotId);
                 zoneId = snapshot.getDataCenterId();
@@ -1341,18 +1344,17 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
                 volume = _volumeDao.findById(volumeId);
                 zoneId = volume.getDataCenterId();
             }
-            ZoneScope scope = new ZoneScope(zoneId);
-            List<DataStore> store = this._dataStoreMgr.getImageStoresByScope(scope);
-            if (store.size() > 1) {
-                throw new CloudRuntimeException("muliple image data store, don't know which one to use");
+            DataStore store = this._dataStoreMgr.getImageStore(zoneId);
+            if (store == null) {
+                throw new CloudRuntimeException("cannot find an image store for zone " + zoneId);
             }
             AsyncCallFuture<TemplateApiResult> future = null;
             if (snapshotId != null) {
                 SnapshotInfo snapInfo = this._snapshotFactory.getSnapshot(snapshotId, DataStoreRole.Image);
-                future = this._tmpltSvr.createTemplateFromSnapshotAsync(snapInfo, tmplInfo, store.get(0));
+                future = this._tmpltSvr.createTemplateFromSnapshotAsync(snapInfo, tmplInfo, store);
             } else if (volumeId != null) {
                 VolumeInfo volInfo = this._volFactory.getVolume(volumeId);
-                future = this._tmpltSvr.createTemplateFromVolumeAsync(volInfo, tmplInfo, store.get(0));
+                future = this._tmpltSvr.createTemplateFromVolumeAsync(volInfo, tmplInfo, store);
             } else {
                 throw new CloudRuntimeException("Creating private Template need to specify snapshotId or volumeId");
             }
@@ -1370,8 +1372,9 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
                 this._tmpltZoneDao.persist(templateZone);
 
                 privateTemplate = this._tmpltDao.findById(templateId);
+                TemplateDataStoreVO srcTmpltStore = this._tmplStoreDao.findByStoreTemplate(store.getId(), templateId);
                 UsageEventVO usageEvent = new UsageEventVO(EventTypes.EVENT_TEMPLATE_CREATE, privateTemplate.getAccountId(), zoneId,
-                        privateTemplate.getId(), privateTemplate.getName(), null, privateTemplate.getSourceTemplateId(), privateTemplate.getSize());
+                        privateTemplate.getId(), privateTemplate.getName(), null, privateTemplate.getSourceTemplateId(), srcTmpltStore.getPhysicalSize(), privateTemplate.getSize());
                 _usageEventDao.persist(usageEvent);
             } catch (InterruptedException e) {
                 s_logger.debug("Failed to create template", e);
@@ -1553,8 +1556,8 @@ public class TemplateManagerImpl extends ManagerBase implements TemplateManager,
             if (template != null) {
                 sourceTemplateId = template.getId();
             } else if (volume.getVolumeType() == Volume.Type.ROOT) { // vm
-                                                                     // created
-                                                                     // out
+                // created
+                // out
                 // of blank
                 // template
                 UserVm userVm = ApiDBUtils.findUserVmById(volume.getInstanceId());

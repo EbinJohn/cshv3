@@ -53,6 +53,7 @@ import javax.ejb.Local;
 import javax.naming.ConfigurationException;
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import com.cloud.agent.api.to.DhcpTO;
 import org.apache.log4j.Logger;
 import org.apache.xmlrpc.XmlRpcException;
 import org.w3c.dom.Document;
@@ -139,8 +140,6 @@ import com.cloud.agent.api.GetHostStatsAnswer;
 import com.cloud.agent.api.GetHostStatsCommand;
 import com.cloud.agent.api.GetStorageStatsAnswer;
 import com.cloud.agent.api.GetStorageStatsCommand;
-import com.cloud.agent.api.GetVmDiskStatsAnswer;
-import com.cloud.agent.api.GetVmDiskStatsCommand;
 import com.cloud.agent.api.GetVmStatsAnswer;
 import com.cloud.agent.api.GetVmStatsCommand;
 import com.cloud.agent.api.GetVncPortAnswer;
@@ -195,7 +194,6 @@ import com.cloud.agent.api.UnPlugNicAnswer;
 import com.cloud.agent.api.UnPlugNicCommand;
 import com.cloud.agent.api.UpdateHostPasswordCommand;
 import com.cloud.agent.api.UpgradeSnapshotCommand;
-import com.cloud.agent.api.VmDiskStatsEntry;
 import com.cloud.agent.api.VmStatsEntry;
 import com.cloud.agent.api.check.CheckSshAnswer;
 import com.cloud.agent.api.check.CheckSshCommand;
@@ -257,7 +255,6 @@ import com.cloud.agent.api.to.VolumeTO;
 import com.cloud.exception.InternalErrorException;
 import com.cloud.host.Host.Type;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.network.DnsMasqConfigurator;
 import com.cloud.network.HAProxyConfigurator;
 import com.cloud.network.LoadBalancerConfigurator;
 import com.cloud.network.Networks;
@@ -498,8 +495,6 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             return execute((GetHostStatsCommand) cmd);
         } else if (clazz == GetVmStatsCommand.class) {
             return execute((GetVmStatsCommand) cmd);
-        } else if (cmd instanceof GetVmDiskStatsCommand) {
-            return execute((GetVmDiskStatsCommand) cmd);
         } else if (clazz == CheckHealthCommand.class) {
             return execute((CheckHealthCommand) cmd);
         } else if (clazz == StopCommand.class) {
@@ -691,10 +686,6 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
             // If DMC is not enable then don't execute this command.
             if (!isDmcEnabled(conn, host)) {
                 throw new CloudRuntimeException("Unable to scale the vm: " + vmName + " as DMC - Dynamic memory control is not enabled for the XenServer:" + _host.uuid + " ,check your license and hypervisor version.");
-            }
-
-            if(!vmSpec.isEnableDynamicallyScaleVm()) {
-                throw new CloudRuntimeException("Unable to Scale the vm: " + vmName + "as vm does not have xs tools to support dynamic scaling");
             }
 
             // stop vm which is running on this host or is in halted state
@@ -2063,20 +2054,13 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
     protected Answer execute(final DnsMasqConfigCommand cmd) {
         Connection conn = getConnection();
         String routerIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
-        DnsMasqConfigurator configurator = new DnsMasqConfigurator();
-        String [] config = configurator.generateConfiguration(cmd);
-        String tmpConfigFilePath = "/tmp/"+ routerIp.replace(".","-")+".cfg";
-        String tmpConfigFileContents = "";
-        for (int i = 0; i < config.length; i++) {
-            tmpConfigFileContents += config[i];
-            tmpConfigFileContents += "\n";
+        List<DhcpTO> dhcpTos = cmd.getIps();
+        String args ="";
+        for(DhcpTO dhcpTo : dhcpTos) {
+            args = args + dhcpTo.getRouterIp()+":"+dhcpTo.getGateway()+":"+dhcpTo.getNetmask()+":"+dhcpTo.getStartIpOfSubnet()+"-";
         }
 
-        String result = callHostPlugin(conn, "vmops", "createFileInDomr", "filepath", tmpConfigFilePath, "filecontents", tmpConfigFileContents, "domrip" ,routerIp);
-        if (result == null || result.isEmpty()) {
-            return new Answer(cmd, false, "DnsMasqConfigCommand failed to create DnsMasq cfg file.");
-        }
-        result = callHostPlugin(conn, "vmops", "configdnsmasq", "routerip", routerIp, "filepath", tmpConfigFilePath);
+        String result = callHostPlugin(conn, "vmops", "configdnsmasq", "routerip", routerIp, "args", args);
 
         if (result == null || result.isEmpty()) {
             return new Answer(cmd, false, "DnsMasqconfigCommand failed");
@@ -2634,80 +2618,6 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
          */
 
         return hostStats;
-    }
-
-    protected GetVmDiskStatsAnswer execute( GetVmDiskStatsCommand cmd) {
-        Connection conn = getConnection();
-        List<String> vmNames = cmd.getVmNames();
-        HashMap<String, List<VmDiskStatsEntry>> vmDiskStatsNameMap = new HashMap<String, List<VmDiskStatsEntry>>();
-        if( vmNames.size() == 0 ) {
-            return new GetVmDiskStatsAnswer(cmd, "", cmd.getHostName(),vmDiskStatsNameMap);
-        }
-        try {
-
-            // Determine the UUIDs of the requested VMs
-            List<String> vmUUIDs = new ArrayList<String>();
-
-            for (String vmName : vmNames) {
-                VM vm = getVM(conn, vmName);
-                vmUUIDs.add(vm.getUuid(conn));
-            }
-
-            HashMap<String, List<VmDiskStatsEntry>> vmDiskStatsUUIDMap = getVmDiskStats(conn, cmd, vmUUIDs, cmd.getHostGuid());
-            if( vmDiskStatsUUIDMap == null ) {
-                return new GetVmDiskStatsAnswer(cmd, "", cmd.getHostName(), vmDiskStatsNameMap);
-            }
-
-            for (String vmUUID : vmDiskStatsUUIDMap.keySet()) {
-                List<VmDiskStatsEntry> vmDiskStatsUUID = vmDiskStatsUUIDMap.get(vmUUID);
-                String vmName = vmNames.get(vmUUIDs.indexOf(vmUUID));
-                for (VmDiskStatsEntry vmDiskStat : vmDiskStatsUUID) {
-                    vmDiskStat.setVmName(vmName);
-                }
-                vmDiskStatsNameMap.put(vmName, vmDiskStatsUUID);
-            }
-
-            return new GetVmDiskStatsAnswer(cmd, "", cmd.getHostName(),vmDiskStatsNameMap);
-        } catch (XenAPIException e) {
-            String msg = "Unable to get VM disk stats" + e.toString();
-            s_logger.warn(msg, e);
-            return new GetVmDiskStatsAnswer(cmd, "", cmd.getHostName(),vmDiskStatsNameMap);
-        } catch (XmlRpcException e) {
-            String msg = "Unable to get VM disk stats" + e.getMessage();
-            s_logger.warn(msg, e);
-            return new GetVmDiskStatsAnswer(cmd, "", cmd.getHostName(),vmDiskStatsNameMap);
-        }
-    }
-
-    private HashMap<String, List<VmDiskStatsEntry>> getVmDiskStats(Connection conn, GetVmDiskStatsCommand cmd, List<String> vmUUIDs, String hostGuid) {
-        HashMap<String, List<VmDiskStatsEntry>> vmResponseMap = new HashMap<String, List<VmDiskStatsEntry>>();
-
-        for (String vmUUID : vmUUIDs) {
-            vmResponseMap.put(vmUUID, new ArrayList<VmDiskStatsEntry>());
-        }
-
-        try {
-            for (String vmUUID : vmUUIDs) {
-                VM vm = VM.getByUuid(conn, vmUUID);
-                List<VmDiskStatsEntry> vmDiskStats = new ArrayList<VmDiskStatsEntry>();
-                for (VBD vbd : vm.getVBDs(conn)) {
-                    if (!vbd.getType(conn).equals(Types.VbdType.CD)) {
-                        VmDiskStatsEntry stats = new VmDiskStatsEntry();
-                        VBDMetrics record = vbd.getMetrics(conn);
-                        stats.setPath(vbd.getVDI(conn).getUuid(conn));
-                        stats.setBytesRead((long)(record.getIoReadKbs(conn) * 1024));
-                        stats.setBytesWrite((long)(record.getIoWriteKbs(conn) * 1024));
-                        vmDiskStats.add(stats);
-                    }
-                }
-                vmResponseMap.put(vmUUID, vmDiskStats);
-            }
-        } catch (Exception e) {
-            s_logger.warn("Error while collecting disk stats from : ", e);
-            return null;
-        }
-
-        return vmResponseMap;
     }
 
     protected GetVmStatsAnswer execute( GetVmStatsCommand cmd) {
@@ -4964,8 +4874,10 @@ public abstract class CitrixResourceBase implements ServerResource, HypervisorRe
 
         } catch (XenAPIException e) {
             s_logger.warn("Unable to create local link network", e);
+            throw new CloudRuntimeException("Unable to create local link network due to " + e.toString(), e);
         } catch (XmlRpcException e) {
             s_logger.warn("Unable to create local link network", e);
+            throw new CloudRuntimeException("Unable to create local link network due to " + e.toString(), e);
         }
     }
 

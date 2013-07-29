@@ -153,7 +153,6 @@ class Services:
                                 },
                          "ostype": 'CentOS 5.3 (64-bit)',
                          # Cent OS 5.3 (64 bit)
-                         "sleep": 60,
                          "timeout": 10,
                          "mode": 'advanced'
                     }
@@ -219,10 +218,6 @@ class TestVMDeployVPC(cloudstackTestCase):
         try:
             #Clean up, terminate the created network offerings
             cleanup_resources(self.apiclient, self.cleanup)
-            wait_for_cleanup(self.apiclient, [
-                                              "network.gc.interval",
-                                              "network.gc.wait"])
-
         except Exception as e:
             raise Exception("Warning: Exception during cleanup : %s" % e)
         return
@@ -305,7 +300,6 @@ class TestVMDeployVPC(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -354,7 +348,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -569,7 +563,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -822,7 +816,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -1091,7 +1085,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -1375,7 +1369,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         configs = Configurations.list(
                                 self.apiclient,
@@ -1546,7 +1540,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -1752,9 +1746,6 @@ class TestVMDeployVPC(cloudstackTestCase):
         #    expected
         # 2. All the resources associated with account should be deleted
 
-        # Remove account from cleanup list, we will delete it at end of test
-        self.cleanup = []
-
         self.debug("Creating a VPC offering..")
         vpc_off = VpcOffering.create(
                                      self.apiclient,
@@ -1810,7 +1801,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         nw_off_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(nw_off)
+        self._cleanup.append(nw_off_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -2037,7 +2028,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                        id=private_gateway.id,
                                        listall=True
                                        )
-        self.assertEqaul(
+        self.assertEqual(
                         isinstance(gateways, list),
                         True,
                         "List private gateways should return a valid response"
@@ -2054,7 +2045,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                        id=static_route.id,
                                        listall=True
                                        )
-        self.assertEqaul(
+        self.assertEqual(
                         isinstance(static_routes, list),
                         True,
                         "List static route should return a valid response"
@@ -2208,7 +2199,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                        id=private_gateway.id,
                                        listall=True
                                        )
-        self.assertEqaul(
+        self.assertEqual(
                         isinstance(gateways, list),
                         True,
                         "List private gateways should return a valid response"
@@ -2225,7 +2216,7 @@ class TestVMDeployVPC(cloudstackTestCase):
                                        id=static_route.id,
                                        listall=True
                                        )
-        self.assertEqaul(
+        self.assertEqual(
                         isinstance(static_routes, list),
                         True,
                         "List static route should return a valid response"
@@ -2432,6 +2423,9 @@ class TestVMDeployVPC(cloudstackTestCase):
             self.fail("Failed to delete account: %s" %
                                                 self.account.name)
         wait_for_cleanup(self.apiclient, ["account.cleanup.interval"])
+
+        # Remove account from cleanup list, we've already deleted it
+        self.cleanup.remove(self.account)
 
         self.debug("Check if the VPC network is created successfully?")
         vpc_networks = VPC.list(

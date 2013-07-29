@@ -165,7 +165,6 @@ class TestCreateRvRNetworkOffering(cloudstackTestCase):
 
     def tearDown(self):
         try:
-            #Clean up, terminate the created network offerings
             cleanup_resources(self.apiclient, self.cleanup)
         except Exception as e:
             raise Exception("Warning: Exception during cleanup : %s" % e)
@@ -284,7 +283,15 @@ class TestCreateRvRNetwork(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
@@ -361,6 +368,9 @@ class TestCreateRvRNetwork(cloudstackTestCase):
                                   networkids=[str(network.id)]
                                   )
         self.debug("Deployed VM in network: %s" % network.id)
+
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
 
         self.debug("Listing routers for network: %s" % network.name)
         routers = Router.list(
@@ -475,10 +485,18 @@ class TestCreateRvRNetworkNonDefaultGuestCidr(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
         return
 
-    @attr(tags=["advanced", "advancedns", "ssh"])
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            raise Exception("Warning: Exception during cleanup : %s" % e)
+        return
+
+    @attr(tags=["advanced", "advancedns"])
     def test_createRvRNetwork(self):
         """Test create network with non-default guest cidr with redundant routers
         """
@@ -507,7 +525,8 @@ class TestCreateRvRNetworkNonDefaultGuestCidr(cloudstackTestCase):
                                 domainid=self.account.domainid,
                                 networkofferingid=self.network_offering.id,
                                 zoneid=self.zone.id,
-                                guestcidr=' 192.168.2.0/23'
+                                netmask='255.255.254.0',
+                                gateway='192.168.2.1'
                                 )
         self.debug("Created network with ID: %s" % network.id)
 
@@ -537,7 +556,7 @@ class TestCreateRvRNetworkNonDefaultGuestCidr(cloudstackTestCase):
         self.assertEqual(
                          nw_response.cidr,
                          '192.168.2.0/23',
-                         "Guest cidr should be 192.168.2.0/23"
+                         "Guest cidr should be 192.168.2.0/23 but is %s" % nw_response.cidr
                          )
 
         self.debug("Listing routers for network: %s" % network.name)
@@ -564,6 +583,9 @@ class TestCreateRvRNetworkNonDefaultGuestCidr(cloudstackTestCase):
                                   networkids=[str(network.id)]
                                   )
         self.debug("Deployed VM in network: %s" % network.id)
+
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
 
         self.debug("Listing routers for network: %s" % network.name)
         routers = Router.list(
@@ -674,7 +696,15 @@ class TestRVRInternals(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
@@ -761,6 +791,9 @@ class TestRVRInternals(cloudstackTestCase):
                                   )
         self.debug("Deployed VM in network: %s" % network.id)
 
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
+
         self.debug("Listing routers for network: %s" % network.name)
         routers = Router.list(
                               self.apiclient,
@@ -824,7 +857,7 @@ class TestRVRInternals(cloudstackTestCase):
                                 self.apiclient.connection.user,
                                 self.apiclient.connection.passwd,
                                 master_router.linklocalip,
-                                'ifconfig eth2',
+                                'ip addr show eth2',
                                 hypervisor=self.apiclient.hypervisor
                                 )
         else:
@@ -834,20 +867,20 @@ class TestRVRInternals(cloudstackTestCase):
                                 self.services['host']["username"],
                                 self.services['host']["password"],
                                 master_router.linklocalip,
-                                'ifconfig eth2'
+                                'ip addr show eth2'
                                 )
 
         res = str(result)
 
-        self.debug("Command 'ifconfig eth2': %s" % result)
+        self.debug("Command 'ip addr show eth2': %s" % result)
         self.debug("Router's public Ip: %s" % master_router.publicip)
         self.assertEqual(
-                         res.count(master_router.publicip),
+                         res.count("state UP"),
                          1,
-                         "master router should have the public IP configured"
+                         "MASTER router's public interface should be UP"
                          )
         self.assertEqual(
-                         result.count('Bcast:0.0.0.0'),
+                         result.count('brd 0.0.0.0'),
                          0,
                          "Broadcast address of eth2 should not be 0.0.0.0"
                          )
@@ -860,7 +893,7 @@ class TestRVRInternals(cloudstackTestCase):
                                 self.apiclient.connection.user,
                                 self.apiclient.connction.passwd,
                                 backup_router.linklocalip,
-                                'ifconfig eth2',
+                                'ip addr show eth2',
                                 hypervisor=self.apiclient.hypervisor
                                 )
         else:
@@ -870,16 +903,21 @@ class TestRVRInternals(cloudstackTestCase):
                                 self.services['host']["username"],
                                 self.services['host']["password"],
                                 backup_router.linklocalip,
-                                'ifconfig eth2'
+                                'ip addr show eth2',
                                 )
         res = str(result)
 
-        self.debug("Command 'ifconfig eth2': %s" % result)
+        self.debug("Command 'ip addr show eth2': %s" % result)
         self.assertEqual(
-                    res.count('Bcast:0.0.0.0'),
-                    1,
-                    "backup router should NOT have the public IP configured"
-                    )
+                         res.count("state DOWN"),
+                         1,
+                         "BACKUP router's public interface should be DOWN"
+                         )
+        self.assertEqual(
+                         result.count('brd 0.0.0.0'),
+                         0,
+                         "Broadcast address of eth2 should not be 0.0.0.0"
+                         )
         vms = VirtualMachine.list(
                              self.apiclient,
                              id=virtual_machine.id,
@@ -987,12 +1025,24 @@ class TestRvRRedundancy(cloudstackTestCase):
                                   networkids=[str(self.network.id)]
                                   )
         self.debug("Deployed VM in network: %s" % self.network.id)
-        self._cleanup.insert(0, self.account)
+
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
+
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
-    def test_stopMasterRvR(self):
-        """Test stop MASTER RVR
+    def test_01_stopMasterRvR(self):
+        """Test stop master RVR
         """
 
         # Steps to validate
@@ -1047,10 +1097,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         except Exception as e:
             self.fail("Failed to stop master router: %s" % e)
 
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
+
         self.debug("Listing routers for network: %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=master_router.id,
                               listall=True
                               )
@@ -1059,28 +1111,27 @@ class TestRvRRedundancy(cloudstackTestCase):
                     True,
                     "list router should return Master and backup routers"
                     )
-        self.assertEqual(
-                    routers[0].redundantstate,
-                    'UNKNOWN',
-                    "Redundant state of the router should be UNKNOWN"
-                    )
+        self.assertIn(
+            routers[0].redundantstate,
+            ['UNKNOWN', 'FAULT'],
+            "Redundant state of the master router should be UNKNOWN/FAULT but is %s" % routers[0].redundantstate
+        )
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
         self.assertEqual(
                     isinstance(routers, list),
                     True,
-                    "list router should return Master and backup routers"
+                    "list router should return backup router"
                     )
         self.assertEqual(
                     routers[0].redundantstate,
                     'MASTER',
-                    "Redundant state of the router should be MASTER"
+                    "Redundant state of the router should be MASTER but is %s" % routers[0].redundantstate
                     )
 
         self.debug("Starting the old MASTER router")
@@ -1088,12 +1139,14 @@ class TestRvRRedundancy(cloudstackTestCase):
             Router.start(self.apiclient, id=master_router.id)
             self.debug("old MASTER router started")
         except Exception as e:
-            self.fail("Failed to stop master router: %s" % e)
+            self.fail("Failed to start master router: %s" % e)
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
+
+        self.debug("Checking state of the master router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=master_router.id,
                               listall=True
                               )
@@ -1105,7 +1158,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'BACKUP',
-                    "Redundant state of the router should be BACKUP"
+                    "Redundant state of the router should be BACKUP but is %s" % routers[0].redundantstate
                     )
         self.assertEqual(
                          master_router.publicip,
@@ -1115,8 +1168,8 @@ class TestRvRRedundancy(cloudstackTestCase):
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
-    def test_stopBackupRvR(self):
-        """Test stop BACKUP RVR
+    def test_02_stopBackupRvR(self):
+        """Test stop backup RVR
         """
 
         # Steps to validate
@@ -1170,10 +1223,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         except Exception as e:
             self.fail("Failed to stop backup router: %s" % e)
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        # wait for VR update state
+        time.sleep(self.services["sleep"])
+
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
@@ -1182,16 +1237,15 @@ class TestRvRRedundancy(cloudstackTestCase):
                     True,
                     "list router should return Master and backup routers"
                     )
-        self.assertEqual(
-                    routers[0].redundantstate,
-                    'UNKNOWN',
-                    "Redundant state of the router should be UNKNOWN"
-                    )
+        self.assertIn(
+            routers[0].redundantstate,
+            ['UNKNOWN', 'FAULT'],
+            "Redundant state of the backup router should be UNKNOWN/FAULT but is %s" % routers[0].redundantstate
+        )
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        self.debug("Checking state of the master router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=master_router.id,
                               listall=True
                               )
@@ -1203,7 +1257,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'MASTER',
-                    "Redundant state of the router should be MASTER"
+                    "Redundant state of the router should be MASTER but is %s" % routers[0].redundantstate
                     )
 
         self.debug("Starting the old BACKUP router")
@@ -1213,10 +1267,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         except Exception as e:
             self.fail("Failed to stop master router: %s" % e)
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        # wait for VR to start and update state
+        time.sleep(self.services["sleep"])
+
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
@@ -1228,7 +1284,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'BACKUP',
-                    "Redundant state of the router should be BACKUP"
+                    "Redundant state of the router should be BACKUP but is %s" % routers[0].redundantstate
                     )
         self.assertEqual(
                          backup_router.publicip,
@@ -1238,7 +1294,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
-    def test_rebootMasterRvR(self):
+    def test_03_rebootMasterRvR(self):
         """Test reboot master RVR
         """
 
@@ -1287,10 +1343,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         except Exception as e:
             self.fail("Failed to reboot MASTER router: %s" % e)
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
+
+        self.debug("Checking state of the master router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=master_router.id,
                               listall=True
                               )
@@ -1302,13 +1360,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'BACKUP',
-                    "Redundant state of the router should be BACKUP"
+                    "Redundant state of the router should be BACKUP but is %s" % routers[0].redundantstate
                     )
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
@@ -1320,7 +1377,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'MASTER',
-                    "Redundant state of the router should be MASTER"
+                    "Redundant state of the router should be MASTER but is %s" % routers[0].redundantstate
                     )
         self.assertEqual(
                          master_router.publicip,
@@ -1330,7 +1387,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
-    def test_rebootBackupRvR(self):
+    def test_04_rebootBackupRvR(self):
         """Test reboot backup RVR
         """
 
@@ -1373,16 +1430,18 @@ class TestRvRRedundancy(cloudstackTestCase):
             master_router = routers[1]
             backup_router = routers[0]
 
-        self.debug("Rebooting the backuo router")
+        self.debug("Rebooting the backup router")
         try:
             Router.reboot(self.apiclient, id=backup_router.id)
         except Exception as e:
             self.fail("Failed to reboot BACKUP router: %s" % e)
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        # wait for VR to update state
+        time.sleep(self.services["sleep"])
+
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
@@ -1394,13 +1453,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'BACKUP',
-                    "Redundant state of the router should be BACKUP"
+                    "Redundant state of the router should be BACKUP but is %s" % routers[0].redundantstate
                     )
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        self.debug("Checking state of the master router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=master_router.id,
                               listall=True
                               )
@@ -1412,7 +1470,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'MASTER',
-                    "Redundant state of the router should be MASTER"
+                    "Redundant state of the router should be MASTER but is %s" % routers[0].redundantstate
                     )
         self.assertEqual(
                          master_router.publicip,
@@ -1422,7 +1480,7 @@ class TestRvRRedundancy(cloudstackTestCase):
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
-    def test_stopBackupRvR_startInstance(self):
+    def test_05_stopBackupRvR_startInstance(self):
         """Test stop backup RVR and start instance
         """
 
@@ -1471,10 +1529,12 @@ class TestRvRRedundancy(cloudstackTestCase):
         except Exception as e:
             self.fail("Failed to stop BACKUP router: %s" % e)
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        # wait for VR to update state
+        time.sleep(self.update_waiting_time)
+
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
@@ -1483,11 +1543,11 @@ class TestRvRRedundancy(cloudstackTestCase):
                     True,
                     "list router should return Master and backup routers"
                     )
-        self.assertEqual(
-                    routers[0].redundantstate,
-                    'UNKNOWN',
-                    "Redundant state of the router should be UNKNOWN"
-                    )
+        self.assertIn(
+            routers[0].redundantstate,
+            'UNKNOWN',
+            "Redundant state of the backup router should be UNKNOWN but is %s" % routers[0].redundantstate
+        )
 
         # Spawn an instance in that network
         vm_2 = VirtualMachine.create(
@@ -1517,10 +1577,9 @@ class TestRvRRedundancy(cloudstackTestCase):
                          "Vm should be in running state after deployment"
                          )
 
-        self.debug("Listing routers for network: %s" % self.network.name)
+        self.debug("Checking state of the backup router in %s" % self.network.name)
         routers = Router.list(
                               self.apiclient,
-                              networkid=self.network.id,
                               id=backup_router.id,
                               listall=True
                               )
@@ -1532,6 +1591,6 @@ class TestRvRRedundancy(cloudstackTestCase):
         self.assertEqual(
                     routers[0].redundantstate,
                     'BACKUP',
-                    "Redundant state of the router should be BACKUP"
+                    "Redundant state of the router should be BACKUP but is %s" % routers[0].redundantstate
                     )
         return

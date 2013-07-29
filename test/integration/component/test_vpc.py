@@ -143,9 +143,9 @@ class Services:
                                     # Any network (For creating FW rule)
                                     "protocol": "TCP"
                                 },
-                         "http_rule": {
-                                    "startport": 80,
-                                    "endport": 80,
+                         "icmp_rule": {
+                                    "icmptype": -1,
+                                    "icmpcode": -1,
                                     "cidrlist": '0.0.0.0/0',
                                     "protocol": "ICMP"
                                 },
@@ -223,7 +223,16 @@ class TestVPC(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            self.debug("Warning: Exception during cleanup : %s" % e)
+            #raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     def validate_vpc_offering(self, vpc_offering):
@@ -275,296 +284,10 @@ class TestVPC(cloudstackTestCase):
                 )
         self.debug("VPC network validated - %s" % network.name)
         return
-    
+
+    #list_vpc_apis should be the first case otherwise the vpc counts would be wrong
     @attr(tags=["advanced", "intervlan"])
-    def test_01_restart_vpc_no_networks(self):
-        """ Test restart VPC having no networks
-        """
-
-        # Validate the following
-        # 1. Create a VPC with cidr - 10.1.1.1/16
-        # 2. Restart VPC. Restart VPC should be successful
-
-        self.services["vpc"]["cidr"] = "10.1.1.1/16"
-        self.debug("creating a VPC network in the account: %s" %
-                                                    self.account.name)
-        vpc = VPC.create(
-                         self.apiclient,
-                         self.services["vpc"],
-                         vpcofferingid=self.vpc_off.id,
-                         zoneid=self.zone.id,
-                         account=self.account.name,
-                         domainid=self.account.domainid
-                         )
-        self.validate_vpc_network(vpc)
-
-        self.debug("Restarting the VPC with no network")
-        try:
-            vpc.restart(self.apiclient)
-        except Exception as e:
-            self.fail("Failed to restart VPC network - %s" % e)
-
-        self.validate_vpc_network(vpc, state='Enabled')
-        return
-
-    @attr(tags=["advanced", "intervlan"])
-    def test_02_restart_vpc_with_networks(self):
-        """ Test restart VPC having networks
-        """
-
-        # Validate the following
-        # 1. Create a VPC with cidr - 10.1.1.1/16
-        # 2. Add couple of networks to VPC.
-        # 3. Restart VPC. Restart network should be successful
-
-        self.services["vpc"]["cidr"] = "10.1.1.1/16"
-        self.debug("creating a VPC network in the account: %s" %
-                                                    self.account.name)
-        vpc = VPC.create(
-                         self.apiclient,
-                         self.services["vpc"],
-                         vpcofferingid=self.vpc_off.id,
-                         zoneid=self.zone.id,
-                         account=self.account.name,
-                         domainid=self.account.domainid
-                         )
-        self.validate_vpc_network(vpc)
-
-        self.network_offering = NetworkOffering.create(
-                                            self.apiclient,
-                                            self.services["network_offering"],
-                                            conservemode=False
-                                            )
-        # Enable Network offering
-        self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
-
-        gateway = vpc.cidr.split('/')[0]
-        # Split the cidr to retrieve gateway
-        # for eg. cidr = 10.0.0.1/24
-        # Gateway = 10.0.0.1
-
-        # Creating network using the network offering created
-        self.debug("Creating network with network offering: %s" %
-                                                    self.network_offering.id)
-        network_1 = Network.create(
-                                self.apiclient,
-                                self.services["network"],
-                                accountid=self.account.name,
-                                domainid=self.account.domainid,
-                                networkofferingid=self.network_offering.id,
-                                zoneid=self.zone.id,
-                                gateway=gateway,
-                                vpcid=vpc.id
-                                )
-        self.debug("Created network with ID: %s" % network_1.id)
-
-        self.network_offering_no_lb = NetworkOffering.create(
-                                    self.apiclient,
-                                    self.services["network_offering_no_lb"],
-                                    conservemode=False
-                                    )
-        # Enable Network offering
-        self.network_offering_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering_no_lb)
-
-        gateway = '10.1.2.1'    # New network -> different gateway
-        self.debug("Creating network with network offering: %s" %
-                                            self.network_offering_no_lb.id)
-        network_2 = Network.create(
-                            self.apiclient,
-                            self.services["network"],
-                            accountid=self.account.name,
-                            domainid=self.account.domainid,
-                            networkofferingid=self.network_offering_no_lb.id,
-                            zoneid=self.zone.id,
-                            gateway=gateway,
-                            vpcid=vpc.id
-                            )
-        self.debug("Created network with ID: %s" % network_2.id)
-
-        self.debug("Restarting the VPC with no network")
-        try:
-            vpc.restart(self.apiclient)
-        except Exception as e:
-            self.fail("Failed to restart VPC network - %s" % e)
-
-        self.validate_vpc_network(vpc, state='Enabled')
-        return
-
-    @attr(tags=["advanced", "intervlan"])
-    def test_03_delete_vpc_no_networks(self):
-        """ Test delete VPC having no networks
-        """
-
-        # Validate the following
-        # 1. Create a VPC with cidr - 10.1.1.1/16
-        # 2. Delete VPC. Delete VPC should be successful
-
-        self.services["vpc"]["cidr"] = "10.1.1.1/16"
-        self.debug("creating a VPC network in the account: %s" %
-                                                    self.account.name)
-        vpc = VPC.create(
-                         self.apiclient,
-                         self.services["vpc"],
-                         vpcofferingid=self.vpc_off.id,
-                         zoneid=self.zone.id,
-                         account=self.account.name,
-                         domainid=self.account.domainid
-                         )
-        self.validate_vpc_network(vpc)
-
-        self.debug("Restarting the VPC with no network")
-        try:
-            vpc.delete(self.apiclient)
-        except Exception as e:
-            self.fail("Failed to delete VPC network - %s" % e)
-
-        self.debug("Check if the VPC offering is deleted successfully?")
-        vpcs = VPC.list(
-                                    self.apiclient,
-                                    id=vpc.id
-                                    )
-        self.assertEqual(
-                         vpcs,
-                         None,
-                         "List VPC offerings should not return anything"
-                         )
-        return
-
-    @attr(tags=["advanced", "intervlan"])
-    def test_04_delete_vpc_with_networks(self):
-        """ Test delete VPC having networks
-        """
-
-        # Validate the following
-        # 1. Create a VPC with cidr - 10.1.1.1/16
-        # 2. Add couple of networks to VPC.
-        # 3. Delete VPC. Delete network should be successful
-        # 4. Virtual Router should be deleted
-        # 5. Source NAT should be released back to pool
-
-        self.services["vpc"]["cidr"] = "10.1.1.1/16"
-        self.debug("creating a VPC network in the account: %s" %
-                                                    self.account.name)
-        vpc = VPC.create(
-                         self.apiclient,
-                         self.services["vpc"],
-                         vpcofferingid=self.vpc_off.id,
-                         zoneid=self.zone.id,
-                         account=self.account.name,
-                         domainid=self.account.domainid
-                         )
-        self.validate_vpc_network(vpc)
-
-        self.network_offering = NetworkOffering.create(
-                                            self.apiclient,
-                                            self.services["network_offering"],
-                                            conservemode=False
-                                            )
-        # Enable Network offering
-        self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
-
-        gateway = vpc.cidr.split('/')[0]
-        # Split the cidr to retrieve gateway
-        # for eg. cidr = 10.0.0.1/24
-        # Gateway = 10.0.0.1
-
-        # Creating network using the network offering created
-        self.debug("Creating network with network offering: %s" %
-                                                    self.network_offering.id)
-        network_1 = Network.create(
-                                self.apiclient,
-                                self.services["network"],
-                                accountid=self.account.name,
-                                domainid=self.account.domainid,
-                                networkofferingid=self.network_offering.id,
-                                zoneid=self.zone.id,
-                                gateway=gateway,
-                                vpcid=vpc.id
-                                )
-        self.debug("Created network with ID: %s" % network_1.id)
-
-        self.network_offering_no_lb = NetworkOffering.create(
-                                            self.apiclient,
-                                            self.services["network_offering_no_lb"],
-                                            conservemode=False
-                                            )
-        # Enable Network offering
-        self.network_offering_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering_no_lb)
-
-        gateway = '10.1.2.1'    # New network -> different gateway
-        self.debug("Creating network with network offering: %s" %
-                                                    self.network_offering_no_lb.id)
-        network_2 = Network.create(
-                                self.apiclient,
-                                self.services["network"],
-                                accountid=self.account.name,
-                                domainid=self.account.domainid,
-                                networkofferingid=self.network_offering_no_lb.id,
-                                zoneid=self.zone.id,
-                                gateway=gateway,
-                                vpcid=vpc.id
-                                )
-        self.debug("Created network with ID: %s" % network_2.id)
-
-        self.debug("Deleting the VPC with no network")
-        with self.assertRaises(Exception):
-            vpc.delete(self.apiclient)
-        self.debug("Delete VPC failed as there are still networks in VPC")
-        self.debug("Deleting the networks in the VPC")
-
-        try:
-            network_1.delete(self.apiclient)
-            network_2.delete(self.apiclient)
-        except Exception as e:
-            self.fail("failed to delete the VPC networks: %s" % e)
-
-        self.debug("Now trying to delete VPC")
-        try:
-            vpc.delete(self.apiclient)
-        except Exception as e:
-            self.fail("Delete to restart VPC network - %s" % e)
-
-        self.debug("Check if the VPC offering is deleted successfully?")
-        vpcs = VPC.list(
-                        self.apiclient,
-                        id=vpc.id
-                        )
-        self.assertEqual(
-                         vpcs,
-                         None,
-                         "List VPC offerings should not return anything"
-                         )
-        self.debug("Waiting for network.gc.interval to cleanup network resources")
-        interval = list_configurations(
-                                    self.apiclient,
-                                    name='network.gc.interval'
-                                    )
-        wait = list_configurations(
-                                    self.apiclient,
-                                    name='network.gc.wait'
-                                   )
-        # Sleep to ensure that all resources are deleted
-        time.sleep(int(interval[0].value) + int(wait[0].value))
-        self.debug("Check if VR is deleted or not?")
-        routers = Router.list(
-                            self.apiclient,
-                            account=self.account.name,
-                            domainid=self.account.domainid,
-                            listall=True
-                            )
-        self.assertEqual(
-                        routers,
-                        None,
-                        "List Routers for the account should not return any response"
-                        )
-        return
-
-    @attr(tags=["advanced", "intervlan"])
-    def test_05_list_vpc_apis(self):
+    def test_01_list_vpc_apis(self):
         """ Test list VPC APIs
         """
 
@@ -677,7 +400,7 @@ class TestVPC(cloudstackTestCase):
         self.assertEqual(
                         len(vpcs),
                         2,
-                        "List VPC should return 3 enabled VPCs"
+                        "List VPC should return 2 enabled VPCs"
                         )
         for vpc in vpcs:
             self.assertEqual(
@@ -743,6 +466,293 @@ class TestVPC(cloudstackTestCase):
         return
 
     @attr(tags=["advanced", "intervlan"])
+    def test_02_restart_vpc_no_networks(self):
+        """ Test restart VPC having no networks
+        """
+
+        # Validate the following
+        # 1. Create a VPC with cidr - 10.1.1.1/16
+        # 2. Restart VPC. Restart VPC should be successful
+
+        self.services["vpc"]["cidr"] = "10.1.1.1/16"
+        self.debug("creating a VPC network in the account: %s" %
+                                                    self.account.name)
+        vpc = VPC.create(
+                         self.apiclient,
+                         self.services["vpc"],
+                         vpcofferingid=self.vpc_off.id,
+                         zoneid=self.zone.id,
+                         account=self.account.name,
+                         domainid=self.account.domainid
+                         )
+        self.validate_vpc_network(vpc)
+
+        self.debug("Restarting the VPC with no network")
+        try:
+            vpc.restart(self.apiclient)
+        except Exception as e:
+            self.fail("Failed to restart VPC network - %s" % e)
+
+        self.validate_vpc_network(vpc, state='Enabled')
+        return
+
+    @attr(tags=["advanced", "intervlan"])
+    def test_03_restart_vpc_with_networks(self):
+        """ Test restart VPC having networks
+        """
+
+        # Validate the following
+        # 1. Create a VPC with cidr - 10.1.1.1/16
+        # 2. Add couple of networks to VPC.
+        # 3. Restart VPC. Restart network should be successful
+
+        self.services["vpc"]["cidr"] = "10.1.1.1/16"
+        self.debug("creating a VPC network in the account: %s" %
+                                                    self.account.name)
+        vpc = VPC.create(
+                         self.apiclient,
+                         self.services["vpc"],
+                         vpcofferingid=self.vpc_off.id,
+                         zoneid=self.zone.id,
+                         account=self.account.name,
+                         domainid=self.account.domainid
+                         )
+        self.validate_vpc_network(vpc)
+
+        self.network_offering = NetworkOffering.create(
+                                            self.apiclient,
+                                            self.services["network_offering"],
+                                            conservemode=False
+                                            )
+        # Enable Network offering
+        self.network_offering.update(self.apiclient, state='Enabled')
+        self.cleanup.append(self.network_offering)
+
+        gateway = vpc.cidr.split('/')[0]
+        # Split the cidr to retrieve gateway
+        # for eg. cidr = 10.0.0.1/24
+        # Gateway = 10.0.0.1
+
+        # Creating network using the network offering created
+        self.debug("Creating network with network offering: %s" %
+                                                    self.network_offering.id)
+        network_1 = Network.create(
+                                self.apiclient,
+                                self.services["network"],
+                                accountid=self.account.name,
+                                domainid=self.account.domainid,
+                                networkofferingid=self.network_offering.id,
+                                zoneid=self.zone.id,
+                                gateway=gateway,
+                                vpcid=vpc.id
+                                )
+        self.debug("Created network with ID: %s" % network_1.id)
+
+        self.network_offering_no_lb = NetworkOffering.create(
+                                    self.apiclient,
+                                    self.services["network_offering_no_lb"],
+                                    conservemode=False
+                                    )
+        # Enable Network offering
+        self.network_offering_no_lb.update(self.apiclient, state='Enabled')
+        self.cleanup.append(self.network_offering_no_lb)
+
+        gateway = '10.1.2.1'    # New network -> different gateway
+        self.debug("Creating network with network offering: %s" %
+                                            self.network_offering_no_lb.id)
+        network_2 = Network.create(
+                            self.apiclient,
+                            self.services["network"],
+                            accountid=self.account.name,
+                            domainid=self.account.domainid,
+                            networkofferingid=self.network_offering_no_lb.id,
+                            zoneid=self.zone.id,
+                            gateway=gateway,
+                            vpcid=vpc.id
+                            )
+        self.debug("Created network with ID: %s" % network_2.id)
+
+        self.debug("Restarting the VPC with no network")
+        try:
+            vpc.restart(self.apiclient)
+        except Exception as e:
+            self.fail("Failed to restart VPC network - %s" % e)
+
+        self.validate_vpc_network(vpc, state='Enabled')
+        return
+
+    @attr(tags=["advanced", "intervlan"])
+    def test_04_delete_vpc_no_networks(self):
+        """ Test delete VPC having no networks
+        """
+
+        # Validate the following
+        # 1. Create a VPC with cidr - 10.1.1.1/16
+        # 2. Delete VPC. Delete VPC should be successful
+
+        self.services["vpc"]["cidr"] = "10.1.1.1/16"
+        self.debug("creating a VPC network in the account: %s" %
+                                                    self.account.name)
+        vpc = VPC.create(
+                         self.apiclient,
+                         self.services["vpc"],
+                         vpcofferingid=self.vpc_off.id,
+                         zoneid=self.zone.id,
+                         account=self.account.name,
+                         domainid=self.account.domainid
+                         )
+        self.validate_vpc_network(vpc)
+
+        self.debug("Restarting the VPC with no network")
+        try:
+            vpc.delete(self.apiclient)
+        except Exception as e:
+            self.fail("Failed to delete VPC network - %s" % e)
+
+        self.debug("Check if the VPC offering is deleted successfully?")
+        vpcs = VPC.list(
+                                    self.apiclient,
+                                    id=vpc.id
+                                    )
+        self.assertEqual(
+                         vpcs,
+                         None,
+                         "List VPC offerings should not return anything"
+                         )
+        return
+
+    @attr(tags=["advanced", "intervlan"])
+    def test_05_delete_vpc_with_networks(self):
+        """ Test delete VPC having networks
+        """
+
+        # Validate the following
+        # 1. Create a VPC with cidr - 10.1.1.1/16
+        # 2. Add couple of networks to VPC.
+        # 3. Delete VPC. Delete network should be successful
+        # 4. Virtual Router should be deleted
+        # 5. Source NAT should be released back to pool
+
+        self.services["vpc"]["cidr"] = "10.1.1.1/16"
+        self.debug("creating a VPC network in the account: %s" %
+                                                    self.account.name)
+        vpc = VPC.create(
+                         self.apiclient,
+                         self.services["vpc"],
+                         vpcofferingid=self.vpc_off.id,
+                         zoneid=self.zone.id,
+                         account=self.account.name,
+                         domainid=self.account.domainid
+                         )
+        self.validate_vpc_network(vpc)
+
+        self.network_offering = NetworkOffering.create(
+                                            self.apiclient,
+                                            self.services["network_offering"],
+                                            conservemode=False
+                                            )
+        # Enable Network offering
+        self.network_offering.update(self.apiclient, state='Enabled')
+        self.cleanup.append(self.network_offering)
+
+        gateway = vpc.cidr.split('/')[0]
+        # Split the cidr to retrieve gateway
+        # for eg. cidr = 10.0.0.1/24
+        # Gateway = 10.0.0.1
+
+        # Creating network using the network offering created
+        self.debug("Creating network with network offering: %s" %
+                                                    self.network_offering.id)
+        network_1 = Network.create(
+                                self.apiclient,
+                                self.services["network"],
+                                accountid=self.account.name,
+                                domainid=self.account.domainid,
+                                networkofferingid=self.network_offering.id,
+                                zoneid=self.zone.id,
+                                gateway=gateway,
+                                vpcid=vpc.id
+                                )
+        self.debug("Created network with ID: %s" % network_1.id)
+
+        self.network_offering_no_lb = NetworkOffering.create(
+                                            self.apiclient,
+                                            self.services["network_offering_no_lb"],
+                                            conservemode=False
+                                            )
+        # Enable Network offering
+        self.network_offering_no_lb.update(self.apiclient, state='Enabled')
+        self.cleanup.append(self.network_offering_no_lb)
+
+        gateway = '10.1.2.1'    # New network -> different gateway
+        self.debug("Creating network with network offering: %s" %
+                                                    self.network_offering_no_lb.id)
+        network_2 = Network.create(
+                                self.apiclient,
+                                self.services["network"],
+                                accountid=self.account.name,
+                                domainid=self.account.domainid,
+                                networkofferingid=self.network_offering_no_lb.id,
+                                zoneid=self.zone.id,
+                                gateway=gateway,
+                                vpcid=vpc.id
+                                )
+        self.debug("Created network with ID: %s" % network_2.id)
+
+        self.debug("Deleting the VPC with no network")
+        with self.assertRaises(Exception):
+            vpc.delete(self.apiclient)
+        self.debug("Delete VPC failed as there are still networks in VPC")
+        self.debug("Deleting the networks in the VPC")
+
+        try:
+            network_1.delete(self.apiclient)
+            network_2.delete(self.apiclient)
+        except Exception as e:
+            self.fail("failed to delete the VPC networks: %s" % e)
+
+        self.debug("Now trying to delete VPC")
+        try:
+            vpc.delete(self.apiclient)
+        except Exception as e:
+            self.fail("Delete to restart VPC network - %s" % e)
+
+        self.debug("Check if the VPC offering is deleted successfully?")
+        vpcs = VPC.list(
+                        self.apiclient,
+                        id=vpc.id
+                        )
+        self.assertEqual(
+                         vpcs,
+                         None,
+                         "List VPC offerings should not return anything"
+                         )
+        self.debug("Waiting for network.gc.interval to cleanup network resources")
+        interval = list_configurations(
+                                    self.apiclient,
+                                    name='network.gc.interval'
+                                    )
+        wait = list_configurations(
+                                    self.apiclient,
+                                    name='network.gc.wait'
+                                   )
+        # Sleep to ensure that all resources are deleted
+        time.sleep(int(interval[0].value) + int(wait[0].value))
+        self.debug("Check if VR is deleted or not?")
+        routers = Router.list(
+                            self.apiclient,
+                            account=self.account.name,
+                            domainid=self.account.domainid,
+                            listall=True
+                            )
+        self.assertEqual(
+                        routers,
+                        None,
+                        "List Routers for the account should not return any response"
+                        )
+        return
+
+    @attr(tags=["advanced", "intervlan"])
     def test_06_list_vpc_apis_admin(self):
         """ Test list VPC APIs for different user roles
         """
@@ -756,7 +766,7 @@ class TestVPC(cloudstackTestCase):
                                      self.apiclient,
                                      self.services["account"],
                                 )
-        self._cleanup.append(self.user)
+        self.cleanup.append(self.user)
 
         self.services["vpc"]["cidr"] = "10.1.1.1/16"
         self.debug("creating a VPC network in the account: %s" %
@@ -832,7 +842,7 @@ class TestVPC(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -858,7 +868,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         self.network_offering_no_lb = NetworkOffering.create(
                                     self.apiclient,
@@ -867,7 +877,7 @@ class TestVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         self.network_offering_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering_no_lb)
+        self.cleanup.append(self.network_offering_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -1065,13 +1075,13 @@ class TestVPC(cloudstackTestCase):
         nwacl_internet_1 = NetworkACL.create(
                                 self.apiclient,
                                 networkid=network_1.id,
-                                services=self.services["http_rule"],
+                                services=self.services["icmp_rule"],
                                 traffictype='Egress'
                                 )
         nwacl_internet_2 = NetworkACL.create(
                                 self.apiclient,
                                 networkid=network_2.id,
-                                services=self.services["http_rule"],
+                                services=self.services["icmp_rule"],
                                 traffictype='Egress'
                                 )
 
@@ -1177,7 +1187,7 @@ class TestVPC(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -1203,7 +1213,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         self.network_offering_no_lb = NetworkOffering.create(
                                     self.apiclient,
@@ -1212,7 +1222,7 @@ class TestVPC(cloudstackTestCase):
                                     )
         # Enable Network offering
         self.network_offering_no_lb.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering_no_lb)
+        self.cleanup.append(self.network_offering_no_lb)
 
         # Creating network using the network offering created
         self.debug("Creating network with network offering: %s" %
@@ -1410,13 +1420,13 @@ class TestVPC(cloudstackTestCase):
         nwacl_internet_1 = NetworkACL.create(
                                 self.apiclient,
                                 networkid=network_1.id,
-                                services=self.services["http_rule"],
+                                services=self.services["icmp_rule"],
                                 traffictype='Egress'
                                 )
         nwacl_internet_2 = NetworkACL.create(
                                 self.apiclient,
                                 networkid=network_2.id,
-                                services=self.services["http_rule"],
+                                services=self.services["icmp_rule"],
                                 traffictype='Egress'
                                 )
 
@@ -1665,7 +1675,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -1812,7 +1822,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -1868,7 +1878,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -1917,7 +1927,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["account"]
                             )
         self.debug("Created account: %s" % user.name)
-        self._cleanup.append(user)
+        self.cleanup.append(user)
 
         self.services["vpc"]["cidr"] = "10.1.1.1/16"
         self.debug("creating a VPC network in the account: %s" %
@@ -1944,7 +1954,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -1998,7 +2008,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["account"]
                             )
         self.debug("Created account: %s" % user.name)
-        self._cleanup.append(user)
+        self.cleanup.append(user)
 
         self.services["vpc"]["cidr"] = "10.1.1.1/16"
         self.debug("creating a VPC network in the account: %s" %
@@ -2025,7 +2035,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -2074,7 +2084,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["account"]
                             )
         self.debug("Created account: %s" % user.name)
-        self._cleanup.append(user)
+        self.cleanup.append(user)
 
         self.services["vpc"]["cidr"] = "10.1.1.1/16"
         self.debug("creating a VPC network in the account: %s" %
@@ -2102,7 +2112,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -2158,7 +2168,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["domain_admin"]
                             )
         self.debug("Created account: %s" % domain_admin.name)
-        self._cleanup.append(domain_admin)
+        self.cleanup.append(domain_admin)
         da_apiclient = self.testClient.getUserApiClient(
                                         account=domain_admin.name,
                                         domain=domain_admin.domain,
@@ -2169,7 +2179,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["account"]
                             )
         self.debug("Created account: %s" % user.name)
-        self._cleanup.append(user)
+        self.cleanup.append(user)
 
         self.services["vpc"]["cidr"] = "10.1.1.1/16"
         self.debug("creating a VPC network in the account: %s" %
@@ -2209,7 +2219,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["domain_admin"]
                             )
         self.debug("Created account: %s" % domain_admin.name)
-        self._cleanup.append(domain_admin)
+        self.cleanup.append(domain_admin)
         da_apiclient = self.testClient.getUserApiClient(
                                         account=domain_admin.name,
                                         domain=self.services["domain"]["name"],
@@ -2220,7 +2230,7 @@ class TestVPC(cloudstackTestCase):
                             self.services["account"]
                             )
         self.debug("Created account: %s" % user.name)
-        self._cleanup.append(user)
+        self.cleanup.append(user)
 
         self.services["vpc"]["cidr"] = "10.1.1.1/16"
         self.debug("creating a VPC network in the account: %s" %
@@ -2247,7 +2257,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -2358,7 +2368,7 @@ class TestVPC(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway

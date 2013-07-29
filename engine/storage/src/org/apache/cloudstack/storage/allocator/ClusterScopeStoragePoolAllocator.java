@@ -25,10 +25,11 @@ import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
-import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
+
+import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 
 import com.cloud.deploy.DeploymentPlan;
 import com.cloud.deploy.DeploymentPlanner.ExcludeList;
@@ -36,7 +37,6 @@ import com.cloud.offering.ServiceOffering;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.vm.DiskProfile;
-import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineProfile;
 
 @Component
@@ -49,7 +49,7 @@ public class ClusterScopeStoragePoolAllocator extends AbstractStoragePoolAllocat
     DiskOfferingDao _diskOfferingDao;
 
     @Override
-    protected List<StoragePool> select(DiskProfile dskCh, VirtualMachineProfile<? extends VirtualMachine> vmProfile,
+    protected List<StoragePool> select(DiskProfile dskCh, VirtualMachineProfile vmProfile,
             DeploymentPlan plan, ExcludeList avoid, int returnUpTo) {
 
         s_logger.debug("ClusterScopeStoragePoolAllocator looking for storage pool");
@@ -59,9 +59,13 @@ public class ClusterScopeStoragePoolAllocator extends AbstractStoragePoolAllocat
         Long podId = plan.getPodId();
         Long clusterId = plan.getClusterId();
 
-		if (clusterId == null) {
-			return null;
-		}
+        if (podId == null) {
+            // for zone wide storage, podId should be null. We cannot check
+            // clusterId == null here because it will break ClusterWide primary
+            // storage volume operation where
+            // only podId is passed into this call.
+            return null;
+        }
         if (dskCh.getTags() != null && dskCh.getTags().length != 0) {
             s_logger.debug("Looking for pools in dc: " + dcId + "  pod:" + podId + "  cluster:" + clusterId
                     + " having tags:" + Arrays.toString(dskCh.getTags()));
@@ -91,7 +95,7 @@ public class ClusterScopeStoragePoolAllocator extends AbstractStoragePoolAllocat
             if (suitablePools.size() == returnUpTo) {
                 break;
             }
-            StoragePool pol = (StoragePool) this.dataStoreMgr.getPrimaryDataStore(pool.getId());
+            StoragePool pol = (StoragePool) dataStoreMgr.getPrimaryDataStore(pool.getId());
             if (filter(avoid, pol, dskCh, plan)) {
                 suitablePools.add(pol);
             } else {

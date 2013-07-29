@@ -180,7 +180,15 @@ class TestVPCOffering(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     def validate_vpc_offering(self, vpc_offering):
@@ -243,7 +251,7 @@ class TestVPCOffering(cloudstackTestCase):
                                      )
 
         self.debug("Check if the VPC offering is created successfully?")
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
         return
 
@@ -270,7 +278,6 @@ class TestVPCOffering(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -295,7 +302,6 @@ class TestVPCOffering(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
 
         gateway = vpc.cidr.split('/')[0]
         # Split the cidr to retrieve gateway
@@ -449,62 +455,6 @@ class TestVPCOffering(cloudstackTestCase):
                          "List public Ip for network should list the Ip addr"
                          )
         # TODO: Remote Access VPN is not yet supported in VPC
-#        self.debug("Associating public IP for network: %s" % network.name)
-#        public_ip_4 = PublicIPAddress.create(
-#                                self.apiclient,
-#                                accountid=self.account.name,
-#                                zoneid=self.zone.id,
-#                                domainid=self.account.domainid,
-#                                networkid=network.id,
-#                                vpcid=vpc.id
-#                                )
-#        self.debug("Associated %s with network %s" % (
-#                                        public_ip_4.ipaddress.ipaddress,
-#                                        network.id
-#                                        ))
-#
-#        self.debug("Creating a remote access VPN for account: %s" %
-#                                                self.account.name)
-#
-#        try:
-#            vpn = Vpn.create(
-#                         self.apiclient,
-#                         publicipid=public_ip_4.ipaddress.id,
-#                         account=self.account.name,
-#                         domainid=self.account.domainid,
-#                         networkid=network.id,
-#                         vpcid=vpc.id
-#                         )
-#        except Exception as e:
-#            self.fail("Failed to create VPN for account: %s - %s" % (
-#                                                 self.account.name, e))
-#
-#        try:
-#            vpnuser = VpnUser.create(
-#                                 self.apiclient,
-#                                 username="root",
-#                                 password="password",
-#                                 account=self.account.name,
-#                                 domainid=self.account.domainid
-#                                 )
-#        except Exception as e:
-#            self.fail("Failed to create VPN user: %s" % e)
-#
-#        self.debug("Checking if the remote access VPN is created or not?")
-#        remote_vpns = Vpn.list(
-#                               self.apiclient,
-#                               account=self.account.name,
-#                               domainid=self.account.domainid,
-#                               publicipid=public_ip_4.ipaddress.id,
-#                               listall=True
-#                               )
-#        self.assertEqual(
-#                         isinstance(remote_vpns, list),
-#                         True,
-#                         "List remote VPNs should not return empty response"
-#                         )
-#        self.debug("Deleting the remote access VPN for account: %s" %
-#                                                self.account.name)
         return
 
     @attr(tags=["advanced", "intervlan"])
@@ -544,14 +494,14 @@ class TestVPCOffering(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         vpc_off = VpcOffering.create(
                                      self.apiclient,
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -663,14 +613,14 @@ class TestVPCOffering(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         vpc_off = VpcOffering.create(
                                      self.apiclient,
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -784,14 +734,14 @@ class TestVPCOffering(cloudstackTestCase):
                                             )
         # Enable Network offering
         self.network_offering.update(self.apiclient, state='Enabled')
-        self._cleanup.append(self.network_offering)
+        self.cleanup.append(self.network_offering)
 
         vpc_off = VpcOffering.create(
                                      self.apiclient,
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -873,11 +823,9 @@ class TestVPCOffering(cloudstackTestCase):
         # 1. Creating VPC Offering with no SourceNat service should FAIL.
         # 2. Creating VPC Offering with services NOT supported by VPC
         #    like Firewall should not be allowed
-        # 3. Creating VPC Offering with services NOT supported by VPC
-        #    like Firewall should not be allowed
 
         self.debug("Creating a VPC offering without sourceNAT")
-        self.services["vpc_offering"]["supportedservices"] = 'Dhcp,Dns,PortForwarding,Vpn,Firewall,Lb,UserData,StaticNat'
+        self.services["vpc_offering"]["supportedservices"] = 'Dhcp,Dns,PortForwarding,Vpn,Lb,UserData,StaticNat'
 
         with self.assertRaises(Exception):
             VpcOffering.create(
@@ -885,8 +833,8 @@ class TestVPCOffering(cloudstackTestCase):
                                 self.services["vpc_offering"]
                              )
 
-        self.debug("Creating a VPC offering without Firewall")
-        self.services["vpc_offering"]["supportedservices"] = 'Dhcp,Dns,PortForwarding,Vpn,SourceNat,Lb,UserData,StaticNat'
+        self.debug("Creating a VPC offering with Firewall")
+        self.services["vpc_offering"]["supportedservices"] = 'Dhcp,Dns,PortForwarding,Firewall,Vpn,SourceNat,Lb,UserData,StaticNat'
 
         with self.assertRaises(Exception):
             VpcOffering.create(
@@ -904,7 +852,7 @@ class TestVPCOffering(cloudstackTestCase):
                              )
             self.validate_vpc_offering(vpc_off)
             # Appending to cleanup to delete after test
-            self._cleanup.append(vpc_off)
+            self.cleanup.append(vpc_off)
         except Exception as e:
             self.fail("Failed to create the VPC offering - %s" % e)
         return
@@ -928,7 +876,7 @@ class TestVPCOffering(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.validate_vpc_offering(vpc_off)
 
         self.debug("Enabling the VPC offering created")
@@ -1024,7 +972,7 @@ class TestVPCOffering(cloudstackTestCase):
                                      self.apiclient,
                                      self.services["vpc_offering"]
                                      )
-        self._cleanup.append(vpc_off_1)
+        self.cleanup.append(vpc_off_1)
         self.validate_vpc_offering(vpc_off_1)
         self.debug("Disabling the VPC offering created")
         vpc_off_1.update(self.apiclient, state='Disabled')
@@ -1034,7 +982,7 @@ class TestVPCOffering(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off_2)
+        self.cleanup.append(vpc_off_2)
         self.validate_vpc_offering(vpc_off_2)
         self.debug("Enabling the VPC offering created")
         vpc_off_2.update(self.apiclient, state='Enabled')
@@ -1044,7 +992,7 @@ class TestVPCOffering(cloudstackTestCase):
                                      self.services["vpc_offering"]
                                      )
 
-        self._cleanup.append(vpc_off_3)
+        self.cleanup.append(vpc_off_3)
         self.validate_vpc_offering(vpc_off_3)
         self.debug("Enabling the VPC offering created")
         vpc_off_3.update(self.apiclient, state='Enabled')
@@ -1053,7 +1001,6 @@ class TestVPCOffering(cloudstackTestCase):
                                      self.apiclient,
                                      self.services["vpc_offering"]
                                      )
-        self._cleanup.append(vpc_off_4)
         self.debug("Enabling the VPC offering created")
         vpc_off_4.update(self.apiclient, state='Enabled')
 

@@ -189,7 +189,16 @@ class TestRedundantRouterNetworkCleanups(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup=[]
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            self.debug("Warning: Exception during cleanup : %s" % e)
+            #raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
@@ -331,11 +340,6 @@ class TestRedundantRouterNetworkCleanups(cloudstackTestCase):
                              "Running",
                              "Router state should be running"
                              )
-            self.assertIn(
-                    router.linklocalip,
-                    [master_router.linklocalip, backup_router.linklocalip],
-                    "Routers should have same linklocal IP after nw restart"
-                  )
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
@@ -477,11 +481,6 @@ class TestRedundantRouterNetworkCleanups(cloudstackTestCase):
                              "Running",
                              "Router state should be running"
                              )
-            self.assertIn(
-                    router.linklocalip,
-                    [master_router.linklocalip, backup_router.linklocalip],
-                    "Routers should have same linklocal IP after nw restart"
-                  )
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])

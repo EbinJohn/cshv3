@@ -39,23 +39,15 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import com.cloud.exception.*;
-import com.cloud.vm.*;
-
-import org.apache.cloudstack.acl.ControlledEntity;
-import org.apache.cloudstack.acl.SecurityChecker.AccessType;
-import org.apache.cloudstack.api.ApiConstants;
-
-import com.cloud.event.ActionEventUtils;
-
-import org.apache.cloudstack.api.BaseUpdateTemplateOrIsoCmd;
-import org.apache.cloudstack.api.command.admin.region.*;
-
 import org.apache.commons.codec.binary.Base64;
 import org.apache.log4j.Logger;
 
+import org.apache.cloudstack.acl.ControlledEntity;
+import org.apache.cloudstack.acl.SecurityChecker.AccessType;
 import org.apache.cloudstack.affinity.AffinityGroupProcessor;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
+import org.apache.cloudstack.api.ApiConstants;
+import org.apache.cloudstack.api.BaseUpdateTemplateOrIsoCmd;
 import org.apache.cloudstack.api.command.admin.account.CreateAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.DeleteAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.DisableAccountCmd;
@@ -69,6 +61,7 @@ import org.apache.cloudstack.api.command.admin.cluster.DeleteClusterCmd;
 import org.apache.cloudstack.api.command.admin.cluster.ListClustersCmd;
 import org.apache.cloudstack.api.command.admin.cluster.UpdateClusterCmd;
 import org.apache.cloudstack.api.command.admin.config.ListCfgsByCmd;
+import org.apache.cloudstack.api.command.admin.config.ListDeploymentPlannersCmd;
 import org.apache.cloudstack.api.command.admin.config.ListHypervisorCapabilitiesCmd;
 import org.apache.cloudstack.api.command.admin.config.UpdateCfgCmd;
 import org.apache.cloudstack.api.command.admin.config.UpdateHypervisorCapabilitiesCmd;
@@ -129,6 +122,12 @@ import org.apache.cloudstack.api.command.admin.pod.CreatePodCmd;
 import org.apache.cloudstack.api.command.admin.pod.DeletePodCmd;
 import org.apache.cloudstack.api.command.admin.pod.ListPodsByCmd;
 import org.apache.cloudstack.api.command.admin.pod.UpdatePodCmd;
+import org.apache.cloudstack.api.command.admin.region.AddRegionCmd;
+import org.apache.cloudstack.api.command.admin.region.CreatePortableIpRangeCmd;
+import org.apache.cloudstack.api.command.admin.region.DeletePortableIpRangeCmd;
+import org.apache.cloudstack.api.command.admin.region.ListPortableIpRangesCmd;
+import org.apache.cloudstack.api.command.admin.region.RemoveRegionCmd;
+import org.apache.cloudstack.api.command.admin.region.UpdateRegionCmd;
 import org.apache.cloudstack.api.command.admin.resource.ArchiveAlertsCmd;
 import org.apache.cloudstack.api.command.admin.resource.CleanVMReservationsCmd;
 import org.apache.cloudstack.api.command.admin.resource.DeleteAlertsCmd;
@@ -147,19 +146,27 @@ import org.apache.cloudstack.api.command.admin.router.UpgradeRouterCmd;
 import org.apache.cloudstack.api.command.admin.storage.AddImageStoreCmd;
 import org.apache.cloudstack.api.command.admin.storage.AddS3Cmd;
 import org.apache.cloudstack.api.command.admin.storage.CancelPrimaryStorageMaintenanceCmd;
-import org.apache.cloudstack.api.command.admin.storage.CreateCacheStoreCmd;
+import org.apache.cloudstack.api.command.admin.storage.CreateSecondaryStagingStoreCmd;
 import org.apache.cloudstack.api.command.admin.storage.CreateStoragePoolCmd;
+import org.apache.cloudstack.api.command.admin.storage.DeleteSecondaryStagingStoreCmd;
 import org.apache.cloudstack.api.command.admin.storage.DeleteImageStoreCmd;
 import org.apache.cloudstack.api.command.admin.storage.DeletePoolCmd;
 import org.apache.cloudstack.api.command.admin.storage.FindStoragePoolsForMigrationCmd;
-import org.apache.cloudstack.api.command.admin.storage.ListCacheStoresCmd;
+import org.apache.cloudstack.api.command.admin.storage.ListSecondaryStagingStoresCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListImageStoresCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListS3sCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListStoragePoolsCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListStorageProvidersCmd;
 import org.apache.cloudstack.api.command.admin.storage.PreparePrimaryStorageForMaintenanceCmd;
 import org.apache.cloudstack.api.command.admin.storage.UpdateStoragePoolCmd;
-import org.apache.cloudstack.api.command.admin.systemvm.*;
+import org.apache.cloudstack.api.command.admin.systemvm.DestroySystemVmCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.ListSystemVMsCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.MigrateSystemVMCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.RebootSystemVmCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.ScaleSystemVMCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.StartSystemVMCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.StopSystemVmCmd;
+import org.apache.cloudstack.api.command.admin.systemvm.UpgradeSystemVMCmd;
 import org.apache.cloudstack.api.command.admin.template.PrepareTemplateCmd;
 import org.apache.cloudstack.api.command.admin.usage.AddTrafficMonitorCmd;
 import org.apache.cloudstack.api.command.admin.usage.AddTrafficTypeCmd;
@@ -309,8 +316,8 @@ import org.apache.cloudstack.api.command.user.region.ha.gslb.AssignToGlobalLoadB
 import org.apache.cloudstack.api.command.user.region.ha.gslb.CreateGlobalLoadBalancerRuleCmd;
 import org.apache.cloudstack.api.command.user.region.ha.gslb.DeleteGlobalLoadBalancerRuleCmd;
 import org.apache.cloudstack.api.command.user.region.ha.gslb.ListGlobalLoadBalancerRuleCmd;
-import org.apache.cloudstack.api.command.user.region.ha.gslb.UpdateGlobalLoadBalancerRuleCmd;
 import org.apache.cloudstack.api.command.user.region.ha.gslb.RemoveFromGlobalLoadBalancerRuleCmd;
+import org.apache.cloudstack.api.command.user.region.ha.gslb.UpdateGlobalLoadBalancerRuleCmd;
 import org.apache.cloudstack.api.command.user.resource.GetCloudIdentifierCmd;
 import org.apache.cloudstack.api.command.user.resource.ListHypervisorsCmd;
 import org.apache.cloudstack.api.command.user.resource.ListResourceLimitsCmd;
@@ -372,7 +379,19 @@ import org.apache.cloudstack.api.command.user.vmsnapshot.CreateVMSnapshotCmd;
 import org.apache.cloudstack.api.command.user.vmsnapshot.DeleteVMSnapshotCmd;
 import org.apache.cloudstack.api.command.user.vmsnapshot.ListVMSnapshotCmd;
 import org.apache.cloudstack.api.command.user.vmsnapshot.RevertToVMSnapshotCmd;
-import org.apache.cloudstack.api.command.user.volume.*;
+import org.apache.cloudstack.api.command.user.volume.AddResourceDetailCmd;
+import org.apache.cloudstack.api.command.user.volume.AttachVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.CreateVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.DeleteVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.DetachVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.ExtractVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.ListResourceDetailsCmd;
+import org.apache.cloudstack.api.command.user.volume.ListVolumesCmd;
+import org.apache.cloudstack.api.command.user.volume.MigrateVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.RemoveResourceDetailCmd;
+import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.UpdateVolumeCmd;
+import org.apache.cloudstack.api.command.user.volume.UploadVolumeCmd;
 import org.apache.cloudstack.api.command.user.vpc.CreateStaticRouteCmd;
 import org.apache.cloudstack.api.command.user.vpc.CreateVPCCmd;
 import org.apache.cloudstack.api.command.user.vpc.DeleteStaticRouteCmd;
@@ -401,11 +420,14 @@ import org.apache.cloudstack.api.command.user.vpn.RemoveVpnUserCmd;
 import org.apache.cloudstack.api.command.user.vpn.ResetVpnConnectionCmd;
 import org.apache.cloudstack.api.command.user.vpn.UpdateVpnCustomerGatewayCmd;
 import org.apache.cloudstack.api.command.user.zone.ListZonesByCmd;
+import org.apache.cloudstack.config.Configuration;
+import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+import org.apache.cloudstack.utils.identity.ManagementServerNode;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.GetVncPortAnswer;
@@ -416,15 +438,12 @@ import com.cloud.alert.AlertManager;
 import com.cloud.alert.AlertVO;
 import com.cloud.alert.dao.AlertDao;
 import com.cloud.api.ApiDBUtils;
-import com.cloud.async.AsyncJobManager;
 import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.capacity.dao.CapacityDaoImpl.SummedCapacity;
 import com.cloud.cluster.ClusterManager;
 import com.cloud.configuration.Config;
-import com.cloud.configuration.Configuration;
-import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.ConfigurationVO;
 import com.cloud.configuration.dao.ConfigurationDao;
 import com.cloud.consoleproxy.ConsoleProxyManagementState;
@@ -451,9 +470,17 @@ import com.cloud.deploy.DeploymentPlanningManager;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEvent;
+import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
 import com.cloud.event.EventVO;
 import com.cloud.event.dao.EventDao;
+import com.cloud.exception.ConcurrentOperationException;
+import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.exception.ManagementServerException;
+import com.cloud.exception.OperationTimedoutException;
+import com.cloud.exception.PermissionDeniedException;
+import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.exception.VirtualMachineMigrationException;
 import com.cloud.ha.HighAvailabilityManager;
 import com.cloud.host.DetailVO;
 import com.cloud.host.Host;
@@ -484,16 +511,15 @@ import com.cloud.projects.ProjectManager;
 import com.cloud.resource.ResourceManager;
 import com.cloud.server.ResourceTag.TaggedResourceType;
 import com.cloud.server.auth.UserAuthenticator;
-import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.GuestOS;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.GuestOsCategory;
 import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.Storage.TemplateType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
-import com.cloud.storage.Storage.TemplateType;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeManager;
@@ -501,13 +527,11 @@ import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
-import com.cloud.storage.dao.UploadDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.s3.S3Manager;
 import com.cloud.storage.secondary.SecondaryStorageVmManager;
 import com.cloud.storage.snapshot.SnapshotManager;
-import com.cloud.storage.upload.UploadMonitor;
 import com.cloud.tags.ResourceTagVO;
 import com.cloud.tags.dao.ResourceTagDao;
 import com.cloud.template.TemplateManager;
@@ -542,9 +566,19 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.MacAddress;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.ssh.SSHKeysHelper;
+import com.cloud.vm.ConsoleProxyVO;
+import com.cloud.vm.DiskProfile;
+import com.cloud.vm.InstanceGroupVO;
+import com.cloud.vm.SecondaryStorageVmVO;
+import com.cloud.vm.UserVmManager;
+import com.cloud.vm.UserVmVO;
+import com.cloud.vm.VMInstanceVO;
+import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
+import com.cloud.vm.VirtualMachineManager;
+import com.cloud.vm.VirtualMachineProfile;
+import com.cloud.vm.VirtualMachineProfileImpl;
 import com.cloud.vm.dao.ConsoleProxyDao;
-import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.InstanceGroupDao;
 import com.cloud.vm.dao.SecondaryStorageVmDao;
 import com.cloud.vm.dao.UserVmDao;
@@ -552,12 +586,6 @@ import com.cloud.vm.dao.VMInstanceDao;
 
 import edu.emory.mathcs.backport.java.util.Arrays;
 import edu.emory.mathcs.backport.java.util.Collections;
-
-import org.apache.cloudstack.api.command.admin.region.AddRegionCmd;
-import org.apache.cloudstack.api.command.admin.region.RemoveRegionCmd;
-import org.apache.cloudstack.api.command.admin.region.UpdateRegionCmd;
-import org.apache.cloudstack.api.command.admin.config.ListDeploymentPlannersCmd;
-import org.apache.cloudstack.context.CallContext;
 
 
 public class ManagementServerImpl extends ManagerBase implements ManagementServer {
@@ -571,8 +599,6 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     private AlertManager _alertMgr;
     @Inject
     private IPAddressDao _publicIpAddressDao;
-    @Inject
-    private DomainRouterDao _routerDao;
     @Inject
     private ConsoleProxyDao _consoleProxyDao;
     @Inject
@@ -603,8 +629,6 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     private ConsoleProxyManager _consoleProxyMgr;
     @Inject
     private SecondaryStorageVmManager _secStorageVmMgr;
-    @Inject
-    private ServiceOfferingDao _offeringsDao;
     @Inject
     private DiskOfferingDao _diskOfferingDao;
     @Inject
@@ -637,16 +661,10 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     private VMInstanceDao _vmInstanceDao;
     @Inject
     private VolumeDao _volumeDao;
-    @Inject
-    private AsyncJobManager _asyncMgr;
     private int _purgeDelay;
     private int _alertPurgeDelay;
     @Inject
     private InstanceGroupDao _vmGroupDao;
-    @Inject
-    private UploadMonitor _uploadMonitor;
-    @Inject
-    private UploadDao _uploadDao;
     @Inject
     private SSHKeyPairDao _sshKeyPairDao;
     @Inject
@@ -656,8 +674,6 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     private List<HostAllocator> _hostAllocators;
     @Inject
     private List<StoragePoolAllocator> _storagePoolAllocators;
-    @Inject
-    private ConfigurationManager _configMgr;
     @Inject
     private ResourceTagDao _resourceTagDao;
 
@@ -725,19 +741,19 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         return _affinityProcessors;
     }
     public void setAffinityGroupProcessors(List<AffinityGroupProcessor> affinityProcessors) {
-        this._affinityProcessors = affinityProcessors;
+        _affinityProcessors = affinityProcessors;
     }
 
     public ManagementServerImpl() {
-    	setRunLevel(ComponentLifecycle.RUN_LEVEL_APPLICATION_MAINLOOP);
+        setRunLevel(ComponentLifecycle.RUN_LEVEL_APPLICATION_MAINLOOP);
     }
 
     public List<UserAuthenticator> getUserAuthenticators() {
-    	return _userAuthenticators;
+        return _userAuthenticators;
     }
 
     public void setUserAuthenticators(List<UserAuthenticator> authenticators) {
-    	_userAuthenticators = authenticators;
+        _userAuthenticators = authenticators;
     }
 
     public List<UserAuthenticator> getUserPasswordEncoders() {
@@ -749,18 +765,18 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     }
 
     public List<HostAllocator> getHostAllocators() {
-		return _hostAllocators;
-	}
+        return _hostAllocators;
+    }
 
-	public void setHostAllocators(List<HostAllocator> _hostAllocators) {
-		this._hostAllocators = _hostAllocators;
-	}
+    public void setHostAllocators(List<HostAllocator> _hostAllocators) {
+        this._hostAllocators = _hostAllocators;
+    }
 
-	@Override
-	public boolean configure(String name, Map<String, Object> params)
-			throws ConfigurationException {
+    @Override
+    public boolean configure(String name, Map<String, Object> params)
+            throws ConfigurationException {
 
-		_configs = _configDao.getConfiguration();
+        _configs = _configDao.getConfiguration();
 
         String value = _configs.get("event.purge.interval");
         int cleanup = NumbersUtil.parseInt(value, 60 * 60 * 24); // 1 day.
@@ -785,12 +801,14 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             _availableIdsMap.put(id, true);
         }
 
-		return true;
-	}
+        return true;
+    }
 
-	@Override
+    @Override
     public boolean start() {
         s_logger.info("Startup CloudStack management server...");
+
+        _clusterMgr.registerListener(new LockMasterListener(ManagementServerNode.getManagementServerId()));
 
         enableAdminUser("password");
         return true;
@@ -890,7 +908,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             return result;
         }
         for (EventVO event : events) {
-        _eventDao.remove(event.getId());
+            _eventDao.remove(event.getId());
         }
         return result;
     }
@@ -920,7 +938,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
 
     @Override
     public Pair<List<? extends Cluster>, Integer> searchForClusters(ListClustersCmd cmd) {
-    	Object id = cmd.getId();
+        Object id = cmd.getId();
         Object name = cmd.getClusterName();
         Object podId = cmd.getPodId();
         Long zoneId = cmd.getZoneId();
@@ -931,7 +949,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), zoneId);
 
 
-    	Filter searchFilter = new Filter(ClusterVO.class, "id", true, cmd.getStartIndex(), cmd.getPageSizeVal());
+        Filter searchFilter = new Filter(ClusterVO.class, "id", true, cmd.getStartIndex(), cmd.getPageSizeVal());
 
         SearchBuilder<ClusterVO> sb = _clusterDao.createSearchBuilder();
         sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
@@ -1003,7 +1021,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
 
     @Override
     public Ternary<Pair<List<? extends Host>, Integer>, List<? extends Host>, Map<Host, Boolean>>
-            listHostsForMigrationOfVM(Long vmId, Long startIndex, Long pageSize) {
+    listHostsForMigrationOfVM(Long vmId, Long startIndex, Long pageSize) {
         // access check - only root admin can migrate VM
         Account caller = CallContext.current().getCallingAccount();
         if (caller.getType() != Account.ACCOUNT_TYPE_ADMIN) {
@@ -1060,7 +1078,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         }
 
         // Check if the vm is using any disks on local storage.
-        VirtualMachineProfile<VMInstanceVO> vmProfile = new VirtualMachineProfileImpl<VMInstanceVO>(vm);
+        VirtualMachineProfile vmProfile = new VirtualMachineProfileImpl(vm);
         List<VolumeVO> volumes = _volumeDao.findCreatedByInstance(vmProfile.getId());
         boolean usesLocal = false;
         for (VolumeVO volume : volumes) {
@@ -1156,7 +1174,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
                 suitableHosts, requiresStorageMotion);
     }
 
-    private Map<Volume, List<StoragePool>> findSuitablePoolsForVolumes(VirtualMachineProfile<VMInstanceVO> vmProfile,
+    private Map<Volume, List<StoragePool>> findSuitablePoolsForVolumes(VirtualMachineProfile vmProfile,
             Host host) {
         List<VolumeVO> volumes = _volumeDao.findCreatedByInstance(vmProfile.getId());
         Map<Volume, List<StoragePool>> suitableVolumeStoragePools = new HashMap<Volume, List<StoragePool>>();
@@ -1272,7 +1290,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             storagePools.remove(srcVolumePool);
             for (StoragePoolVO pool : storagePools) {
                 if (pool.isShared()) {
-                    allPools.add((StoragePool)this.dataStoreMgr.getPrimaryDataStore(pool.getId()));
+                    allPools.add((StoragePool)dataStoreMgr.getPrimaryDataStore(pool.getId()));
                 }
             }
 
@@ -1284,7 +1302,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             // Volume stays in the same cluster after migration.
             DataCenterDeployment plan = new DataCenterDeployment(volume.getDataCenterId(), srcVolumePool.getPodId(),
                     srcVolumePool.getClusterId(), null, null, null);
-            VirtualMachineProfile<VMInstanceVO> profile = new VirtualMachineProfileImpl<VMInstanceVO>(vm);
+            VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
 
             DiskOfferingVO diskOffering = _diskOfferingDao.findById(volume.getDiskOfferingId());
             DiskProfile diskProfile = new DiskProfile(volume, diskOffering, profile.getHypervisorType());
@@ -1394,7 +1412,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), zoneId);
 
 
-    	Filter searchFilter = new Filter(HostPodVO.class, "dataCenterId", true, cmd.getStartIndex(), cmd.getPageSizeVal());
+        Filter searchFilter = new Filter(HostPodVO.class, "dataCenterId", true, cmd.getStartIndex(), cmd.getPageSizeVal());
         SearchBuilder<HostPodVO> sb = _hostPodDao.createSearchBuilder();
         sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
         sb.and("name", sb.entity().getName(), SearchCriteria.Op.LIKE);
@@ -1736,7 +1754,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
 
         return templateZonePairSet;
     }
-*/
+     */
 
     private VMTemplateVO updateTemplateOrIso(BaseUpdateTemplateOrIsoCmd cmd) {
         Long id = cmd.getId();
@@ -2060,12 +2078,8 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     private ConsoleProxyVO stopConsoleProxy(VMInstanceVO systemVm, boolean isForced) throws ResourceUnavailableException, OperationTimedoutException,
     ConcurrentOperationException {
 
-        User caller = _userDao.findById(CallContext.current().getCallingUserId());
-
-        if (_itMgr.advanceStop(systemVm, isForced, caller, CallContext.current().getCallingAccount())) {
-            return _consoleProxyDao.findById(systemVm.getId());
-        }
-        return null;
+        _itMgr.advanceStop(systemVm.getUuid(), isForced);
+        return _consoleProxyDao.findById(systemVm.getId());
     }
 
     @ActionEvent(eventType = EventTypes.EVENT_PROXY_REBOOT, eventDescription = "rebooting console proxy Vm", async = true)
@@ -2278,24 +2292,23 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             if (summedCapacitiesAtZone != null) {
                 summedCapacities.addAll(summedCapacitiesAtZone);
             }
-        }
-        if (podId == null) {// Group by Pod, capacity type
+        } else if (podId == null) {// Group by Pod, capacity type
             List<SummedCapacity> summedCapacitiesAtPod = _capacityDao.listCapacitiesGroupedByLevelAndType(capacityType, zoneId, podId, clusterId, 2,
                     cmd.getPageSizeVal());
             if (summedCapacitiesAtPod != null) {
                 summedCapacities.addAll(summedCapacitiesAtPod);
             }
-            List<SummedCapacity> summedCapacitiesForSecStorage = getSecStorageUsed(zoneId, capacityType);
-            if (summedCapacitiesForSecStorage != null) {
-                summedCapacities.addAll(summedCapacitiesForSecStorage);
+        } else { // Group by Cluster, capacity type
+            List<SummedCapacity> summedCapacitiesAtCluster = _capacityDao.listCapacitiesGroupedByLevelAndType(
+                    capacityType, zoneId, podId, clusterId, 3, cmd.getPageSizeVal());
+            if (summedCapacitiesAtCluster != null) {
+                summedCapacities.addAll(summedCapacitiesAtCluster);
             }
         }
 
-        // Group by Cluster, capacity type
-        List<SummedCapacity> summedCapacitiesAtCluster = _capacityDao.listCapacitiesGroupedByLevelAndType(capacityType, zoneId, podId, clusterId, 3,
-                cmd.getPageSizeVal());
-        if (summedCapacitiesAtCluster != null) {
-            summedCapacities.addAll(summedCapacitiesAtCluster);
+        List<SummedCapacity> summedCapacitiesForSecStorage = getSecStorageUsed(zoneId, capacityType);
+        if (summedCapacitiesForSecStorage != null) {
+            summedCapacities.addAll(summedCapacitiesForSecStorage);
         }
 
         // Sort Capacities
@@ -2784,8 +2797,9 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         cmdList.add(AddImageStoreCmd.class);
         cmdList.add(ListImageStoresCmd.class);
         cmdList.add(DeleteImageStoreCmd.class);
-        cmdList.add(CreateCacheStoreCmd.class);
-        cmdList.add(ListCacheStoresCmd.class);
+        cmdList.add(CreateSecondaryStagingStoreCmd.class);
+        cmdList.add(ListSecondaryStagingStoresCmd.class);
+        cmdList.add(DeleteSecondaryStagingStoreCmd.class);
         cmdList.add(CreateApplicationLoadBalancerCmd.class);
         cmdList.add(ListApplicationLoadBalancersCmd.class);
         cmdList.add(DeleteApplicationLoadBalancerCmd.class);
@@ -2949,12 +2963,8 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     private SecondaryStorageVmVO stopSecondaryStorageVm(VMInstanceVO systemVm, boolean isForced) throws ResourceUnavailableException,
     OperationTimedoutException, ConcurrentOperationException {
 
-        User caller = _userDao.findById(CallContext.current().getCallingUserId());
-
-        if (_itMgr.advanceStop(systemVm, isForced, caller, CallContext.current().getCallingAccount())) {
-            return _secStorageVmDao.findById(systemVm.getId());
-        }
-        return null;
+        _itMgr.advanceStop(systemVm.getUuid(), isForced);
+        return _secStorageVmDao.findById(systemVm.getId());
     }
 
     @ActionEvent(eventType = EventTypes.EVENT_SSVM_REBOOT, eventDescription = "rebooting secondary storage Vm", async = true)
@@ -3207,8 +3217,9 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             elasticLoadBalancerEnabled = elbEnabled == null ? false : Boolean.parseBoolean(elbEnabled);
             if (elasticLoadBalancerEnabled) {
                 String networkType = _configDao.getValue(Config.ElasticLoadBalancerNetwork.key());
-                if (networkType != null)
+                if (networkType != null) {
                     supportELB = networkType;
+                }
             }
         }
 
@@ -3314,10 +3325,12 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         String certificate = cmd.getCertificate();
         String key = cmd.getPrivateKey();
         try {
-            if (certificate != null)
+            if (certificate != null) {
                 certificate = URLDecoder.decode(certificate, "UTF-8");
-            if (key != null)
+            }
+            if (key != null) {
                 key = URLDecoder.decode(key, "UTF-8");
+            }
         } catch (UnsupportedEncodingException e) {
         } finally {
         }
@@ -3334,8 +3347,9 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
 
         _consoleProxyMgr.setManagementState(ConsoleProxyManagementState.ResetSuspending);
         List<SecondaryStorageVmVO> alreadyRunning = _secStorageVmDao.getSecStorageVmListInStates(null, State.Running, State.Migrating, State.Starting);
-        for (SecondaryStorageVmVO ssVmVm : alreadyRunning)
+        for (SecondaryStorageVmVO ssVmVm : alreadyRunning) {
             _secStorageVmMgr.rebootSecStorageVm(ssVmVm.getId());
+        }
         return "Certificate has been updated, we will stop all running console proxy VMs and secondary storage VMs to propagate the new certificate, please give a few minutes for console access service to be up again";
     }
 
@@ -3380,7 +3394,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
         // give us the same key
         if (_hashKey == null) {
             _hashKey = _configDao.getValueAndInitIfNotExist(Config.HashKey.key(), Config.HashKey.getCategory(),
-            	getBase64EncodedRandomKey(128));
+                    getBase64EncodedRandomKey(128));
         }
         return _hashKey;
     }
@@ -3389,8 +3403,8 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     public String getEncryptionKey() {
         if (_encryptionKey == null) {
             _encryptionKey = _configDao.getValueAndInitIfNotExist(Config.EncryptionKey.key(),
-            	Config.EncryptionKey.getCategory(),
-            	getBase64EncodedRandomKey(128));
+                    Config.EncryptionKey.getCategory(),
+                    getBase64EncodedRandomKey(128));
         }
         return _encryptionKey;
     }
@@ -3399,8 +3413,8 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     public String getEncryptionIV() {
         if (_encryptionIV == null) {
             _encryptionIV = _configDao.getValueAndInitIfNotExist(Config.EncryptionIV.key(),
-            	Config.EncryptionIV.getCategory(),
-            	getBase64EncodedRandomKey(128));
+                    Config.EncryptionIV.getCategory(),
+                    getBase64EncodedRandomKey(128));
         }
         return _encryptionIV;
     }
@@ -3409,18 +3423,18 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     @DB
     public void resetEncryptionKeyIV() {
 
-    	SearchBuilder<ConfigurationVO> sb = _configDao.createSearchBuilder();
-    	sb.and("name1", sb.entity().getName(), SearchCriteria.Op.EQ);
-    	sb.or("name2", sb.entity().getName(), SearchCriteria.Op.EQ);
-    	sb.done();
+        SearchBuilder<ConfigurationVO> sb = _configDao.createSearchBuilder();
+        sb.and("name1", sb.entity().getName(), SearchCriteria.Op.EQ);
+        sb.or("name2", sb.entity().getName(), SearchCriteria.Op.EQ);
+        sb.done();
 
-    	SearchCriteria<ConfigurationVO> sc = sb.create();
-    	sc.setParameters("name1", Config.EncryptionKey.key());
-    	sc.setParameters("name2", Config.EncryptionIV.key());
+        SearchCriteria<ConfigurationVO> sc = sb.create();
+        sc.setParameters("name1", Config.EncryptionKey.key());
+        sc.setParameters("name2", Config.EncryptionIV.key());
 
-    	_configDao.expunge(sc);
-    	_encryptionKey = null;
-    	_encryptionIV = null;
+        _configDao.expunge(sc);
+        _encryptionKey = null;
+        _encryptionIV = null;
     }
 
     @Override
@@ -3429,16 +3443,16 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     }
 
     private static String getBase64EncodedRandomKey(int nBits) {
-		SecureRandom random;
-		try {
-			random = SecureRandom.getInstance("SHA1PRNG");
-	        byte[] keyBytes = new byte[nBits/8];
-	        random.nextBytes(keyBytes);
-	        return Base64.encodeBase64URLSafeString(keyBytes);
-		} catch (NoSuchAlgorithmException e) {
-			s_logger.error("Unhandled exception: ", e);
-		}
-		return null;
+        SecureRandom random;
+        try {
+            random = SecureRandom.getInstance("SHA1PRNG");
+            byte[] keyBytes = new byte[nBits/8];
+            random.nextBytes(keyBytes);
+            return Base64.encodeBase64URLSafeString(keyBytes);
+        } catch (NoSuchAlgorithmException e) {
+            s_logger.error("Unhandled exception: ", e);
+        }
+        return null;
     }
 
     @Override
@@ -3722,6 +3736,10 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     @Override
     public VirtualMachine upgradeSystemVM(ScaleSystemVMCmd cmd) throws ResourceUnavailableException, ManagementServerException, VirtualMachineMigrationException, ConcurrentOperationException {
 
+        VMInstanceVO vmInstance = _vmInstanceDao.findById(cmd.getId());
+        if (vmInstance.getHypervisorType() == HypervisorType.XenServer && vmInstance.getState().equals(State.Running)) {
+            throw new InvalidParameterValueException("Dynamic Scaling operation is not permitted for this hypervisor on system vm");
+        }
         boolean result = _userVmMgr.upgradeVirtualMachine(cmd.getId(), cmd.getServiceOfferingId());
         if(result){
             VirtualMachine vm = _vmInstanceDao.findById(cmd.getId());

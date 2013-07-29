@@ -854,6 +854,8 @@
                     $loading.prependTo($multi);
                     reorder.moveDrag.action({
                         targetIndex: ui.item.index(),
+                        nextItem: ui.item.next().size() ? ui.item.next().data('json-obj') : null,
+                        prevItem: ui.item.prev().size() ? ui.item.prev().data('json-obj') : null,
                         context: $.extend(true, {}, context, {
                             // Passes all rules, so that each index can be updated
                             multiRule: [ui.item.data('json-obj')]
@@ -918,6 +920,7 @@
 
                     $(field.range).each(function() { //e.g. field.range = ['privateport', 'privateendport'];
                         var $input = $('<input>')
+                            .addClass('disallowSpecialCharacters')
                             .attr({
                                 name: this,
                                 type: 'text'
@@ -941,7 +944,8 @@
                             name: fieldName,
                             type: field.isPassword ? 'password' : 'text'
                         })
-                        .addClass(!field.isOptional ? 'required' : null)
+                            .addClass(!field.isOptional ? 'required' : null)
+                            .addClass('disallowSpecialCharacters')
                         .attr('disabled', field.isDisabled ? 'disabled' : false)
                         .appendTo($td);
 

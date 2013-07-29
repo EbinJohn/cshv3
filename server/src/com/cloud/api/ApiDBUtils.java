@@ -223,6 +223,7 @@ import com.cloud.server.StatsCollector;
 import com.cloud.server.TaggedResourceService;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
+import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.GuestOS;
 import com.cloud.storage.GuestOSCategoryVO;
@@ -404,6 +405,7 @@ public class ApiDBUtils {
     static AffinityGroupJoinDao _affinityGroupJoinDao;
     static GlobalLoadBalancingRulesService _gslbService;
     static NetworkACLDao _networkACLDao;
+    static ServiceOfferingDetailsDao _serviceOfferingDetailsDao;
 
     @Inject private ManagementServer ms;
     @Inject public AsyncJobManager asyncMgr;
@@ -513,6 +515,7 @@ public class ApiDBUtils {
     @Inject private AffinityGroupJoinDao affinityGroupJoinDao;
     @Inject private GlobalLoadBalancingRulesService gslbService;
     @Inject private NetworkACLDao networkACLDao;
+    @Inject private ServiceOfferingDetailsDao serviceOfferingDetailsDao;
 
     @PostConstruct
     void init() {
@@ -622,6 +625,7 @@ public class ApiDBUtils {
         // Note: stats collector should already have been initialized by this time, otherwise a null instance is returned
         _statsCollector = StatsCollector.getInstance();
         _networkACLDao = networkACLDao;
+        _serviceOfferingDetailsDao = serviceOfferingDetailsDao;
     }
 
     // ///////////////////////////////////////////////////////////
@@ -783,8 +787,13 @@ public class ApiDBUtils {
         return _clusterDao.findById(clusterId);
     }
 
-    public static ClusterDetailsVO findClusterDetails(long clusterId, String name){
-         return _clusterDetailsDao.findDetail(clusterId,name);
+    public static String findClusterDetails(long clusterId, String name){
+        ClusterDetailsVO detailsVO = _clusterDetailsDao.findDetail(clusterId,name);
+        if (detailsVO != null) {
+            return detailsVO.getValue();
+        }
+
+        return null;
     }
 
     public static DiskOfferingVO findDiskOfferingById(Long diskOfferingId) {
@@ -1678,5 +1687,10 @@ public class ApiDBUtils {
     public static String getDnsNameConfiguredForGslb() {
         String providerDnsName = _configDao.getValue(Config.CloudDnsName.key());
         return providerDnsName;
+    }
+    
+    public static Map<String, String> getServiceOfferingDetails(long serviceOfferingId) {
+        Map<String, String> details = _serviceOfferingDetailsDao.findDetails(serviceOfferingId);
+        return details.isEmpty() ? null : details;
     }
 }

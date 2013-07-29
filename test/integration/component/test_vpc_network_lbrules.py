@@ -42,6 +42,7 @@ from marvin.integration.lib.common import (get_domain,
                                         get_template,
                                         cleanup_resources,
                                         list_routers)
+import socket
 
 class Services:
     """Test VPC network services Load Balancing Rules Test data
@@ -179,6 +180,9 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     @classmethod
     def setUpClass(cls):
+        # We want to fail quicker if it's failure
+        socket.setdefaulttimeout(60)
+
         cls.api_client = super(
                             TestVPCNetworkLBRules,
                             cls
@@ -221,14 +225,14 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
                                     admin=True,
                                     domainid=self.domain.id
                                     )
-        self._cleanup = [self.account]
+        self.cleanup = [self.account]
         self.debug("Creating a VPC offering..")
         self.vpc_off = VpcOffering.create(
                                     self.apiclient,
                                     self.services["vpc_offering"]
                                     )
 
-        self._cleanup.append(self.vpc_off)
+        self.cleanup.append(self.vpc_off)
         self.debug("Enabling the VPC offering created")
         self.vpc_off.update(self.apiclient, state='Enabled')
 
@@ -247,7 +251,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
     def tearDown(self):
         try:
             #Clean up, terminate the created network offerings
-            cleanup_resources(self.apiclient, self._cleanup)
+            cleanup_resources(self.apiclient, self.cleanup)
         except Exception as e:
             self.debug("Warning: Exception during cleanup : %s" % e)
             #raise Exception("Warning: Exception during cleanup : %s" % e)
@@ -294,6 +298,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     def start_VPC_VRouter(self, router):
         # Start the VPC Router
+        self.debug("Starting router ID: %s" % router.id)
         cmd = startRouter.startRouterCmd()
         cmd.id = router.id
         self.apiclient.startRouter(cmd)
@@ -400,7 +405,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
                                     self.services["vpc_offering"]
                                     )
 
-        self._cleanup.append(vpc_off)
+        self.cleanup.append(vpc_off)
         self.debug("Enabling the VPC offering created")
         vpc_off.update(self.apiclient, state='Enabled')
 
@@ -426,7 +431,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
                                         )
             # Enable Network offering
             nw_off.update(self.apiclient, state='Enabled')
-            self._cleanup.append(nw_off)
+            self.cleanup.append(nw_off)
             self.debug('Created and Enabled NetworkOffering')
 
             self.services["network"]["name"] = "NETWORK-" + str(gateway)
@@ -586,7 +591,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     @attr(tags=["advanced", "intervlan"])
     def test_03_VPC_CreateLBRuleInMultipleNetworks(self):
-        """ Test case no 212 : Create LB rules for 1 network which is part of a two/multiple virtual networks of a
+        """ Test Create LB rules for 1 network which is part of a two/multiple virtual networks of a
             VPC using a new Public IP Address available with the VPC when the Virtual Router is in Running State
         """
 
@@ -665,13 +670,13 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
         self.debug('lb_rule_http=%s' % lb_rule_http.__dict__)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
-        lb_rule_nat.delete()
+        lb_rule_nat.delete(self.apiclient)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         return
 
     @attr(tags=["advanced", "intervlan"])
     def test_06_VPC_CreateAndDeleteLBRuleVRStopppedState(self):
-        """ Test case no 224 : Delete few(not all) LB rules for a single virtual network of 
+        """ Test Delete few(not all) LB rules for a single virtual network of
             a VPC belonging to a single Public IP Address when the Virtual Router is in Stopped State
         """
 
@@ -696,13 +701,13 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
         self.debug('lb_rule_http=%s' % lb_rule_http.__dict__)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
-        lb_rule_nat.delete()
+        lb_rule_nat.delete(self.apiclient)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         return    
 
     @attr(tags=["advanced", "intervlan"])
     def test_07_VPC_CreateAndDeleteAllLBRule(self):
-        """ Test case no 215 : Delete all LB rules for a single virtual network of a
+        """ Test Delete all LB rules for a single virtual network of a
             VPC belonging to a single Public IP Address when the Virtual Router is in Running State
         """
 
@@ -727,15 +732,15 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
         self.debug('lb_rule_http=%s' % lb_rule_http.__dict__)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
-        lb_rule_nat.delete()
-        lb_rule_http.delete()
+        lb_rule_nat.delete(self.apiclient)
+        lb_rule_http.delete(self.apiclient)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         return
 
     @attr(tags=["advanced", "intervlan"])
     def test_08_VPC_CreateAndDeleteAllLBRuleVRStoppedState(self):
-        """ Test case no 225 and 226 : Delete all LB rules for a single virtual network of a 
+        """ Test Delete all LB rules for a single virtual network of a
             VPC belonging to a single Public IP Address when the Virtual Router is in Stopped State
         """
 
@@ -760,15 +765,15 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
         self.debug('lb_rule_http=%s' % lb_rule_http.__dict__)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
-        lb_rule_nat.delete()
-        lb_rule_http.delete()
+        lb_rule_nat.delete(self.apiclient)
+        lb_rule_http.delete(self.apiclient)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         return
     
     @attr(tags=["advanced", "intervlan"])
     def test_09_VPC_LBRuleCreateFailMultipleVPC(self):
-        """ Test case no 234 : User should not be allowed to create a LB rule for a VM that belongs to a different VPC.
+        """ Test User should not be allowed to create a LB rule for a VM that belongs to a different VPC.
         """
 
         # Validate the following
@@ -806,7 +811,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     @attr(tags=["advanced", "intervlan"])
     def test_10_VPC_FailedToCreateLBRuleNonVPCNetwork(self):
-        """ Test case no 216 and 235: User should not be allowed to create a LB rule for a VM that does not belong to any VPC.
+        """ Test User should not be allowed to create a LB rule for a VM that does not belong to any VPC.
         """
 
         # Validate the following
@@ -881,7 +886,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     @attr(tags=["advanced", "intervlan"])
     def test_12_VPC_LBRuleCreateFailForRouterIP(self):
-        """ Test case no 218 and 237: User should not be allowed to create a LB rule on an Ipaddress that Source Nat enabled.
+        """ Test User should not be allowed to create a LB rule on an Ipaddress that Source Nat enabled.
         """
 
         # Validate the following
@@ -909,7 +914,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     @attr(tags=["advanced", "intervlan"])
     def test_13_VPC_LBRuleCreateFailForPFSourceNATIP(self):
-        """ Test case no 219 : User should not be allowed to create a LB rule on an Ipaddress that already has a PF rule.
+        """ Test User should not be allowed to create a LB rule on an Ipaddress that already has a PF rule.
         """
 
         # Validate the following
@@ -939,7 +944,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
 
     @attr(tags=["advanced", "intervlan"])
     def test_14_VPC_LBRuleCreateFailForStaticNatRule(self):
-        """ Test case no 220 : User should not be allowed to create a LB rule on an Ipaddress that already has a Static Nat rule.
+        """ Test User should not be allowed to create a LB rule on an Ipaddress that already has a Static Nat rule.
         """
 
         # Validate the following
@@ -968,8 +973,8 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
         return
 
     @attr(tags=["advanced", "intervlan"])
-    def test_15_VPC_RleaseIPForLBRuleCreated(self):
-        """ Test case no 221 : Release Ip address that has a LB rule assigned to it.
+    def test_15_VPC_ReleaseIPForLBRuleCreated(self):
+        """ Test release Ip address that has a LB rule assigned to it.
         """
 
         # Validate the following
@@ -988,7 +993,7 @@ class TestVPCNetworkLBRules(cloudstackTestCase):
         vm_2 = self.create_VM_in_Network(network_1)
         public_ip_1 = self.acquire_Public_IP(network_1)
         lb_rule = self.create_LB_Rule(public_ip_1, network_1, [vm_2, vm_1])
-        public_ip_1.delete()
+        public_ip_1.delete(self.apiclient)
         lb_rules = LoadBalancerRule.list(self.apiclient,
                                         id=lb_rule.id,
                                         listall=True

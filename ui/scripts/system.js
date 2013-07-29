@@ -6005,6 +6005,7 @@
                                 actions: {
                                     addVmwareDc: {
                                         label: 'Add VMware datacenter',
+                                        textLabel: 'Add VMware datacenter',
                                         messages: {
                                             notification: function(args) {
                                                 return 'Add VMware datacenter';
@@ -6061,6 +6062,7 @@
                                             $.ajax({
                                                 url: createURL('addVmwareDc'),
                                                 data: data,
+                                                type: "POST",
                                                 success: function(json) {
                                                     //var item = json.addvmwaredcresponse.vmwaredc;
                                                     args.response.success();
@@ -6473,7 +6475,7 @@
                                                     });
 
                                                     $.ajax({
-                                                        url: createURL('listVmwareDcs'),
+                                                        url: createURL('listVmwareDcs'), //listVmwareDcs API exists in only non-oss bild
                                                         data: {
                                                             zoneid: args.context.physicalResources[0].id
                                                         },
@@ -6485,15 +6487,16 @@
                                                                 selectedZoneObj.vmwaredcVcenter = vmwaredcs[0].vcenter;
                                                                 selectedZoneObj.vmwaredcId = vmwaredcs[0].id;
                                                             }
-                                                        }
+                                                        },
+                                                        error: function(XMLHttpResponse) {} //override default error handling: cloudStack.dialog.notice({ message: parseXMLHttpResponse(XMLHttpResponse)});   
                                                     });
 
                                                     // for testing only (begin)
                                                     /*
-                          selectedZoneObj.vmwaredcName = "datacenter";
-                          selectedZoneObj.vmwaredcVcenter = "10.10.20.20";
-                          selectedZoneObj.vmwaredcId = "c3c2562d-65e9-4fc7-92e2-773c2efe8f37";
-                          */
+						                            selectedZoneObj.vmwaredcName = "datacenter";
+						                            selectedZoneObj.vmwaredcVcenter = "10.10.20.20";
+						                            selectedZoneObj.vmwaredcId = "c3c2562d-65e9-4fc7-92e2-773c2efe8f37";
+						                            */
                                                     // for testing only (end)
 
                                                     args.response.success({
@@ -7368,11 +7371,11 @@
                                                     };
 
                                                     $.ajax({
-                                                        url: createURL('listCacheStores' + searchByArgs),
+                                                        url: createURL('listSecondaryStagingStores' + searchByArgs),
                                                         data: data,
                                                         success: function(json) {
                                                             args.response.success({
-                                                                data: json.listcachestoreresponse.imagestore
+                                                                data: json.listsecondarystagingstoreresponse.imagestore
                                                             });
                                                         },
                                                         error: function(json) {
@@ -7414,34 +7417,29 @@
                                             listAll: true
                                         },
                                         success: function(json) {
-                                            var items = json.listsystemvmsresponse.systemvm;
-                                            if (items != null) {
+                                            var systemvmObjs = json.listsystemvmsresponse.systemvm;
+                                            if (systemvmObjs != null) {
                                                 $.ajax({
-                                                    url: createURL("listHosts&listAll=true"),
-                                                    async: false,
+                                                    url: createURL("listHosts&listAll=true"),                                                    
                                                     success: function(json) {
-
-                                                        var hostObj = json.listhostsresponse.host;
-
-                                                        $(hostObj).each(function(index) {
-
-                                                            $.extend(items[index], {
-                                                                agentstate: hostObj[index].state
-                                                            });
-
-                                                        });
+                                                        var hostObjs = json.listhostsresponse.host;
+                                                        for (var i = 0; i < systemvmObjs.length; i++) {
+                                                        	for (var k = 0; k < hostObjs.length; k++) {
+                                                        		if (hostObjs[k].name == systemvmObjs[i].name) {
+                                                        			systemvmObjs[i].agentstate = hostObjs[k].state;
+                                                        			break;
+                                                        		}
+                                                        	}
+                                                        }    
                                                         args.response.success({
-                                                            data: items
+                                                            data: systemvmObjs
                                                         });
                                                     },
                                                     error: function(json) {
                                                         args.response.error(parseXMLHttpResponse(json));
-
                                                     }
                                                 });
                                             }
-
-                                            // args.response.success({ data: json.listsystemvmsresponse.systemvm });
                                         },
                                         error: function(json) {
                                             args.response.error(parseXMLHttpResponse(json));
@@ -10120,7 +10118,9 @@
                                                                 jobId: jid
                                                             },
                                                             notification: {
-                                                                poll: pollAsyncJobResult
+                                                                poll: pollAsyncJobResult,
+                                                                interval: 4500,
+                                                                desc: "Dedicate Pod"    
                                                             },
 
                                                             data: item
@@ -10135,12 +10135,10 @@
                                                 });
 
                                             }
-                                        } else {
-                                            args.response.success({
-                                                data: item
-                                            });
                                         }
-
+                                        args.response.success({
+                                            data: item
+                                        });
                                     },
                                     error: function(XMLHttpResponse) {
                                         var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -10836,19 +10834,6 @@
                                         }
                                     },
 
-                                    cpuovercommit: {
-                                        label: 'CPU overcommit ratio',
-                                        defaultValue: '1'
-
-                                    },
-
-                                    memoryovercommit: {
-                                        label: 'RAM overcommit ratio',
-                                        defaultValue: '1'
-
-                                    },
-
-
                                     isDedicated: {
                                         label: 'Dedicate',
                                         isBoolean: true,
@@ -11129,15 +11114,6 @@
 
                                 var clusterName = args.data.name;
 
-                                if (args.data.cpuovercommit != "" && args.data.cpuovercommit > 0) {
-
-                                    array1.push("&cpuovercommitratio=" + todb(args.data.cpuovercommit));
-
-                                }
-
-                                if (args.data.memoryovercommit != "" && args.data.memoryovercommit > 0)
-                                    array1.push("&memoryovercommitratio=" + todb(args.data.memoryovercommit));
-
                                 if (args.data.hypervisor == "VMware") {
                                     array1.push("&username=" + todb(args.data.vCenterUsername));
                                     array1.push("&password=" + todb(args.data.vCenterPassword));
@@ -11198,7 +11174,7 @@
                                 $.ajax({
                                     url: createURL("addCluster" + array1.join("")),
                                     dataType: "json",
-                                    async: true,
+                                    type: "POST",                                    
                                     success: function(json) {
                                         var item = json.addclusterresponse.cluster[0];
                                         clusterId = json.addclusterresponse.cluster[0].id;
@@ -11220,7 +11196,9 @@
                                                                 jobId: jid
                                                             },
                                                             notification: {
-                                                                poll: pollAsyncJobResult
+                                                                poll: pollAsyncJobResult,
+                                                                interval: 4500,
+                                                                desc: "Dedicate Cluster"
                                                             },
 
                                                             data: $.extend(item, {
@@ -11234,11 +11212,10 @@
                                                     }
                                                 });
                                             }
-                                        } else {
-                                            args.response.success({
-                                                data: item
-                                            });
                                         }
+                                        args.response.success({
+                                            data: item
+                                        });
                                     },
                                     error: function(XMLHttpResponse) {
                                         var errorMsg = parseXMLHttpResponse(XMLHttpResponse);
@@ -11293,21 +11270,12 @@
                                 action: function(args) {
                                     var array1 = [];
 
-                                    if (args.data.cpuovercommitratio != "" && args.data.cpuovercommitratio > 0)
-                                        array1.push("&cpuovercommitratio=" + args.data.cpuovercommitratio);
-
-                                    if (args.data.memoryovercommitratio != "" && args.data.memoryovercommitratio > 0)
-                                        array1.push("&memoryovercommitratio=" + args.data.memoryovercommitratio);
-
                                     $.ajax({
-
                                         url: createURL("updateCluster&id=" + args.context.clusters[0].id + array1.join("")),
                                         dataType: "json",
                                         async: true,
                                         success: function(json) {
                                             var item = json.updateclusterresponse.cluster;
-                                            args.context.clusters[0].cpuovercommitratio = item.cpuovercommitratio;
-                                            args.context.clusters[0].memoryovercommitratio = item.memoryovercommitratio;
                                             addExtraPropertiesToClusterObject(item);
                                             args.response.success({
                                                 actionFilter: clusterActionfilter,
@@ -11615,14 +11583,6 @@
                                         },
                                         clustertype: {
                                             label: 'label.cluster.type'
-                                        },
-                                        cpuovercommitratio: {
-                                            label: 'CPU overcommit Ratio',
-                                            isEditable: true
-                                        },
-                                        memoryovercommitratio: {
-                                            label: 'Memory overcommit Ratio',
-                                            isEditable: true
                                         },
                                         //allocationstate: { label: 'label.allocation.state' },
                                         //managedstate: { label: 'Managed State' },
@@ -12452,7 +12412,9 @@
                                                                 jobId: jid
                                                             },
                                                             notification: {
-                                                                poll: pollAsyncJobResult
+                                                                poll: pollAsyncJobResult,
+                                                                interval: 4500,
+                                                                desc: "Dedicate Host"
                                                             },
 
                                                             data: item
@@ -12466,12 +12428,10 @@
                                                     }
                                                 });
                                             }
-                                        } else {
-                                            args.response.success({
-                                                data: item
-                                            });
                                         }
-
+                                        args.response.success({
+                                            data: item
+                                        });
                                     },
 
                                     error: function(XMLHttpResponse) {
@@ -14121,30 +14081,36 @@
                             label: 'label.url'
                         }
                     },
-                    dataProvider: function(args) {
-                        /*
-            $.ajax({
-              url: createURL('listUcsManager'),
-              data: {
-                zoneid: args.context.physicalResources[0].id
-              },
-              success: function(json) {
-
-              }
-            });
-            */
-
-                        args.response.success({
-                            data: [{
-                                id: '11',
-                                name: 'UCS Manager 1',
-                                url: '10.196.72.1'
-                            }, {
-                                id: '11',
-                                name: 'UCS Manager 2',
-                                url: '10.196.72.2'
-                            }]
-                        });
+                    dataProvider: function(args) {                       
+			            $.ajax({
+			              url: createURL('listUcsManagers'),
+			              data: {
+			                zoneid: args.context.physicalResources[0].id
+			              },
+			              success: function(json) {	
+			            	  //for testing only (begin)
+			            	  /*	            	  
+			            	  json = 
+			            	  {
+			            	      "listucsmanagerreponse": {
+			            		      "count": 1,
+			            		      "ucsmanager": [
+			            		          {
+			            		              "id": "07b5b813-83ed-4859-952c-c95cafb63ac4",
+			            		              "name": "ucsmanager",
+			            		              "url": "10.223.184.2",
+			            		              "zoneid": "54c9a65c-ba89-4380-96e9-1d429c5372e3"
+			            		          }
+			            		      ]
+			            	      }
+			            	  };
+			            	  */
+			            	  //for testing only (end)
+			            	  
+			            	  var items = json.listucsmanagerreponse.ucsmanager;
+			            	  args.response.success({ data: items });			            	  
+			              }
+			            });
                     },
                     actions: {
                         add: {
@@ -14202,6 +14168,7 @@
                                 $.ajax({
                                     url: createURL('addUcsManager'),
                                     data: data,
+                                    type: "POST",
                                     success: function(json) { //e.g. json == { "addUcsManagerResponse" :  { "ucsmanager" : {"id":"11","name":"ucsmanager","url":"10.223.184.2","zoneid":"2"} }  }
                                         var item = json.addUcsManagerResponse.ucsmanager;
                                         args.response.success({
@@ -14230,57 +14197,64 @@
                                 title: 'Blades',
                                 listView: {
                                     id: 'blades',
-                                    fields: {
-                                        //dn: { label: 'Distinguished Name' },
+                                    fields: {                                        
                                         chassis: {
                                             label: 'Chassis'
                                         },
                                         bladeid: {
                                             label: 'Blade ID'
                                         },
-                                        associatedProfileDn: {
+                                        profiledn: {
                                             label: 'Associated Profile'
                                         }
                                     },
                                     dataProvider: function(args) {
                                         $.ajax({
-                                            url: createURL('listUcsBlade'),
+                                            url: createURL('listUcsBlades'),
                                             data: {
                                                 ucsmanagerid: args.context.ucsManagers[0].id
                                             },
                                             success: function(json) {
-                                                var data = json.listucsbladeresponse.ucsblade ? json.listucsbladeresponse.ucsblade : [];
-
+                                                //for testing only (begin)
+                                            	/*
+                                            	json = {
+                                                	    "listucsbladeresponse": {
+                                                	        "count": 4,
+                                                	        "ucsblade": [
+                                                	            {
+                                                	                "id": "84edb958-cf8a-4e71-99c6-190ccc3fe2bd",
+                                                	                "ucsmanagerid": "07b5b813-83ed-4859-952c-c95cafb63ac4",
+                                                	                "bladedn": "sys/chassis-1/blade-1",
+                                                	                "profiledn": "org-root/ls-profile-for-blade-1"
+                                                	            },
+                                                	            {
+                                                	                "id": "524a3e55-5b61-4561-9464-1b19e3543189",
+                                                	                "ucsmanagerid": "07b5b813-83ed-4859-952c-c95cafb63ac4",
+                                                	                "bladedn": "sys/chassis-1/blade-2",
+                                                	                "profiledn": "org-root/ls-profile-for-blade-2"
+                                                	            },
+                                                	            {
+                                                	                "id": "4828f560-6191-46e6-8a4c-23d1d7d017f0",
+                                                	                "ucsmanagerid": "07b5b813-83ed-4859-952c-c95cafb63ac4",
+                                                	                "bladedn": "sys/chassis-1/blade-3"
+                                                	            },
+                                                	            {
+                                                	                "id": "80ab25c8-3dcf-400e-8849-84dc5e1e6594",
+                                                	                "ucsmanagerid": "07b5b813-83ed-4859-952c-c95cafb63ac4",
+                                                	                "bladedn": "sys/chassis-1/blade-4"
+                                                	            }
+                                                	        ]
+                                                	    }
+                                                	};
+                                            	*/
+                                            	//for testing only (end)
+                                            	
+                                            	var data = json.listucsbladeresponse.ucsblade ? json.listucsbladeresponse.ucsblade : [];
                                                 for (var i = 0; i < data.length; i++) {
                                                     var array1 = data[i].bladedn.split('/');
                                                     data[i].chassis = array1[1];
                                                     data[i].bladeid = array1[2];
                                                 }
-
-
-                                                //for testing only (begin)
-                                                /*
-                        var data = [
-                          {
-                            "id": "58c84a1d-6e46-44e3-b7ec-abaa876d1be3",
-                            "ucsmanagerid": "0c96f848-4306-47e5-a9ac-b76aad3557fb",
-                            "bladedn": "sys/chassis-1/blade-1"
-                          },
-                          {
-                            "id": "de5abadf-f294-4014-9fed-7ee37a9b8724",
-                            "ucsmanagerid": "0c96f848-4306-47e5-a9ac-b76aad3557fb",
-                            "bladedn": "sys/chassis-1/blade-2"
-                          }
-                        ];
-                        for(var i = 0; i < data.length; i++) {
-                          var array1 = data[i].bladedn.split('/');
-                          data[i].chassis = array1[1];
-                          data[i].bladeid = array1[2];
-                        }
-                        */
-                                                //for testing only (end)
-
-
                                                 args.response.success({
                                                     data: data
                                                 });
@@ -14305,13 +14279,40 @@
                                                             var items = [];
 
                                                             $.ajax({
-                                                                url: createURL('listUcsProfile'),
+                                                                url: createURL('listUcsProfiles'),
                                                                 data: {
                                                                     ucsmanagerid: args.context.ucsManagers[0].id
                                                                 },
                                                                 async: false,
-                                                                success: function(json) { //e.g. json == { "listucsprofileresponse" : { "count":1 ,"ucsprofile" : [  {"ucsdn":"org-root/ls-testProfile"} ] } }
-                                                                    var ucsprofiles = json.listucsprofileresponse.ucsprofile;
+                                                                success: function(json) { 
+                                                                    //for testing only (begin)
+                                                                	/*
+                                                                	json = {
+                                                                    	    "listucsprofileresponse": {
+                                                                    	        "count": 5,
+                                                                    	        "ucsprofile": [
+                                                                    	            {
+                                                                    	                "ucsdn": "org-root/ls-profile-for-blade-2"
+                                                                    	            },
+                                                                    	            {
+                                                                    	                "ucsdn": "org-root/ls-profile-for-blade-1"
+                                                                    	            },
+                                                                    	            {
+                                                                    	                "ucsdn": "org-root/ls-simpleProfile"
+                                                                    	            },
+                                                                    	            {
+                                                                    	                "ucsdn": "org-root/ls-testProfile"
+                                                                    	            },
+                                                                    	            {
+                                                                    	                "ucsdn": "org-root/ls-UCS_Test"
+                                                                    	            }
+                                                                    	        ]
+                                                                    	    }
+                                                                    	};
+                                                                    */
+                                                                	//for testing only (end)
+                                                                	
+                                                                	var ucsprofiles = json.listucsprofileresponse.ucsprofile;
                                                                     if (ucsprofiles != null) {
                                                                         for (var i = 0; i < ucsprofiles.length; i++) {
                                                                             items.push({
@@ -14325,14 +14326,14 @@
 
                                                             //for testing only (begin)
                                                             /*
-                              items.push({id: 'org-root/ls-testProfile1', description: 'org-root/ls-testProfile1'});
-                              items.push({id: 'org-root/ls-testProfile2', description: 'org-root/ls-testProfile2'});
-                              items.push({id: 'org-root/ls-testProfile3', description: 'org-root/ls-testProfile3'});
-                              items.push({id: 'org-root/ls-testProfile4', description: 'org-root/ls-testProfile4'});
-                              items.push({id: 'org-root/ls-testProfile5', description: 'org-root/ls-testProfile5'});
-                              items.push({id: 'org-root/ls-testProfile6', description: 'org-root/ls-testProfile6'});
-                              items.push({id: 'org-root/ls-testProfile7', description: 'org-root/ls-testProfile7'});
-                              */
+								                            items.push({id: 'org-root/ls-testProfile1', description: 'org-root/ls-testProfile1'});
+								                            items.push({id: 'org-root/ls-testProfile2', description: 'org-root/ls-testProfile2'});
+								                            items.push({id: 'org-root/ls-testProfile3', description: 'org-root/ls-testProfile3'});
+								                            items.push({id: 'org-root/ls-testProfile4', description: 'org-root/ls-testProfile4'});
+								                            items.push({id: 'org-root/ls-testProfile5', description: 'org-root/ls-testProfile5'});
+								                            items.push({id: 'org-root/ls-testProfile6', description: 'org-root/ls-testProfile6'});
+								                            items.push({id: 'org-root/ls-testProfile7', description: 'org-root/ls-testProfile7'});
+								                            */
                                                             //for testing only (end)
 
                                                             args.response.success({
@@ -14348,99 +14349,66 @@
                                             },
                                             action: function(args) {
                                                 $.ajax({
-                                                    url: createURL('associatesUcsProfileToBlade'),
+                                                    url: createURL('associateUcsProfileToBlade'), //This API has been changed from sync to async at 7/25/2013
                                                     data: {
                                                         ucsmanagerid: args.context.ucsManagers[0].id,
                                                         profiledn: args.data.profiledn,
                                                         bladeid: args.context.blades[0].id
                                                     },
                                                     success: function(json) {
-                                                        //json.associateucsprofiletobladeresponse.ucsblade
+                                                    	//for testing only (begin)
+                                                    	/*
+                                                    	json = {
+                                                        	    "associateucsprofiletobladeresponse": {
+                                                        	        "jobid": "770bec68-7739-4127-8609-4b87bd7867d2"
+                                                        	    }
+                                                        	}
+                                                    	*/
+                                                    	//for testing only (end)
+                                                    	                                                    	
+                                                    	var jid = json.associateucsprofiletobladeresponse.jobid;
                                                         args.response.success({
-                                                            data: {
-                                                                associatedProfileDn: args.data.profiledn
+                                                            _custom: {
+                                                                jobId: jid,
+                                                                getUpdatedItem: function(json) {                                                               	    
+                                                                	//for testing only (begin)
+                                                                	/*
+                                                                	json = {
+                                                                		    "queryasyncjobresultresponse": {
+                                                                		        "accountid": "b24f6e36-f0ca-11e2-8c16-d637902e3581",
+                                                                		        "userid": "b24f7d8d-f0ca-11e2-8c16-d637902e3581",
+                                                                		        "cmd": "org.apache.cloudstack.api.AssociateUcsProfileToBladeCmd",
+                                                                		        "jobstatus": 1,
+                                                                		        "jobprocstatus": 0,
+                                                                		        "jobresultcode": 0,
+                                                                		        "jobresulttype": "object",
+                                                                		        "jobresult": {
+                                                                		            "ucsblade": {
+                                                                		                "id": "80ab25c8-3dcf-400e-8849-84dc5e1e6594",
+                                                                		                "ucsmanagerid": "07b5b813-83ed-4859-952c-c95cafb63ac4",
+                                                                		                "bladedn": "sys/chassis-1/blade-4",
+                                                                		                "profiledn": "org-root/ls-profile-for-blade-4"
+                                                                		            }
+                                                                		        },
+                                                                		        "created": "2013-07-26T13:53:01-0700",
+                                                                		        "jobid": "770bec68-7739-4127-8609-4b87bd7867d2"
+                                                                		    }
+                                                                		};
+                                                                	*/
+                                                                	//for testing only (end)
+                                                                	                                                                	                                  	    
+                                                                    return json.queryasyncjobresultresponse.jobresult.ucsblade;
+                                                                }
                                                             }
-                                                        });
+                                                        });                                                    	
                                                     }
                                                 });
-
-                                                //args.response.success({data: { associatedProfileDn: args.data.profiledn }}); //for testing only
                                             },
                                             notification: {
-                                                poll: function(args) {
-                                                    args.complete();
-                                                }
+                                                poll: pollAsyncJobResult
                                             }
                                         }
-                                    }
-
-                                    /*,
-                  detailView: {
-                    name: 'blade details',
-                    noCompact: true,
-                    actions: {
-                      associateProfileToBlade: {
-                        label: 'Associate Profile to Blade',
-                        messages: {
-                          notification: function(args) {
-                            return 'Associate Profile to Blade';
-                          }
-                        },
-                        createForm: {
-                          title: 'Associate Profile to Blade',
-                          fields: {
-                            profiledn: {
-                              label: 'profile',
-                              select: function(args) {
-                                var items = [];
-
-                                items.push({id: 'profile_1', description: 'profile_1'});
-                                items.push({id: 'profile_2', description: 'profile_2'});
-                                items.push({id: 'profile_3', description: 'profile_3'});
-                                args.response.success({data: items});
-                              },
-                              validation: { required: true }
-                            }
-                          }
-                        },
-                        action: function(args) {
-                          args.response.success();
-                        },
-                        notification: {
-                          poll: function(args) {
-                            args.complete();
-                          }
-                        }
-                      }
-                    },
-                    tabs: {
-                      details: {
-                        title: 'label.details',
-
-                        fields: [
-                          {
-                            fieldA: { label: 'fieldA' }
-                          },
-                          {
-                            fieldB: { label: 'fieldB' }
-                          }
-                        ],
-
-                        dataProvider: function(args) {
-                          args.response.success(
-                            {
-                              data: {
-                                fieldA: 'fieldAAA',
-                                fieldB: 'fieldBBB'
-                              }
-                            }
-                          );
-                        }
-                      }
-                    }
-                  }
-                  */
-
+                                    }                                 
                                 }
                             }
                         }
@@ -14728,7 +14696,7 @@
                                             },
 
                                             createNfsCache: {
-                                                label: 'Create NFS Cache Storage',
+                                                label: 'Create NFS Secondary Staging Store',
                                                 isBoolean: true,
                                                 isChecked: true
                                             },
@@ -14899,7 +14867,7 @@
                                                 };
 
                                                 $.ajax({
-                                                    url: createURL('createCacheStore'),
+                                                    url: createURL('createSecondaryStagingStore'),
                                                     data: nfsCacheData,
                                                     success: function(json) {
                                                         //do nothing
@@ -15082,7 +15050,7 @@
                     },
                     cacheStorage: {
                         type: 'select',
-                        title: 'Cache Storage',
+                        title: 'Secondary Staging Store',
                         listView: {
                             id: 'secondarystorages',
                             section: 'seconary-storage',
@@ -15130,9 +15098,9 @@
 
                             actions: {
                                 add: {
-                                    label: 'Add NFS Cache Storage',
+                                    label: 'Add NFS Secondary Staging Store',
                                     createForm: {
-                                        title: 'Add NFS Cache Storage',
+                                        title: 'Add NFS Secondary Staging Store',
                                         fields: {
                                             zoneid: {
                                                 label: 'Zone',
@@ -15187,10 +15155,10 @@
                                             url: nfsURL(args.data.nfsServer, args.data.path)
                                         };
                                         $.ajax({
-                                            url: createURL('createCacheStore'),
+                                            url: createURL('createSecondaryStagingStore'),
                                             data: data,
                                             success: function(json) {
-                                                var item = json.createcachestoreresponse.secondarystorage;
+                                                var item = json.createsecondarystagingstoreresponse.secondarystorage;
                                                 args.response.success({
                                                     data: item
                                                 });
@@ -15207,15 +15175,49 @@
                                     },
                                     messages: {
                                         notification: function(args) {
-                                            return 'Add NFS Cache Storage';
+                                            return 'Add NFS Secondary Staging Store';
                                         }
                                     }
                                 }
                             },
 
                             detailView: {
-                                name: 'Cache Storage details',
+                                name: 'Secondary Staging Store details',
                                 isMaximized: true,
+                                actions: {
+                                	remove: {
+                                        label: 'Delete Secondary Staging Store',
+                                        messages: {
+                                            confirm: function(args) {
+                                                return 'Please confirm you want to delete Secondary Staging Store.';
+                                            },
+                                            notification: function(args) {
+                                                return 'Delete Secondary Staging Store';
+                                            }
+                                        },
+                                        action: function(args) {
+                                            var data = {
+                                            	id: args.context.cacheStorage[0].id
+                                            };
+                                            $.ajax({
+                                                url: createURL('deleteSecondaryStagingStore'),
+                                                data: data,
+                                                async: true,
+                                                success: function(json) {
+                                                    args.response.success();
+                                                },
+                                                error: function(data) {
+                                                    args.response.error(parseXMLHttpResponse(data));
+                                                }
+                                            });
+                                        },
+                                        notification: {
+                                            poll: function(args) {
+                                                args.complete();
+                                            }
+                                        }
+                                    }
+                                },
                                 tabs: {
                                     details: {
                                         title: 'label.details',
@@ -15258,13 +15260,13 @@
 
                                         dataProvider: function(args) {
                                             $.ajax({
-                                                url: createURL('listCacheStores'),
+                                                url: createURL('listSecondaryStagingStores'),
                                                 data: {
                                                     id: args.context.cacheStorage[0].id
                                                 },
                                                 async: false,
                                                 success: function(json) {
-                                                    var item = json.listcachestoreresponse.imagestore[0];
+                                                    var item = json.listsecondarystagingstoreresponse.imagestore[0];
                                                     args.response.success({
                                                         data: item
                                                     });
@@ -15473,6 +15475,7 @@
                                                 username: args.data.username,
                                                 password: args.data.password
                                             },
+                                            type: "POST",
                                             success: function(json) {
                                                 var jid = json.addexternaldhcpresponse.jobid;
                                                 args.response.success({
@@ -15508,6 +15511,7 @@
                     username: args.data.username,
                     password: args.data.password
                 },
+                type: "POST",
                 success: function(json) {
                     var jid = json.addexternaldhcpresponse.jobid;
                     args.response.success({
@@ -15555,6 +15559,7 @@
                                                 password: args.data.password,
                                                 tftpdir: args.data.tftpdir
                                             },
+                                            type: "POST",
                                             success: function(json) {
                                                 var jid = json.addexternalpxeresponse.jobid;
                                                 args.response.success({
@@ -15591,6 +15596,7 @@
                     password: args.data.password,
                     tftpdir: args.data.tftpdir
                 },
+                type: "POST",
                 success: function(json) {
                     var jid = json.addexternalpxeresponse.jobid;
                     args.response.success({
@@ -15699,6 +15705,7 @@
         $.ajax({
             url: createURL(apiCmd + array1.join("")),
             dataType: "json",
+            type: "POST",
             success: function(json) {
                 var jid = json[apiCmdRes].jobid;
                 args.response.success({
@@ -15844,6 +15851,7 @@
         $.ajax({
             url: createURL(apiCmd + array1.join("")),
             dataType: "json",
+            type: "POST",
             success: function(json) {
                 var jid = json[apiCmdRes].jobid;
                 args.response.success({
@@ -15876,6 +15884,7 @@
         $.ajax({
             url: createURL(apiCmd + array1.join("")),
             dataType: "json",
+            type: "POST",
             success: function(json) {
                 var jid = json[apiCmdRes].jobid;
                 args.response.success({
@@ -16299,12 +16308,12 @@
         if (jsonObj.state == "Enabled") { //managed, allocation enabled
             allowedActions.push("unmanage");
             allowedActions.push("disable");
-            allowedActions.push("edit");
+            //allowedActions.push("edit"); // No fields to edit
 
         } else if (jsonObj.state == "Disabled") { //managed, allocation disabled
             allowedActions.push("unmanage");
             allowedActions.push("enable");
-            allowedActions.push("edit");
+            //allowedActions.push("edit"); // No fields to edit
 
         } else { //Unmanaged, PrepareUnmanaged , PrepareUnmanagedError
             allowedActions.push("manage");

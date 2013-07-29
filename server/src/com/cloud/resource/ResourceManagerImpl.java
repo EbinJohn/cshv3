@@ -33,6 +33,8 @@ import javax.naming.ConfigurationException;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
+import com.google.gson.Gson;
+
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.cluster.AddClusterCmd;
 import org.apache.cloudstack.api.command.admin.cluster.DeleteClusterCmd;
@@ -52,10 +54,12 @@ import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.AgentManager.TapAgentsAction;
 import com.cloud.agent.api.Answer;
+import com.cloud.agent.api.Command;
 import com.cloud.agent.api.GetHostStatsAnswer;
 import com.cloud.agent.api.GetHostStatsCommand;
 import com.cloud.agent.api.MaintainAnswer;
 import com.cloud.agent.api.MaintainCommand;
+import com.cloud.agent.api.PropagateResourceEventCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.agent.api.UnsupportedAnswer;
@@ -118,6 +122,7 @@ import com.cloud.org.Cluster;
 import com.cloud.org.Grouping;
 import com.cloud.org.Grouping.AllocationState;
 import com.cloud.org.Managed;
+import com.cloud.serializer.GsonHelper;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.StorageManager;
@@ -163,6 +168,8 @@ import com.cloud.vm.dao.VMInstanceDao;
 @Local({ ResourceManager.class, ResourceService.class })
 public class ResourceManagerImpl extends ManagerBase implements ResourceManager, ResourceService, Manager {
     private static final Logger s_logger = Logger.getLogger(ResourceManagerImpl.class);
+
+    Gson _gson;
 
     @Inject
     AccountManager _accountMgr;
@@ -459,7 +466,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
         List<ClusterVO> result = new ArrayList<ClusterVO>();
 
-        long clusterId = 0;
         ClusterVO cluster = new ClusterVO(dcId, podId, clusterName);
         cluster.setHypervisorType(hypervisorType.toString());
 
@@ -476,15 +482,13 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
             ex.addProxyObject(zone.getUuid(), "dcId");
             throw ex;
         }
-        clusterId = cluster.getId();
         result.add(cluster);
 
-        ClusterDetailsVO cluster_detail_cpu = new ClusterDetailsVO(clusterId, "cpuOvercommitRatio", Float.toString(cmd.getCpuOvercommitRatio()));
-        ClusterDetailsVO cluster_detail_ram = new ClusterDetailsVO(clusterId, "memoryOvercommitRatio", Float.toString(cmd.getMemoryOvercommitRatio()));
-        _clusterDetailsDao.persist(cluster_detail_cpu);
-        _clusterDetailsDao.persist(cluster_detail_ram);
-
         if (clusterType == Cluster.ClusterType.CloudManaged) {
+            Map<String, String> details = new HashMap<String, String>();
+            details.put("cpuOvercommitRatio", _configDao.getValue(Config.CPUOverprovisioningFactor.key()));
+            details.put("memoryOvercommitRatio", _configDao.getValue(Config.MemOverprovisioningFactor.key()));
+            _clusterDetailsDao.persist(cluster.getId(), details);
             return result;
         }
 
@@ -493,21 +497,9 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
         details.put("url", url);
         details.put("username", username);
         details.put("password", password);
+        details.put("cpuOvercommitRatio", _configDao.getValue(Config.CPUOverprovisioningFactor.key()));
+        details.put("memoryOvercommitRatio", _configDao.getValue(Config.MemOverprovisioningFactor.key()));
         _clusterDetailsDao.persist(cluster.getId(), details);
-
-        _clusterDetailsDao.persist(cluster_detail_cpu);
-        _clusterDetailsDao.persist(cluster_detail_ram);
-        // create a new entry only if the overcommit ratios are greater than 1.
-        if (cmd.getCpuOvercommitRatio().compareTo(1f) > 0) {
-            cluster_detail_cpu = new ClusterDetailsVO(clusterId, "cpuOvercommitRatio", Float.toString(cmd.getCpuOvercommitRatio()));
-            _clusterDetailsDao.persist(cluster_detail_cpu);
-        }
-
-
-        if(cmd.getMemoryOvercommitRatio().compareTo(1f) > 0) {
-             cluster_detail_ram = new ClusterDetailsVO(clusterId, "memoryOvercommitRatio", Float.toString(cmd.getMemoryOvercommitRatio()));
-            _clusterDetailsDao.persist(cluster_detail_ram);
-        }
 
         boolean success = false;
         try {
@@ -526,7 +518,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
             List<HostVO> hosts = new ArrayList<HostVO>();
             Map<? extends ServerResource, Map<String, String>> resources = null;
-            resources = discoverer.find(dcId, podId, clusterId, uri, username, password, null);
+            resources = discoverer.find(dcId, podId, cluster.getId(), uri, username, password, null);
 
             if (resources != null) {
                 for (Map.Entry<? extends ServerResource, Map<String, String>> entry : resources.entrySet()) {
@@ -547,8 +539,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
             throw new DiscoveryException("Unable to add the external cluster");
         } finally {
             if (!success) {
-                _clusterDetailsDao.deleteDetails(clusterId);
-                _clusterDao.remove(clusterId);
+                _clusterDetailsDao.deleteDetails(cluster.getId());
+                _clusterDao.remove(cluster.getId());
             }
         }
     }
@@ -922,7 +914,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     @Override
     public boolean deleteHost(long hostId, boolean isForced, boolean isForceDeleteStorage) {
         try {
-            Boolean result = _clusterMgr.propagateResourceEvent(hostId, ResourceState.Event.DeleteHost);
+            Boolean result = propagateResourceEvent(hostId, ResourceState.Event.DeleteHost);
             if (result != null) {
                 return result;
             }
@@ -998,8 +990,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     @DB
-    public Cluster updateCluster(Cluster clusterToUpdate, String clusterType, String hypervisor, String allocationState, String managedstate,
-            Float memoryovercommitratio, Float cpuovercommitratio) {
+    public Cluster updateCluster(Cluster clusterToUpdate, String clusterType, String hypervisor, String allocationState, String managedstate) {
 
         ClusterVO cluster = (ClusterVO) clusterToUpdate;
         // Verify cluster information and update the cluster if needed
@@ -1064,19 +1055,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
                 doUpdate = true;
             }
         }
-
-
-       if (memoryovercommitratio != null) {
-           ClusterDetailsVO memory_detail = _clusterDetailsDao.findDetail(cluster.getId(),"memoryOvercommitRatio");
-           memory_detail.setValue(Float.toString(memoryovercommitratio));
-           _clusterDetailsDao.update(memory_detail.getId(),memory_detail);
-       }
-
-       if (cpuovercommitratio != null) {
-            ClusterDetailsVO cpu_detail = _clusterDetailsDao.findDetail(cluster.getId(),"cpuOvercommitRatio");
-            cpu_detail.setValue(Float.toString(cpuovercommitratio));
-            _clusterDetailsDao.update(cpu_detail.getId(),cpu_detail);
-       }
 
         if (doUpdate) {
             Transaction txn = Transaction.currentTxn();
@@ -1250,7 +1228,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public boolean maintain(final long hostId) throws AgentUnavailableException {
-        Boolean result = _clusterMgr.propagateResourceEvent(hostId, ResourceState.Event.AdminAskMaintenace);
+        Boolean result = propagateResourceEvent(hostId, ResourceState.Event.AdminAskMaintenace);
         if (result != null) {
             return result;
         }
@@ -1357,6 +1335,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
         _defaultSystemVMHypervisor = HypervisorType.getType(_configDao.getValue(Config.SystemVMDefaultHypervisor.toString()));
+        _gson = GsonHelper.getGson();
         return true;
     }
 
@@ -2043,8 +2022,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
             s_logger.debug("Deleting Host: " + host.getId() + " Guid:" + host.getGuid());
         }
 
-        User caller = _accountMgr.getActiveUser(CallContext.current().getCallingUserId());
-
         if (forceDestroyStorage) {
             // put local storage into mainenance mode, will set all the VMs on
             // this local storage into stopped state
@@ -2067,11 +2044,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
                 List<VMInstanceVO> vmsOnLocalStorage = _storageMgr.listByStoragePool(storagePool.getId());
                 for (VMInstanceVO vm : vmsOnLocalStorage) {
                     try {
-                        if (!_vmMgr.destroy(vm, caller, _accountMgr.getAccount(vm.getAccountId()))) {
-                            String errorMsg = "There was an error Destory the vm: " + vm + " as a part of hostDelete id=" + host.getId();
-                            s_logger.warn(errorMsg);
-                            throw new UnableDeleteHostException(errorMsg);
-                        }
+                        _vmMgr.destroy(vm.getUuid());
                     } catch (Exception e) {
                         String errorMsg = "There was an error Destory the vm: " + vm + " as a part of hostDelete id=" + host.getId();
                         s_logger.debug(errorMsg, e);
@@ -2090,11 +2063,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
                         if (!vm.isHaEnabled() || vm.getState() == State.Stopping) {
                             s_logger.debug("Stopping vm: " + vm + " as a part of deleteHost id=" + host.getId());
                             try {
-                                if (!_vmMgr.advanceStop(vm, true, caller, _accountMgr.getAccount(vm.getAccountId()))) {
-                                    String errorMsg = "There was an error stopping the vm: " + vm + " as a part of hostDelete id=" + host.getId();
-                                    s_logger.warn(errorMsg);
-                                    throw new UnableDeleteHostException(errorMsg);
-                                }
+                                _vmMgr.advanceStop(vm.getUuid(), false);
                             } catch (Exception e) {
                                 String errorMsg = "There was an error stopping the vm: " + vm + " as a part of hostDelete id=" + host.getId();
                                 s_logger.debug(errorMsg, e);
@@ -2176,7 +2145,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     private boolean cancelMaintenance(long hostId) {
         try {
-            Boolean result = _clusterMgr.propagateResourceEvent(hostId, ResourceState.Event.AdminCancelMaintenance);
+            Boolean result = propagateResourceEvent(hostId, ResourceState.Event.AdminCancelMaintenance);
 
             if (result != null) {
                 return result;
@@ -2224,7 +2193,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     @Override
     public boolean umanageHost(long hostId) {
         try {
-            Boolean result = _clusterMgr.propagateResourceEvent(hostId, ResourceState.Event.Unmanaged);
+            Boolean result = propagateResourceEvent(hostId, ResourceState.Event.Unmanaged);
 
             if (result != null) {
                 return result;
@@ -2256,7 +2225,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
         if (cmd.getClusterId() == null) {
             // update agent attache password
             try {
-                Boolean result = _clusterMgr.propagateResourceEvent(cmd.getHostId(), ResourceState.Event.UpdatePassword);
+                Boolean result = propagateResourceEvent(cmd.getHostId(), ResourceState.Event.UpdatePassword);
                 if (result != null) {
                     return result;
                 }
@@ -2273,7 +2242,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
                      * FIXME: this is a buggy logic, check with alex. Shouldn't
                      * return if propagation return non null
                      */
-                    Boolean result = _clusterMgr.propagateResourceEvent(h.getId(), ResourceState.Event.UpdatePassword);
+                    Boolean result = propagateResourceEvent(h.getId(), ResourceState.Event.UpdatePassword);
                     if (result != null) {
                         return result;
                     }
@@ -2285,6 +2254,45 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
             return true;
         }
+    }
+
+    public String getPeerName(long agentHostId) {
+
+        HostVO host = _hostDao.findById(agentHostId);
+        if (host != null && host.getManagementServerId() != null) {
+            if (_clusterMgr.getSelfPeerName().equals(Long.toString(host.getManagementServerId()))) {
+                return null;
+            }
+
+            return Long.toString(host.getManagementServerId());
+        }
+        return null;
+    }
+
+    public Boolean propagateResourceEvent(long agentId, ResourceState.Event event) throws AgentUnavailableException {
+        final String msPeer = getPeerName(agentId);
+        if (msPeer == null) {
+            return null;
+        }
+
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Propagating agent change request event:" + event.toString() + " to agent:" + agentId);
+        }
+        Command[] cmds = new Command[1];
+        cmds[0] = new PropagateResourceEventCommand(agentId, event);
+
+        String AnsStr = _clusterMgr.execute(msPeer, agentId, _gson.toJson(cmds), true);
+        if (AnsStr == null) {
+            throw new AgentUnavailableException(agentId);
+        }
+
+        Answer[] answers = _gson.fromJson(AnsStr, Answer[].class);
+
+        if (s_logger.isDebugEnabled()) {
+            s_logger.debug("Result for agent change is " + answers[0].getResult());
+        }
+
+        return answers[0].getResult();
     }
 
     @Override

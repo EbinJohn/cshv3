@@ -16,6 +16,9 @@
 // under the License.
 package org.apache.cloudstack.storage.image.db;
 
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -45,13 +48,23 @@ public class SnapshotDataStoreDaoImpl extends GenericDaoBase<SnapshotDataStoreVO
     private SearchBuilder<SnapshotDataStoreVO> updateStateSearch;
     private SearchBuilder<SnapshotDataStoreVO> storeSearch;
     private SearchBuilder<SnapshotDataStoreVO> destroyedSearch;
+    private SearchBuilder<SnapshotDataStoreVO> cacheSearch;
     private SearchBuilder<SnapshotDataStoreVO> snapshotSearch;
     private SearchBuilder<SnapshotDataStoreVO> storeSnapshotSearch;
+    private String parentSearch = "select store_id, store_role, snapshot_id from cloud.snapshot_store_ref where store_id = ? " +
+            " and store_role = ? and volume_id = ? and state = 'Ready'" +
+            " order by created DESC " +
+            " limit 1";
+
+
 
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
         super.configure(name, params);
 
+        // Note that snapshot_store_ref stores snapshots on primary as well as
+        // those on secondary, so we need to
+        // use (store_id, store_role) to search
         storeSearch = createSearchBuilder();
         storeSearch.and("store_id", storeSearch.entity().getDataStoreId(), SearchCriteria.Op.EQ);
         storeSearch.and("store_role", storeSearch.entity().getRole(), SearchCriteria.Op.EQ);
@@ -62,6 +75,13 @@ public class SnapshotDataStoreDaoImpl extends GenericDaoBase<SnapshotDataStoreVO
         destroyedSearch.and("store_role", destroyedSearch.entity().getRole(), SearchCriteria.Op.EQ);
         destroyedSearch.and("state", destroyedSearch.entity().getState(), SearchCriteria.Op.EQ);
         destroyedSearch.done();
+
+        cacheSearch = createSearchBuilder();
+        cacheSearch.and("store_id", cacheSearch.entity().getDataStoreId(), SearchCriteria.Op.EQ);
+        cacheSearch.and("store_role", cacheSearch.entity().getRole(), SearchCriteria.Op.EQ);
+        cacheSearch.and("state", cacheSearch.entity().getState(), SearchCriteria.Op.NEQ);
+        cacheSearch.and("ref_cnt", cacheSearch.entity().getRefCnt(), SearchCriteria.Op.NEQ);
+        cacheSearch.done();
 
         updateStateSearch = this.createSearchBuilder();
         updateStateSearch.and("id", updateStateSearch.entity().getId(), Op.EQ);
@@ -106,14 +126,14 @@ public class SnapshotDataStoreDaoImpl extends GenericDaoBase<SnapshotDataStoreVO
             if (dbVol != null) {
                 StringBuilder str = new StringBuilder("Unable to update ").append(dataObj.toString());
                 str.append(": DB Data={id=").append(dbVol.getId()).append("; state=").append(dbVol.getState())
-                        .append("; updatecount=").append(dbVol.getUpdatedCount()).append(";updatedTime=")
-                        .append(dbVol.getUpdated());
+                .append("; updatecount=").append(dbVol.getUpdatedCount()).append(";updatedTime=")
+                .append(dbVol.getUpdated());
                 str.append(": New Data={id=").append(dataObj.getId()).append("; state=").append(nextState)
-                        .append("; event=").append(event).append("; updatecount=").append(dataObj.getUpdatedCount())
-                        .append("; updatedTime=").append(dataObj.getUpdated());
+                .append("; event=").append(event).append("; updatecount=").append(dataObj.getUpdatedCount())
+                .append("; updatedTime=").append(dataObj.getUpdated());
                 str.append(": stale Data={id=").append(dataObj.getId()).append("; state=").append(currentState)
-                        .append("; event=").append(event).append("; updatecount=").append(oldUpdated)
-                        .append("; updatedTime=").append(oldUpdatedTime);
+                .append("; event=").append(event).append("; updatecount=").append(oldUpdated)
+                .append("; updatedTime=").append(oldUpdatedTime);
             } else {
                 s_logger.debug("Unable to update objectIndatastore: id=" + dataObj.getId()
                         + ", as there is no such object exists in the database anymore");
@@ -131,9 +151,10 @@ public class SnapshotDataStoreDaoImpl extends GenericDaoBase<SnapshotDataStoreVO
     }
 
     @Override
-    public void deletePrimaryRecordsForStore(long id) {
+    public void deletePrimaryRecordsForStore(long id, DataStoreRole role) {
         SearchCriteria<SnapshotDataStoreVO> sc = storeSearch.create();
         sc.setParameters("store_id", id);
+        sc.setParameters("store_role", role);
         Transaction txn = Transaction.currentTxn();
         txn.start();
         remove(sc);
@@ -146,7 +167,32 @@ public class SnapshotDataStoreDaoImpl extends GenericDaoBase<SnapshotDataStoreVO
         sc.setParameters("store_id", storeId);
         sc.setParameters("snapshot_id", snapshotId);
         sc.setParameters("store_role", role);
-        return findOneIncludingRemovedBy(sc);
+        return findOneBy(sc);
+    }
+
+    @Override
+    public SnapshotDataStoreVO findParent(DataStoreRole role, Long storeId, Long volumeId) {
+        Transaction txn = Transaction.currentTxn();
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        try {
+            pstmt = txn.prepareStatement(parentSearch);
+            pstmt.setLong(1, storeId);
+            pstmt.setString(2, role.toString());
+            pstmt.setLong(3, volumeId);
+            rs = pstmt.executeQuery();
+            while (rs.next()) {
+                long sid = rs.getLong(1);
+                String rl = rs.getString(2);
+                long snid = rs.getLong(3);
+                return this.findByStoreSnapshot(role, sid, snid);
+            }
+        } catch (SQLException e) {
+            s_logger.debug("Failed to find parent snapshot: " + e.toString());
+        } finally {
+            txn.close();
+        }
+        return null;
     }
 
     @Override
@@ -163,6 +209,16 @@ public class SnapshotDataStoreDaoImpl extends GenericDaoBase<SnapshotDataStoreVO
         sc.setParameters("store_id", id);
         sc.setParameters("store_role", DataStoreRole.Image);
         sc.setParameters("state", ObjectInDataStoreStateMachine.State.Destroyed);
+        return listBy(sc);
+    }
+
+    @Override
+    public List<SnapshotDataStoreVO> listActiveOnCache(long id) {
+        SearchCriteria<SnapshotDataStoreVO> sc = cacheSearch.create();
+        sc.setParameters("store_id", id);
+        sc.setParameters("store_role", DataStoreRole.ImageCache);
+        sc.setParameters("state", ObjectInDataStoreStateMachine.State.Destroyed);
+        sc.setParameters("ref_cnt", 0);
         return listBy(sc);
     }
 }

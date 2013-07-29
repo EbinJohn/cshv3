@@ -188,12 +188,21 @@ class TestRvRDeploymentPlanning(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._cleanup.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
         return
 
-    @attr(tags=["advanced", "advancedns", "ssh"])
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            self.debug("Warning: Exception during cleanup : %s" % e)
+            #raise Exception("Warning: Exception during cleanup : %s" % e)
+        return
+
+    @attr(tags=["advanced", "advancedns"])
     def test_RvR_multipods(self):
-        """Test RvR with muti pods
+        """Test RvR with multi pods
         """
 
         # Steps to validate
@@ -323,9 +332,9 @@ class TestRvRDeploymentPlanning(cloudstackTestCase):
                             )
         return
 
-    @attr(tags=["advanced", "advancedns", "ssh"])
+    @attr(tags=["advanced", "advancedns"])
     def test_RvR_multicluster(self):
-        """Test RvR with muti clusters
+        """Test RvR with multi clusters
         """
 
         # Steps to validate
@@ -526,9 +535,9 @@ class TestRvRDeploymentPlanning(cloudstackTestCase):
             self.apiclient.updatePod(cmd)
         return
 
-    @attr(tags=["advanced", "advancedns", "ssh"])
+    @attr(tags=["advanced", "advancedns"])
     def test_RvR_multiprimarystorage(self):
-        """Test RvR with muti primary storage
+        """Test RvR with multi primary storage
         """
 
         # Steps to validate
@@ -770,7 +779,7 @@ class TestRvRDeploymentPlanning(cloudstackTestCase):
 
     @attr(tags=["advanced", "advancedns", "ssh"])
     def test_RvR_multihosts(self):
-        """Test RvR with muti hosts
+        """Test RvR with multi hosts
         """
 
         # Steps to validate

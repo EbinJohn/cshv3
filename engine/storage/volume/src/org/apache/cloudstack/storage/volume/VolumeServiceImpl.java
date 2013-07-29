@@ -75,6 +75,7 @@ import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateStoragePoolVO;
 import com.cloud.storage.VMTemplateStorageResourceAssoc;
 import com.cloud.storage.VMTemplateStorageResourceAssoc.Status;
+import com.cloud.storage.Volume.State;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.VMTemplatePoolDao;
@@ -210,13 +211,34 @@ public class VolumeServiceImpl implements VolumeService {
         }
     }
 
+    // check if a volume is expunged on both primary and secondary
+    private boolean canVolumeBeRemoved(long volumeId) {
+        VolumeVO vol = volDao.findById(volumeId);
+        if (vol == null) {
+            // already removed from volumes table
+            return false;
+        }
+        VolumeDataStoreVO volumeStore = _volumeStoreDao.findByVolume(volumeId);
+        if (vol.getState() == State.Expunged && volumeStore == null) {
+            // volume is expunged from primary, as well as on secondary
+            return true;
+        } else {
+            return false;
+        }
+
+    }
+
     @DB
     @Override
     public AsyncCallFuture<VolumeApiResult> expungeVolumeAsync(VolumeInfo volume) {
         AsyncCallFuture<VolumeApiResult> future = new AsyncCallFuture<VolumeApiResult>();
         VolumeApiResult result = new VolumeApiResult(volume);
         if (volume.getDataStore() == null) {
-            volDao.remove(volume.getId());
+            s_logger.info("Expunge volume with no data store specified");
+            if (canVolumeBeRemoved(volume.getId())) {
+                s_logger.info("Volume " + volume.getId() + " is not referred anywhere, remove it from volumes table");
+                volDao.remove(volume.getId());
+            }
             future.complete(result);
             return future;
         }
@@ -245,7 +267,11 @@ public class VolumeServiceImpl implements VolumeService {
         }
         VolumeObject vo = (VolumeObject) volume;
 
-        volume.processEvent(Event.ExpungeRequested);
+        if (volume.getDataStore().getRole() == DataStoreRole.Image) {
+            volume.processEvent(Event.DestroyRequested);
+        } else if (volume.getDataStore().getRole() == DataStoreRole.Primary) {
+            volume.processEvent(Event.ExpungeRequested);
+        }
 
         DeleteVolumeContext<VolumeApiResult> context = new DeleteVolumeContext<VolumeApiResult>(null, vo, future);
         AsyncCallbackDispatcher<VolumeServiceImpl, CommandResult> caller = AsyncCallbackDispatcher.create(this);
@@ -255,6 +281,7 @@ public class VolumeServiceImpl implements VolumeService {
         return future;
     }
 
+
     public Void deleteVolumeCallback(AsyncCallbackDispatcher<VolumeServiceImpl, CommandResult> callback,
             DeleteVolumeContext<VolumeApiResult> context) {
         CommandResult result = callback.getResult();
@@ -262,7 +289,10 @@ public class VolumeServiceImpl implements VolumeService {
         VolumeApiResult apiResult = new VolumeApiResult(vo);
         if (result.isSuccess()) {
             vo.processEvent(Event.OperationSuccessed);
-            volDao.remove(vo.getId());
+            if (canVolumeBeRemoved(vo.getId())) {
+                s_logger.info("Volume " + vo.getId() + " is not referred anywhere, remove it from volumes table");
+                volDao.remove(vo.getId());
+            }
         } else {
             vo.processEvent(Event.OperationFailed);
             apiResult.setResult(result.getResult());
@@ -365,6 +395,7 @@ public class VolumeServiceImpl implements VolumeService {
         int storagePoolMaxWaitSeconds = NumbersUtil.parseInt(
                 configDao.getValue(Config.StoragePoolMaxWaitSeconds.key()), 3600);
         templatePoolRef = _tmpltPoolDao.acquireInLockTable(templatePoolRefId, storagePoolMaxWaitSeconds);
+
         if (templatePoolRef == null) {
             templatePoolRef = _tmpltPoolDao.findByPoolTemplate(dataStore.getId(), template.getId());
             if (templatePoolRef.getState() == ObjectInDataStoreStateMachine.State.Ready ) {
@@ -639,7 +670,7 @@ public class VolumeServiceImpl implements VolumeService {
 
             srcVolume.processEvent(Event.OperationSuccessed);
             destVolume.processEvent(Event.OperationSuccessed, result.getAnswer());
-            srcVolume.getDataStore().delete(srcVolume);
+            // srcVolume.getDataStore().delete(srcVolume);
             future.complete(res);
         } catch (Exception e) {
             res.setResult(e.toString());
@@ -1045,6 +1076,13 @@ public class VolumeServiceImpl implements VolumeService {
         List<VolumeDataStoreVO> toBeDownloaded = new ArrayList<VolumeDataStoreVO>(dbVolumes);
         for (VolumeDataStoreVO volumeStore : dbVolumes) {
             VolumeVO volume = _volumeDao.findById(volumeStore.getVolumeId());
+            if (volume == null ){
+                s_logger.warn("Volume_store_ref shows that volume " + volumeStore.getVolumeId() + " is on image store " + storeId
+                        + ", but the volume is not found in volumes table, potentially some bugs in deleteVolume, so we just treat this volume to be deleted and mark it as destroyed");
+                volumeStore.setDestroyed(true);
+                _volumeStoreDao.update(volumeStore.getId(), volumeStore);
+                continue;
+            }
             // Exists then don't download
             if (volumeInfos.containsKey(volume.getId())) {
                 TemplateProp volInfo = volumeInfos.remove(volume.getId());

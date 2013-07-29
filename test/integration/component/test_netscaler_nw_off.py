@@ -605,11 +605,10 @@ class TestNetScalerSharedMode(cloudstackTestCase):
                                      )
         cls._cleanup = [
                         cls.service_offering,
-                        cls.network_offering,
                         cls.account_1,
                         cls.account_2,
                         cls.account_3,
-                        cls.account_5
+                        cls.account_5,
                         ]
         cls.cleanup_devices = [cls.netscaler_1]
         return
@@ -783,21 +782,21 @@ class TestNetScalerSharedMode(cloudstackTestCase):
         self.network_3 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_3.account.name,
-                            domainid=self.account_3.account.domainid,
+                            accountid=self.account_3.name,
+                            domainid=self.account_3.domainid,
                             networkofferingid=self.network_offering.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_3.id)
-        self.debug("Deploying VM in account: %s" % self.account_3.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_3.name)
 
         with self.assertRaises(Exception):
             # Spawn an instance in that network
             virtual_machine_3 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_3.account.name,
-                                  domainid=self.account_3.account.domainid,
+                                  accountid=self.account_3.name,
+                                  domainid=self.account_3.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_3.id)]
                                   )
@@ -857,8 +856,8 @@ class TestNetScalerSharedMode(cloudstackTestCase):
                                                     self.network_offering.id)
         networks = Network.list(
                             self.apiclient,
-                            account=self.account_3.account.name,
-                            domainid=self.account_3.account.domainid,
+                            account=self.account_3.name,
+                            domainid=self.account_3.domainid,
                             zoneid=self.zone.id,
                             listall=True
                         )
@@ -866,19 +865,19 @@ class TestNetScalerSharedMode(cloudstackTestCase):
                          isinstance(networks, list),
                          True,
                          "Network should be present for the account: %s" %
-                                                self.account_3.account.name
+                                                self.account_3.name
                          )
         self.network_3 = networks[0]
         self.debug("Created network with ID: %s" % self.network_3.id)
 
-        self.debug("Deploying VM in account: %s" % self.account_3.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_3.name)
 
         # Spawn an instance in that network
         virtual_machine_3 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_3.account.name,
-                                  domainid=self.account_3.account.domainid,
+                                  accountid=self.account_3.name,
+                                  domainid=self.account_3.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_3.id)]
                                   )
@@ -923,21 +922,21 @@ class TestNetScalerSharedMode(cloudstackTestCase):
         self.network_4 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_4.account.name,
-                            domainid=self.account_4.account.domainid,
+                            accountid=self.account_4.name,
+                            domainid=self.account_4.domainid,
                             networkofferingid=self.network_offering.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_4.id)
 
-        self.debug("Deploying VM in account: %s" % self.account_4.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_4.name)
 
         # Spawn an instance in that network
         virtual_machine_4 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_4.account.name,
-                                  domainid=self.account_4.account.domainid,
+                                  accountid=self.account_4.name,
+                                  domainid=self.account_4.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_4.id)]
                                   )
@@ -970,22 +969,22 @@ class TestNetScalerSharedMode(cloudstackTestCase):
         self.network_5 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_5.account.name,
-                            domainid=self.account_5.account.domainid,
+                            accountid=self.account_5.name,
+                            domainid=self.account_5.domainid,
                             networkofferingid=self.network_offering.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_5.id)
 
-        self.debug("Deploying VM in account: %s" % self.account_5.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_5.name)
 
         with self.assertRaises(Exception):
             # Spawn an instance in that network
             virtual_machine_5 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_5.account.name,
-                                  domainid=self.account_5.account.domainid,
+                                  accountid=self.account_5.name,
+                                  domainid=self.account_5.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_5.id)]
                                   )
@@ -1005,9 +1004,9 @@ class TestNetScalerSharedMode(cloudstackTestCase):
         # 2. Create an instance from another account
         # 3. Deploy instance should succeed
 
-        self.debug("Delete account: %s" % self.account_4.account.name)
+        self.debug("Delete account: %s" % self.account_4.name)
         self.account_4.delete(self.apiclient)
-        self.debug("Account: %s is deleted" % self.account_4.account.name)
+        self.debug("Account: %s is deleted" % self.account_4.name)
 
         interval = list_configurations(
                                     self.apiclient,
@@ -1027,21 +1026,21 @@ class TestNetScalerSharedMode(cloudstackTestCase):
         self.network_5 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_5.account.name,
-                            domainid=self.account_5.account.domainid,
+                            accountid=self.account_5.name,
+                            domainid=self.account_5.domainid,
                             networkofferingid=self.network_offering.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_5.id)
 
-        self.debug("Deploying VM in account: %s" % self.account_5.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_5.name)
 
         # Spawn an instance in that network
         virtual_machine_5 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_5.account.name,
-                                  domainid=self.account_5.account.domainid,
+                                  accountid=self.account_5.name,
+                                  domainid=self.account_5.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_5.id)]
                                   )
@@ -1132,7 +1131,6 @@ class TestNwOffDedicatedNetscaler(cloudstackTestCase):
                                             )
         cls._cleanup = [
                         cls.service_offering,
-                        cls.network_offering,
                         cls.netscaler,
                         ]
         return
@@ -1312,8 +1310,6 @@ class TestNwOffNetscaler(cloudstackTestCase):
                                             )
         cls._cleanup = [
                         cls.service_offering,
-                        cls.network_offering,
-                        cls.network_offering_shared,
                         cls.netscaler_1,
                         cls.netscaler_2,
                         ]
@@ -1504,21 +1500,21 @@ class TestNwOffNetscaler(cloudstackTestCase):
         self.network_3 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_3.account.name,
-                            domainid=self.account_3.account.domainid,
+                            accountid=self.account_3.name,
+                            domainid=self.account_3.domainid,
                             networkofferingid=self.network_offering_shared.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_3.id)
 
-        self.debug("Deploying VM in account: %s" % self.account_3.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_3.name)
 
         # Spawn an instance in that network
         virtual_machine_3 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_3.account.name,
-                                  domainid=self.account_3.account.domainid,
+                                  accountid=self.account_3.name,
+                                  domainid=self.account_3.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_3.id)]
                                   )
@@ -1623,8 +1619,6 @@ class TestNwOffSToDUpgrade(cloudstackTestCase):
                                             )
         cls._cleanup = [
                         cls.service_offering,
-                        cls.network_offering_dedicated,
-                        cls.network_offering_shared,
                         cls.netscaler_1,
                         cls.netscaler_2,
                         ]
@@ -1803,20 +1797,20 @@ class TestNwOffSToDUpgrade(cloudstackTestCase):
         self.network_3 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_3.account.name,
-                            domainid=self.account_3.account.domainid,
+                            accountid=self.account_3.name,
+                            domainid=self.account_3.domainid,
                             networkofferingid=self.network_offering_dedicated.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_3.id)
-        self.debug("Deploying VM in account: %s" % self.account_3.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_3.name)
 
         # Spawn an instance in that network
         virtual_machine_3 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_3.account.name,
-                                  domainid=self.account_3.account.domainid,
+                                  accountid=self.account_3.name,
+                                  domainid=self.account_3.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_3.id)]
                                   )
@@ -2040,8 +2034,6 @@ class TestNwOffDToSUpgrade(cloudstackTestCase):
                                             )
         cls._cleanup = [
                         cls.service_offering,
-                        cls.network_offering_dedicated,
-                        cls.network_offering_shared,
                         cls.netscaler_1,
                         cls.netscaler_2,
                         ]
@@ -2220,20 +2212,20 @@ class TestNwOffDToSUpgrade(cloudstackTestCase):
         self.network_3 = Network.create(
                             self.apiclient,
                             self.services["network"],
-                            accountid=self.account_3.account.name,
-                            domainid=self.account_3.account.domainid,
+                            accountid=self.account_3.name,
+                            domainid=self.account_3.domainid,
                             networkofferingid=self.network_offering_dedicated.id,
                             zoneid=self.zone.id
                         )
         self.debug("Created network with ID: %s" % self.network_3.id)
-        self.debug("Deploying VM in account: %s" % self.account_3.account.name)
+        self.debug("Deploying VM in account: %s" % self.account_3.name)
 
         # Spawn an instance in that network
         virtual_machine_3 = VirtualMachine.create(
                                   self.apiclient,
                                   self.services["virtual_machine"],
-                                  accountid=self.account_3.account.name,
-                                  domainid=self.account_3.account.domainid,
+                                  accountid=self.account_3.name,
+                                  domainid=self.account_3.domainid,
                                   serviceofferingid=self.service_offering.id,
                                   networkids=[str(self.network_3.id)]
                                   )
@@ -2261,7 +2253,7 @@ class TestNwOffDToSUpgrade(cloudstackTestCase):
                             "VM state should be running after deployment"
                         )
 
-        self.debug("Stopping all VMs in account: %s" % self.account_3.account.name)
+        self.debug("Stopping all VMs in account: %s" % self.account_3.name)
         virtual_machine_3.stop(self.apiclient)
 
         list_vm_response = VirtualMachine.list(
@@ -2314,7 +2306,7 @@ class TestNwOffDToSUpgrade(cloudstackTestCase):
                         self.network_offering_shared.id,
                         "Network offering ID should match with new offering ID"
                         )
-        self.debug("Starting instances in account: %s" % self.account_3.account.name)
+        self.debug("Starting instances in account: %s" % self.account_3.name)
         virtual_machine_3.start(self.apiclient)
 
         list_vm_response = VirtualMachine.list(
@@ -2346,9 +2338,9 @@ class TestNwOffDToSUpgrade(cloudstackTestCase):
 
             public_ip = PublicIPAddress.create(
                                 self.apiclient,
-                                accountid=self.account_3.account.name,
+                                accountid=self.account_3.name,
                                 zoneid=self.zone.id,
-                                domainid=self.account_3.account.domainid,
+                                domainid=self.account_3.domainid,
                                 networkid=self.network_3.id
                                 )
             self.debug(
@@ -2359,7 +2351,7 @@ class TestNwOffDToSUpgrade(cloudstackTestCase):
                                     self.apiclient,
                                     self.services["lbrule"],
                                     ipaddressid=public_ip.ipaddress.id,
-                                    accountid=self.account_3.account.name,
+                                    accountid=self.account_3.name,
                                     networkid=self.network_3.id
                                 )
             self.debug("Created the load balancing rule for public IP: %s" %

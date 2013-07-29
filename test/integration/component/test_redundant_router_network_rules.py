@@ -188,12 +188,21 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
                                      admin=True,
                                      domainid=self.domain.id
                                      )
-        self._clean.insert(0, self.account)
+        self.cleanup = []
+        self.cleanup.insert(0, self.account)
+        return
+
+    def tearDown(self):
+        try:
+            cleanup_resources(self.apiclient, self.cleanup)
+        except Exception as e:
+            self.debug("Warning: Exception during cleanup : %s" % e)
+            #raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     @attr(tags=["advanced", "advancedns", "ssh"])
-    def test_applyNetworkRules_MasterDown_deleteNetworkRules(self):
-        """Test apply network rules when master & backup routers rebooted
+    def test_networkRules_afterRebootRouters(self):
+        """Test network rules after master & backup routers rebooted
         """
 
         # Steps to validate
@@ -351,7 +360,7 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
 
         public_ips = PublicIPAddress.list(
                                           self.apiclient,
-                                          networkid=network.id,
+                                          associatednetworkid=network.id,
                                           listall=True,
                                           isstaticnat=True
                                           )
@@ -658,7 +667,7 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
 
         public_ips = PublicIPAddress.list(
                                           self.apiclient,
-                                          networkid=network.id,
+                                          associatednetworkid=network.id,
                                           listall=True,
                                           isstaticnat=True
                                           )
@@ -998,7 +1007,7 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
 
         public_ips = PublicIPAddress.list(
                                           self.apiclient,
-                                          networkid=network.id,
+                                          associatednetworkid=network.id,
                                           listall=True,
                                           isstaticnat=True
                                           )
@@ -1108,7 +1117,7 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
             self.fail("SSH to guest VM failed: %s" % e)
         return
 
-    @attr(tags=["advanced", "advancedns", "ssh"])
+    @attr(tags=["advanced", "advancedns", "ssh", "needle"])
     def test_applyNetworkRules_MasterDown_deleteNetworkRules(self):
         """Test apply network rules when master down and delete network rules
         """
@@ -1275,7 +1284,7 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
 
         public_ips = PublicIPAddress.list(
                                           self.apiclient,
-                                          networkid=network.id,
+                                          associatednetworkid=network.id,
                                           listall=True,
                                           isstaticnat=True
                                           )
@@ -1285,10 +1294,11 @@ class TestRedundantRouterRulesLifeCycle(cloudstackTestCase):
                          "List public Ip for network should list the Ip addr"
                          )
         self.assertEqual(
-                         public_ips[0].ipaddress,
-                         public_ip.ipaddress.ipaddress,
-                         "List public Ip for network should list the Ip addr"
-                         )
+            public_ips[0].ipaddress,
+            public_ip.ipaddress.ipaddress,
+            "Public Ip Address in the network created (%s) and listed (%s) do not match" % (
+            public_ips[0].ipaddress, public_ip.ipaddress.ipaddress)
+        )
 
         self.debug("creating a FW rule on IP: %s" %
                                     public_ip.ipaddress.ipaddress)

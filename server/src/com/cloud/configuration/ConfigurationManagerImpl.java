@@ -69,6 +69,10 @@ import org.apache.cloudstack.api.command.admin.zone.CreateZoneCmd;
 import org.apache.cloudstack.api.command.admin.zone.DeleteZoneCmd;
 import org.apache.cloudstack.api.command.admin.zone.UpdateZoneCmd;
 import org.apache.cloudstack.api.command.user.network.ListNetworkOfferingsCmd;
+import org.apache.cloudstack.config.ConfigDepot;
+import org.apache.cloudstack.config.ConfigKey;
+import org.apache.cloudstack.config.ConfigValue;
+import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.region.PortableIp;
@@ -130,7 +134,6 @@ import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.network.IpAddress;
 import com.cloud.network.Network;
 import com.cloud.network.Network.Capability;
 import com.cloud.network.Network.GuestType;
@@ -151,7 +154,6 @@ import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeDao;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
-import com.cloud.network.element.DhcpServiceProvider;
 import com.cloud.network.rules.LoadBalancerContainer.Scheme;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.offering.DiskOffering;
@@ -190,6 +192,7 @@ import com.cloud.utils.StringUtils;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.DB;
+import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.db.SearchCriteria;
@@ -207,9 +210,11 @@ import edu.emory.mathcs.backport.java.util.Arrays;
 
 @Component
 @Local(value = { ConfigurationManager.class, ConfigurationService.class })
-public class ConfigurationManagerImpl extends ManagerBase implements ConfigurationManager, ConfigurationService {
+public class ConfigurationManagerImpl extends ManagerBase implements ConfigurationManager, ConfigurationService, ConfigDepot {
     public static final Logger s_logger = Logger.getLogger(ConfigurationManagerImpl.class.getName());
 
+    @Inject
+    EntityManager _entityMgr;
     @Inject
     ConfigurationDao _configDao;
     @Inject
@@ -313,6 +318,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     private long _defaultPageSize = Long.parseLong(Config.DefaultPageSize.getDefaultValue());
     protected Set<String> configValuesForValidation;
     private Set<String> weightBasedParametersForValidation;
+    private Set<String> overprovisioningFactorsForValidation;
 
     @Override
     public boolean configure(final String name, final Map<String, Object> params) throws ConfigurationException {
@@ -326,6 +332,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
 
         populateConfigValuesForValidationSet();
         weightBasedParametersForValidation();
+        overProvisioningFactorsForValidation();
         return true;
     }
 
@@ -371,6 +378,13 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         weightBasedParametersForValidation.add(Config.VmUserDispersionWeight.key());
 
 
+    }
+
+    private void overProvisioningFactorsForValidation() {
+        overprovisioningFactorsForValidation = new HashSet<String>();
+        overprovisioningFactorsForValidation.add(Config.MemOverprovisioningFactor.key());
+        overprovisioningFactorsForValidation.add(Config.CPUOverprovisioningFactor.key());
+        overprovisioningFactorsForValidation.add(Config.StorageOverprovisioningFactor.key());
     }
 
     @Override
@@ -688,11 +702,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
                 s_logger.error("Invalid scope id provided for the parameter " + name);
                 return "Invalid scope id provided for the parameter " + name;
             }
-            if ((name.equalsIgnoreCase("cpu.overprovisioning.factor") || name
-                    .equalsIgnoreCase("mem.overprovisioning.factor")) && value == null) {
-                s_logger.error("value cannot be null for cpu.overprovisioning.factor/mem.overprovisioning.factor");
-                return "value cannot be null for cpu.overprovisioning.factor/mem.overprovisioning.factor";
-            }
         }
 
         Class<?> type = c.getType();
@@ -701,9 +710,26 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
             if (type.equals(Boolean.class)) {
                 return "Please enter either 'true' or 'false'.";
             }
+            if (overprovisioningFactorsForValidation.contains(name)) {
+                String msg = "value cannot be null for the parameter " + name;
+                s_logger.error(msg);
+                return msg;
+            }
             return null;
         }
+
         value = value.trim();
+        try {
+            if (overprovisioningFactorsForValidation.contains(name) && (Float.parseFloat(value) < 1f)) {
+                String msg = name + " should be greater than or equal to 1";
+                s_logger.error(msg);
+                throw new InvalidParameterValueException(msg);
+            }
+        } catch (NumberFormatException e) {
+            String msg = "There was an error trying to parse the float value for: " + name;
+            s_logger.error(msg);
+            throw new InvalidParameterValueException(msg);
+        }
 
         if (type.equals(Boolean.class)) {
             if (!(value.equals("true") || value.equals("false"))) {
@@ -2978,30 +3004,16 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         }
 
         if (ipv4) {
-            String newVlanSubnet = NetUtils.getSubNet(vlanGateway, vlanNetmask);
+            String newCidr = NetUtils.getCidrFromGatewayAndNetmask(vlanGateway, vlanNetmask);
 
             // Check if the new VLAN's subnet conflicts with the guest network
             // in
             // the specified zone (guestCidr is null for basic zone)
             String guestNetworkCidr = zone.getGuestNetworkCidr();
-            if (guestNetworkCidr != null) {
-                String[] cidrPair = guestNetworkCidr.split("\\/");
-                String guestIpNetwork = NetUtils.getIpRangeStartIpFromCidr(cidrPair[0], Long.parseLong(cidrPair[1]));
-                long guestCidrSize = Long.parseLong(cidrPair[1]);
-                long vlanCidrSize = NetUtils.getCidrSize(vlanNetmask);
-
-                long cidrSizeToUse = -1;
-                if (vlanCidrSize < guestCidrSize) {
-                    cidrSizeToUse = vlanCidrSize;
-                } else {
-                    cidrSizeToUse = guestCidrSize;
-                }
-
-                String guestSubnet = NetUtils.getCidrSubNet(guestIpNetwork, cidrSizeToUse);
-
-                if (newVlanSubnet.equals(guestSubnet)) {
+            if ( guestNetworkCidr != null ) {
+                if (NetUtils.isNetworksOverlap(newCidr, guestNetworkCidr)) {
                     throw new InvalidParameterValueException(
-                            "The new IP range you have specified has the same subnet as the guest network in zone: "
+                            "The new IP range you have specified has  overlapped with the guest network in zone: "
                                     + zone.getName() + ". Please specify a different gateway/netmask.");
                 }
             }
@@ -3009,29 +3021,36 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
             // Check if there are any errors with the IP range
             checkPublicIpRangeErrors(zoneId, vlanId, vlanGateway, vlanNetmask, startIP, endIP);
 
-            // Throw an exception if any of the following is true:
-            // 1. Another VLAN in the same zone has a different tag but the same
-            // subnet as the new VLAN. Make an exception for the
-            // case when both vlans are Direct.
-            // 2. Another VLAN in the same zone that has the same tag and subnet
-            // as
-            // the new VLAN has IPs that overlap with the IPs
-            // being added
-            // 3. Another VLAN in the same zone that has the same tag and subnet
-            // as
-            // the new VLAN has a different gateway than the
-            // new VLAN
-            // 4. If VLAN is untagged and Virtual, and there is existing
-            // UNTAGGED
-            // vlan with different subnet
+            // Throw an exception if this subnet overlaps with subnet on other VLAN,
+            // if this is ip range extension, gateway, network mask should be same and ip range should not overlap
+
             List<VlanVO> vlans = _vlanDao.listByZone(zone.getId());
             for (VlanVO vlan : vlans) {
                 String otherVlanGateway = vlan.getVlanGateway();
+                String otherVlanNetmask = vlan.getVlanNetmask();
                 // Continue if it's not IPv4
-                if (otherVlanGateway == null) {
+                if ( otherVlanGateway == null || otherVlanNetmask == null ) {
                     continue;
                 }
-                 String otherVlanSubnet = NetUtils.getSubNet(vlan.getVlanGateway(), vlan.getVlanNetmask());
+                if ( vlan.getNetworkId() == null ) {
+                    continue;
+                }
+                String otherCidr = NetUtils.getCidrFromGatewayAndNetmask(otherVlanGateway, otherVlanNetmask);
+                if( !NetUtils.isNetworksOverlap(newCidr,  otherCidr)) {
+                    continue;
+                }
+                // from here, subnet overlaps
+                if ( !vlanId.equals(vlan.getVlanTag()) ) {
+                    throw new InvalidParameterValueException("The IP range with tag: " + vlan.getVlanTag()
+                            + " in zone " + zone.getName()
+                            + " has overlapped with the subnet. Please specify a different gateway/netmask.");
+                }
+                if ( vlan.getNetworkId() != networkId) {
+                    throw new InvalidParameterValueException("This subnet is overlapped with subnet in other network " + vlan.getNetworkId()
+                            + " in zone " + zone.getName()
+                            + " . Please specify a different gateway/netmask.");
+                   
+                }
                 String[] otherVlanIpRange = vlan.getIpRange().split("\\-");
                 String otherVlanStartIP = otherVlanIpRange[0];
                 String otherVlanEndIP = null;
@@ -3039,34 +3058,15 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
                     otherVlanEndIP = otherVlanIpRange[1];
                 }
 
-                if (forVirtualNetwork && !vlanId.equals(vlan.getVlanTag()) && newVlanSubnet.equals(otherVlanSubnet)
-                        && !allowIpRangeOverlap(vlan, forVirtualNetwork, networkId)) {
-                    throw new InvalidParameterValueException("The IP range with tag: " + vlan.getVlanTag()
-                            + " in zone " + zone.getName()
-                            + " has the same subnet. Please specify a different gateway/netmask.");
+                //extend IP range
+                if (!vlanGateway.equals(otherVlanGateway) || !vlanNetmask.equals(vlan.getVlanNetmask())) {
+                    throw new InvalidParameterValueException("The IP range has already been added with gateway "
+                            + otherVlanGateway + " ,and netmask " + otherVlanNetmask
+                            + ", Please specify the gateway/netmask if you want to extend ip range" );
                 }
-
-                boolean vlansUntaggedAndVirtual = (vlanId.equals(Vlan.UNTAGGED) && vlanId.equals(vlan.getVlanTag())
-                        && forVirtualNetwork && vlan.getVlanType() == VlanType.VirtualNetwork);
-
-                if (vlansUntaggedAndVirtual && !newVlanSubnet.equals(otherVlanSubnet)) {
-                    throw new InvalidParameterValueException(
-                            "The Untagged ip range with different subnet already exists in zone " + zone.getId());
-                }
-
-                if (vlanId.equals(vlan.getVlanTag()) && newVlanSubnet.equals(otherVlanSubnet)) {
-                    if (NetUtils.ipRangesOverlap(startIP, endIP, otherVlanStartIP, otherVlanEndIP)) {
-                        throw new InvalidParameterValueException(
-                                "The IP range with tag: "
-                                        + vlan.getVlanTag()
-                                        + " already has IPs that overlap with the new range. Please specify a different start IP/end IP.");
-                    }
-
-                    if (!vlanGateway.equals(otherVlanGateway)) {
-                        throw new InvalidParameterValueException("The IP range with tag: " + vlan.getVlanTag()
-                                + " has already been added with gateway " + otherVlanGateway
-                                + ". Please specify a different tag.");
-                    }
+                if (NetUtils.ipRangesOverlap(startIP, endIP, otherVlanStartIP, otherVlanEndIP)) {
+                    throw new InvalidParameterValueException("The IP range already has IPs that overlap with the new range." +
+                    		" Please specify a different start IP/end IP.");
                 }
             }
         }
@@ -3085,15 +3085,12 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
                 }
                 if (vlanId.equals(vlan.getVlanTag())) {
                     if (NetUtils.isIp6RangeOverlap(ipv6Range, vlan.getIp6Range())) {
-                        throw new InvalidParameterValueException(
-                                "The IPv6 range with tag: "
-                                        + vlan.getVlanTag()
-                                        + " already has IPs that overlap with the new range. Please specify a different start IP/end IP.");
+                        throw new InvalidParameterValueException("The IPv6 range with tag: " + vlan.getVlanTag()
+                                + " already has IPs that overlap with the new range. Please specify a different start IP/end IP.");
                     }
 
                     if (!vlanIp6Gateway.equals(vlan.getIp6Gateway())) {
-                        throw new InvalidParameterValueException("The IP range with tag: " + vlan.getVlanTag()
-                                + " has already been added with gateway " + vlan.getIp6Gateway()
+                        throw new InvalidParameterValueException("The IP range with tag: " + vlan.getVlanTag() + " has already been added with gateway " + vlan.getIp6Gateway()
                                 + ". Please specify a different tag.");
                     }
                 }
@@ -4911,14 +4908,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         }
     }
 
-    private boolean allowIpRangeOverlap(VlanVO vlan, boolean forVirtualNetwork, long networkId) {
-        // FIXME - delete restriction for virtual network in the future
-        if (vlan.getVlanType() == VlanType.DirectAttached && !forVirtualNetwork) {
-            return true;
-        } else {
-            return false;
-        }
-    }
 
     @Override
     public ServiceOffering getServiceOffering(long serviceOfferingId) {
@@ -5139,5 +5128,10 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
             }
         }
         return false;
+    }
+
+    @Override
+    public <T> ConfigValue<T> get(ConfigKey<T> config) {
+        return new ConfigValue<T>(_entityMgr, config);
     }
 }

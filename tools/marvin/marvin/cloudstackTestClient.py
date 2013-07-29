@@ -37,7 +37,16 @@ class cloudstackTestClient(object):
         self.dbConnection = None
         self.asyncJobMgr = None
         self.ssh = None
+        self.id = None
         self.defaultWorkerThreads = defaultWorkerThreads
+
+    @property
+    def identifier(self):
+        return self.id
+
+    @identifier.setter
+    def identifier(self, id):
+        self.id = id
 
     def dbConfigure(self, host="localhost", port=3306, user='cloud',
                     passwd='cloud', db='cloud'):
@@ -64,7 +73,10 @@ class cloudstackTestClient(object):
 
     def random_gen(self, size=6, chars=string.ascii_uppercase + string.digits):
         """Generate Random Strings of variable length"""
-        return ''.join(random.choice(chars) for x in range(size))
+        randomstr = ''.join(random.choice(chars) for x in range(size))
+        if self.identifier:
+            return ''.join([self.identifier, '-', randomstr])
+        return randomstr
 
     def createUserApiClient(self, UserName, DomainName, acctType=0):
         if not self.isAdminContext():
@@ -82,10 +94,6 @@ class cloudstackTestClient(object):
             domain = self.apiClient.createDomain(cdomain)
             domId = domain.id
 
-        mdf = hashlib.md5()
-        mdf.update("password")
-        mdf_pass = mdf.hexdigest()
-
         cmd = listAccounts.listAccountsCmd()
         cmd.name = UserName
         cmd.domainid = domId
@@ -100,7 +108,7 @@ class cloudstackTestClient(object):
                 + "@cloudstack.org"
             createAcctCmd.firstname = UserName
             createAcctCmd.lastname = UserName
-            createAcctCmd.password = mdf_pass
+            createAcctCmd.password = 'password'
             createAcctCmd.username = UserName
             acct = self.apiClient.createAccount(createAcctCmd)
             acctId = acct.id
@@ -153,6 +161,7 @@ class cloudstackTestClient(object):
         return self.dbConnection.executeSqlFromFile(sqlFile)
 
     def getApiClient(self):
+        self.apiClient.id = self.identifier
         return self.apiClient
 
     def getUserApiClient(self, account, domain, type=0):

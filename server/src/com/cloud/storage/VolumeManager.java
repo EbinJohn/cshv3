@@ -27,7 +27,6 @@ import org.apache.cloudstack.api.command.user.volume.MigrateVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.UploadVolumeCmd;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
-import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.deploy.DeployDestination;
@@ -85,25 +84,21 @@ public interface VolumeManager extends VolumeApiService {
     @Override
     Volume detachVolumeFromVM(DetachVolumeCmd cmmd);
 
-    void release(VirtualMachineProfile<? extends VMInstanceVO> profile);
+    void release(VirtualMachineProfile profile);
 
     void cleanupVolumes(long vmId) throws ConcurrentOperationException;
 
     @Override
     Volume migrateVolume(MigrateVolumeCmd cmd);
 
-    <T extends VMInstanceVO> void migrateVolumes(T vm, VirtualMachineTO vmTo, Host srcHost, Host destHost,
-            Map<VolumeVO, StoragePoolVO> volumeToPool);
+    void migrateVolumes(VirtualMachine vm, VirtualMachineTO vmTo, Host srcHost, Host destHost,
+            Map<Volume, StoragePool> volumeToPool);
 
-    boolean storageMigration(
-            VirtualMachineProfile<? extends VirtualMachine> vm,
-            StoragePool destPool);
+    boolean storageMigration(VirtualMachineProfile vm, StoragePool destPool);
 
-    void prepareForMigration(
-            VirtualMachineProfile<? extends VirtualMachine> vm,
-            DeployDestination dest);
+    void prepareForMigration(VirtualMachineProfile vm, DeployDestination dest);
 
-    void prepare(VirtualMachineProfile<? extends VirtualMachine> vm,
+    void prepare(VirtualMachineProfile vm,
             DeployDestination dest) throws StorageUnavailableException,
             InsufficientStorageCapacityException, ConcurrentOperationException;
 

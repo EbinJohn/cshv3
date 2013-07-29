@@ -34,7 +34,7 @@ import org.apache.cloudstack.api.BaseListProjectAndAccountResourcesCmd;
 import org.apache.cloudstack.api.command.admin.host.ListHostsCmd;
 import org.apache.cloudstack.api.command.admin.internallb.ListInternalLBVMsCmd;
 import org.apache.cloudstack.api.command.admin.router.ListRoutersCmd;
-import org.apache.cloudstack.api.command.admin.storage.ListCacheStoresCmd;
+import org.apache.cloudstack.api.command.admin.storage.ListSecondaryStagingStoresCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListImageStoresCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListStoragePoolsCmd;
 import org.apache.cloudstack.api.command.admin.user.ListUsersCmd;
@@ -2107,7 +2107,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
     }
 
     @Override
-    public ListResponse<ImageStoreResponse> searchForCacheStores(ListCacheStoresCmd cmd) {
+    public ListResponse<ImageStoreResponse> searchForSecondaryStagingStores(ListSecondaryStagingStoresCmd cmd) {
         Pair<List<ImageStoreJoinVO>, Integer> result = searchForCacheStoresInternal(cmd);
         ListResponse<ImageStoreResponse> response = new ListResponse<ImageStoreResponse>();
 
@@ -2117,7 +2117,7 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
         return response;
     }
 
-    private Pair<List<ImageStoreJoinVO>, Integer> searchForCacheStoresInternal(ListCacheStoresCmd cmd) {
+    private Pair<List<ImageStoreJoinVO>, Integer> searchForCacheStoresInternal(ListSecondaryStagingStoresCmd cmd) {
 
         Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), cmd.getZoneId());
         Object id = cmd.getId();
@@ -2876,22 +2876,24 @@ public class QueryManagerImpl extends ManagerBase implements QueryService {
                 sc.addAnd("state", SearchCriteria.Op.SC, readySc);
             }
 
-            if (zoneId != null) {
-                SearchCriteria<TemplateJoinVO> zoneSc = _templateJoinDao.createSearchCriteria();
-                zoneSc.addOr("dataCenterId", SearchCriteria.Op.EQ, zoneId);
-                zoneSc.addOr("dataStoreScope", SearchCriteria.Op.EQ, ScopeType.REGION);
-                // handle the case where xs-tools.iso and vmware-tools.iso do not have data_center information in template_view
-                SearchCriteria<TemplateJoinVO> isoPerhostSc = _templateJoinDao.createSearchCriteria();
-                isoPerhostSc.addAnd("format", SearchCriteria.Op.EQ, ImageFormat.ISO);
-                isoPerhostSc.addAnd("templateType", SearchCriteria.Op.EQ, TemplateType.PERHOST);
-                zoneSc.addOr("templateType", SearchCriteria.Op.SC, isoPerhostSc);
-                sc.addAnd("dataCenterId", SearchCriteria.Op.SC, zoneSc);
-            }
 
             if (!showDomr) {
                 // excluding system template
                 sc.addAnd("templateType", SearchCriteria.Op.NEQ, Storage.TemplateType.SYSTEM);
             }
+        }
+
+        if (zoneId != null) {
+            SearchCriteria<TemplateJoinVO> zoneSc = _templateJoinDao.createSearchCriteria();
+            zoneSc.addOr("dataCenterId", SearchCriteria.Op.EQ, zoneId);
+            zoneSc.addOr("dataStoreScope", SearchCriteria.Op.EQ, ScopeType.REGION);
+            // handle the case where xs-tools.iso and vmware-tools.iso do not
+            // have data_center information in template_view
+            SearchCriteria<TemplateJoinVO> isoPerhostSc = _templateJoinDao.createSearchCriteria();
+            isoPerhostSc.addAnd("format", SearchCriteria.Op.EQ, ImageFormat.ISO);
+            isoPerhostSc.addAnd("templateType", SearchCriteria.Op.EQ, TemplateType.PERHOST);
+            zoneSc.addOr("templateType", SearchCriteria.Op.SC, isoPerhostSc);
+            sc.addAnd("dataCenterId", SearchCriteria.Op.SC, zoneSc);
         }
 
         // don't return removed template, this should not be needed since we

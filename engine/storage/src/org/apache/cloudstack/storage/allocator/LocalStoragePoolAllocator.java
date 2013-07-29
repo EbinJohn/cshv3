@@ -65,7 +65,7 @@ public class LocalStoragePoolAllocator extends AbstractStoragePoolAllocator {
     ConfigurationDao _configDao;
 
     @Override
-    protected List<StoragePool> select(DiskProfile dskCh, VirtualMachineProfile<? extends VirtualMachine> vmProfile,
+    protected List<StoragePool> select(DiskProfile dskCh, VirtualMachineProfile vmProfile,
             DeploymentPlan plan, ExcludeList avoid, int returnUpTo) {
 
         List<StoragePool> suitablePools = new ArrayList<StoragePool>();
@@ -96,7 +96,8 @@ public class LocalStoragePoolAllocator extends AbstractStoragePoolAllocator {
                 }
             }
         } else {
-            if (plan.getClusterId() == null) {
+            if (plan.getPodId() == null) {
+                // zone wide primary storage deployment
                 return null;
             }
             List<StoragePoolVO> availablePools = _storagePoolDao.findLocalStoragePoolsByTags(plan.getDataCenterId(),

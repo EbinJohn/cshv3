@@ -44,6 +44,7 @@ import com.cloud.agent.api.Command;
 import com.cloud.agent.api.MaintainCommand;
 import com.cloud.agent.api.MigrateCommand;
 import com.cloud.agent.api.PingTestCommand;
+import com.cloud.agent.api.PvlanSetupCommand;
 import com.cloud.agent.api.ReadyCommand;
 import com.cloud.agent.api.SetupCommand;
 import com.cloud.agent.api.ShutdownCommand;
@@ -109,7 +110,9 @@ public abstract class AgentAttache {
     protected AgentManagerImpl _agentMgr;
 
     public final static String[] s_commandsAllowedInMaintenanceMode =
-            new String[] { MaintainCommand.class.toString(), MigrateCommand.class.toString(), StopCommand.class.toString(), CheckVirtualMachineCommand.class.toString(), PingTestCommand.class.toString(), CheckHealthCommand.class.toString(), ReadyCommand.class.toString(), ShutdownCommand.class.toString(), SetupCommand.class.toString(), ClusterSyncCommand.class.toString(), CleanupNetworkRulesCmd.class.toString(), CheckNetworkCommand.class.toString() };
+            new String[] { MaintainCommand.class.toString(), MigrateCommand.class.toString(), StopCommand.class.toString(), CheckVirtualMachineCommand.class.toString(), PingTestCommand.class.toString(),
+    					   CheckHealthCommand.class.toString(), ReadyCommand.class.toString(), ShutdownCommand.class.toString(), SetupCommand.class.toString(), ClusterSyncCommand.class.toString(),
+    					   CleanupNetworkRulesCmd.class.toString(), CheckNetworkCommand.class.toString(), PvlanSetupCommand.class.toString() };
     protected final static String[] s_commandsNotAllowedInConnectingMode =
             new String[] { StartCommand.class.toString(), CreateCommand.class.toString() };
     static {
@@ -337,26 +340,14 @@ public abstract class AgentAttache {
         checkAvailability(req.getCommands());
 
         long seq = req.getSequence();
-        if (s_logger.isDebugEnabled()) {
-            s_logger.debug("Request seq: " + seq);
-        }
-
         if (listener != null) {
             registerListener(seq, listener);
         } else if (s_logger.isDebugEnabled()) {
             s_logger.debug(log(seq, "Routed from " + req.getManagementServerId()));
         }
 
-        if (s_logger.isDebugEnabled()) {
-            s_logger.debug("waiting to send " + seq);
-        }
-
         synchronized(this) {
             try {
-                if (s_logger.isDebugEnabled()) {
-                    s_logger.debug("entering synchronize block for sending " + seq);
-                }
-
                 if (isClosed()) {
                     throw new AgentUnavailableException("The link to the agent has been closed", _id);
                 }

@@ -38,6 +38,7 @@ from marvin.integration.lib.common import (get_domain,
                                                         get_template,
                                                         cleanup_resources,
                                                         list_routers)
+import socket
 
 
 class Services:
@@ -170,7 +171,6 @@ class Services:
                 "protocol": 'TCP',
             },
             "ostype": 'CentOS 5.3 (64-bit)',
-            "sleep": 60,
             "timeout": 10,
         }
 
@@ -179,6 +179,9 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
 
     @classmethod
     def setUpClass(cls):
+        # We want to fail quicker if it's failure
+        socket.setdefaulttimeout(60)
+
         cls.api_client = super(
                                         TestVPCNetworkPFRules,
                                         cls
@@ -208,8 +211,7 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
             #Cleanup resources used
             cleanup_resources(cls.api_client, cls._cleanup)
         except Exception as e:
-            print("Warning: Exception during cleanup : %s" % e)
-            #raise Exception("Warning: Exception during cleanup : %s" % e)
+            raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
 
@@ -221,14 +223,13 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
                                                 admin=True,
                                                 domainid=self.domain.id
                                                 )
-        self._cleanup = [self.account]
+        self.cleanup = [self.account]
         self.debug("Creating a VPC offering..")
         self.vpc_off = VpcOffering.create(
                                                 self.apiclient,
                                                 self.services["vpc_offering"]
                                                 )
 
-        self._cleanup.append(self.vpc_off)
         self.debug("Enabling the VPC offering created")
         self.vpc_off.update(self.apiclient, state='Enabled')
 
@@ -247,10 +248,9 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
     def tearDown(self):
         try:
             #Clean up, terminate the created network offerings
-            cleanup_resources(self.apiclient, self._cleanup)
+            cleanup_resources(self.apiclient, self.cleanup)
         except Exception as e:
             self.debug("Warning: Exception during cleanup : %s" % e)
-            #raise Exception("Warning: Exception during cleanup : %s" % e)
         return
 
     def get_vpcrouter(self):
@@ -294,6 +294,7 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
 
     def start_vpcrouter(self, router):
         # Start the VPC Router
+        self.debug("Starting router ID: %s" % router.id)
         cmd = startRouter.startRouterCmd()
         cmd.id = router.id
         self.apiclient.startRouter(cmd)
@@ -342,24 +343,8 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
                 else:
                     self.debug("Failed to wget from VM=%s http server on public_ip=%s" % (vm.name, public_ip.ipaddress.ipaddress))
 
-    def create_staticnat(self, vm, public_ip, network):
-        self.debug("Enabling static NAT for IP: %s" %
-                                                        public_ip.ipaddress.ipaddress)
-        try:
-                StaticNATRule.enable(
-                                        self.apiclient,
-                                        ipaddressid=public_ip.ipaddress.id,
-                                        virtualmachineid=vm.id,
-                                        networkid=network.id
-                                        )
-                self.debug("Static NAT enabled for IP: %s" %
-                                                        public_ip.ipaddress.ipaddress)
-        except Exception as e:
-                self.fail("Failed to enable static NAT on IP: %s - %s" % (
-                                                    public_ip.ipaddress.ipaddress, e))
-
     def create_natrule(self, vm, public_ip, network, services=None):
-        self.debug("Creatinng NAT rule in network for vm with public IP")
+        self.debug("Creating NAT rule in network for vm with public IP")
         if not services:
             services = self.services["natrule"]
         nat_rule = NATRule.create(self.apiclient,
@@ -371,7 +356,7 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
                                             vpcid=self.vpc.id
                                             )
 
-        self.debug("Adding NetwrokACl rules to make NAT rule accessible")
+        self.debug("Adding NetworkACL rules to make NAT rule accessible")
         nwacl_nat = NetworkACL.create(self.apiclient,
                                                 networkid=network.id,
                                                 services=services,
@@ -386,7 +371,7 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
                                         accountid=self.account.name,
                                         zoneid=self.zone.id,
                                         domainid=self.account.domainid,
-                                        networkid=None, #network.id,
+                                        networkid=network.id,
                                         vpcid=self.vpc.id
                                         )
         self.debug("Associated %s with network %s" % (public_ip.ipaddress.ipaddress,
@@ -444,8 +429,8 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
                                                 )
                 self.debug("Created network with ID: %s" % obj_network.id)
                 return obj_network
-        except:
-                self.fail('Unable to create a Network with offering=%s' % net_offerring)
+        except Exception, e:
+                self.fail('Unable to create a Network with offering=%s because of %s ' % (net_offerring, e))
 
     def deployvm_in_network(self, network, host_id=None):
         try:
@@ -517,11 +502,17 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         network_1 = self.create_network(self.services["network_offering"])
         vm_1 = self.deployvm_in_network(network_1)
         public_ip_1 = self.acquire_publicip(network_1)
+        #ensure vm is accessible over public ip
+        nat_rule = self.create_natrule(vm_1, public_ip_1, network_1)
+        self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
+        #remove the nat rule
+        nat_rule.delete(self.apiclient)
+
         router = self.stop_vpcrouter()
-        self.create_natrule( vm_1, public_ip_1, network_1)
+        #recreate nat rule
+        self.create_natrule(vm_1, public_ip_1, network_1)
         self.start_vpcrouter(router)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
-
         return
 
     @attr(tags=["advanced", "intervlan"])
@@ -634,7 +625,7 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         router = self.stop_vpcrouter()
-        http_rule.delete()
+        http_rule.delete(self.apiclient)
         self.start_vpcrouter(router)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         return
@@ -663,7 +654,7 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         #http_rule = self.create_egress_Internet_Rule(network_1)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
-        http_rule.delete()
+        http_rule.delete(self.apiclient)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         return
 
@@ -695,8 +686,8 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         router = self.stop_vpcrouter()
-        http_rule.delete()
-        nat_rule.delete()
+        http_rule.delete(self.apiclient)
+        nat_rule.delete(self.apiclient)
         self.start_vpcrouter(router)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
@@ -727,8 +718,8 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         #http_rule = self.create_egress_Internet_Rule(network_1)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
-        http_rule.delete()
-        nat_rule.delete()
+        http_rule.delete(self.apiclient)
+        nat_rule.delete(self.apiclient)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         return
@@ -764,34 +755,40 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         public_ip_2 = self.acquire_publicip(network_1)
         nat_rule1  = self.create_natrule(vm_1, public_ip_1, network_1)
         nat_rule2  = self.create_natrule(vm_2, public_ip_2, network_1)
-        http_rule1 = self.open_egress_to_world(network_1)
-        nat_rule3  = self.create_natrule(vm_3, public_ip_1, network_2)
-        nat_rule4  = self.create_natrule(vm_4, public_ip_2, network_2)
-        http_rule2 = self.open_egress_to_world(network_2)
+        http_rule1 = self.create_natrule(vm_1, public_ip_1, network_1, self.services["http_rule"])
+        http_rule2 = self.create_natrule(vm_2, public_ip_2, network_1, self.services["http_rule"])
+        public_ip_3 = self.acquire_publicip(network_2)
+        public_ip_4 = self.acquire_publicip(network_2)
+        nat_rule3  = self.create_natrule(vm_3, public_ip_3, network_2)
+        nat_rule4  = self.create_natrule(vm_4, public_ip_4, network_2)
+        http_rule3 = self.create_natrule(vm_3, public_ip_3, network_2, self.services["http_rule"])
+        http_rule4 = self.create_natrule(vm_4, public_ip_4, network_2, self.services["http_rule"])
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
         self.check_ssh_into_vm(vm_2, public_ip_2, testnegative=False)
-        self.check_ssh_into_vm(vm_3, public_ip_1, testnegative=False)
-        self.check_ssh_into_vm(vm_4, public_ip_2, testnegative=False)
+        self.check_ssh_into_vm(vm_3, public_ip_3, testnegative=False)
+        self.check_ssh_into_vm(vm_4, public_ip_4, testnegative=False)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         self.check_wget_from_vm(vm_2, public_ip_2, testnegative=False)
-        self.check_wget_from_vm(vm_3, public_ip_1, testnegative=False)
-        self.check_wget_from_vm(vm_4, public_ip_2, testnegative=False)
+        self.check_wget_from_vm(vm_3, public_ip_3, testnegative=False)
+        self.check_wget_from_vm(vm_4, public_ip_4, testnegative=False)
         router = self.stop_vpcrouter()
-        nat_rule1.delete()
-        nat_rule2.delete()
-        nat_rule3.delete()
-        nat_rule4.delete()
-        http_rule1.delete()
-        http_rule2.delete()
+        nat_rule1.delete(self.apiclient)
+        nat_rule2.delete(self.apiclient)
+        nat_rule3.delete(self.apiclient)
+        nat_rule4.delete(self.apiclient)
+        http_rule1.delete(self.apiclient)
+        http_rule2.delete(self.apiclient)
+        http_rule3.delete(self.apiclient)
+        http_rule4.delete(self.apiclient)
         self.start_vpcrouter(router)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         self.check_ssh_into_vm(vm_2, public_ip_2, testnegative=True)
-        self.check_ssh_into_vm(vm_3, public_ip_1, testnegative=True)
-        self.check_ssh_into_vm(vm_4, public_ip_2, testnegative=True)
+        self.check_ssh_into_vm(vm_3, public_ip_3, testnegative=True)
+        self.check_ssh_into_vm(vm_4, public_ip_4, testnegative=True)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         self.check_wget_from_vm(vm_2, public_ip_2, testnegative=True)
-        self.check_wget_from_vm(vm_3, public_ip_1, testnegative=True)
-        self.check_wget_from_vm(vm_4, public_ip_2, testnegative=True)
+        self.check_wget_from_vm(vm_3, public_ip_3, testnegative=True)
+        self.check_wget_from_vm(vm_4, public_ip_4, testnegative=True)
         return
 
     @attr(tags=["advanced", "intervlan"])
@@ -822,30 +819,36 @@ class TestVPCNetworkPFRules(cloudstackTestCase):
         public_ip_2 = self.acquire_publicip(network_1)
         nat_rule1  = self.create_natrule(vm_1, public_ip_1, network_1)
         nat_rule2  = self.create_natrule(vm_2, public_ip_2, network_1)
-        http_rule1 = self.open_egress_to_world(network_1)
-        nat_rule3  = self.create_natrule(vm_3, public_ip_1, network_2)
-        nat_rule4  = self.create_natrule(vm_4, public_ip_2, network_2)
-        http_rule2 = self.open_egress_to_world(network_2)
+        http_rule1 = self.create_natrule(vm_1, public_ip_1, network_1, self.services["http_rule"])
+        http_rule2 = self.create_natrule(vm_2, public_ip_2, network_1, self.services["http_rule"])
+        public_ip_3 = self.acquire_publicip(network_2)
+        public_ip_4 = self.acquire_publicip(network_2)
+        nat_rule3  = self.create_natrule(vm_3, public_ip_3, network_2)
+        nat_rule4  = self.create_natrule(vm_4, public_ip_4, network_2)
+        http_rule3 = self.create_natrule(vm_3, public_ip_3, network_2, self.services["http_rule"])
+        http_rule4 = self.create_natrule(vm_4, public_ip_4, network_2, self.services["http_rule"])
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=False)
         self.check_ssh_into_vm(vm_2, public_ip_2, testnegative=False)
-        self.check_ssh_into_vm(vm_3, public_ip_1, testnegative=False)
-        self.check_ssh_into_vm(vm_4, public_ip_2, testnegative=False)
+        self.check_ssh_into_vm(vm_3, public_ip_3, testnegative=False)
+        self.check_ssh_into_vm(vm_4, public_ip_4, testnegative=False)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=False)
         self.check_wget_from_vm(vm_2, public_ip_2, testnegative=False)
-        self.check_wget_from_vm(vm_3, public_ip_1, testnegative=False)
-        self.check_wget_from_vm(vm_4, public_ip_2, testnegative=False)
-        nat_rule1.delete()
-        nat_rule2.delete()
-        nat_rule3.delete()
-        nat_rule4.delete()
-        http_rule1.delete()
-        http_rule2.delete()
+        self.check_wget_from_vm(vm_3, public_ip_3, testnegative=False)
+        self.check_wget_from_vm(vm_4, public_ip_4, testnegative=False)
+        nat_rule1.delete(self.apiclient)
+        nat_rule2.delete(self.apiclient)
+        nat_rule3.delete(self.apiclient)
+        nat_rule4.delete(self.apiclient)
+        http_rule1.delete(self.apiclient)
+        http_rule2.delete(self.apiclient)
+        http_rule3.delete(self.apiclient)
+        http_rule4.delete(self.apiclient)
         self.check_ssh_into_vm(vm_1, public_ip_1, testnegative=True)
         self.check_ssh_into_vm(vm_2, public_ip_2, testnegative=True)
-        self.check_ssh_into_vm(vm_3, public_ip_1, testnegative=True)
-        self.check_ssh_into_vm(vm_4, public_ip_2, testnegative=True)
+        self.check_ssh_into_vm(vm_3, public_ip_3, testnegative=True)
+        self.check_ssh_into_vm(vm_4, public_ip_4, testnegative=True)
         self.check_wget_from_vm(vm_1, public_ip_1, testnegative=True)
         self.check_wget_from_vm(vm_2, public_ip_2, testnegative=True)
-        self.check_wget_from_vm(vm_3, public_ip_1, testnegative=True)
-        self.check_wget_from_vm(vm_4, public_ip_2, testnegative=True)
+        self.check_wget_from_vm(vm_3, public_ip_3, testnegative=True)
+        self.check_wget_from_vm(vm_4, public_ip_4, testnegative=True)
         return

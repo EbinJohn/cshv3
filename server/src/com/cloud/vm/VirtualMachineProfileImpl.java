@@ -21,29 +21,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-
 import com.cloud.agent.api.to.DiskTO;
-
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.service.ServiceOfferingVO;
-import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.VMTemplateVO;
-import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.template.VirtualMachineTemplate.BootloaderType;
 import com.cloud.user.Account;
-import com.cloud.user.dao.AccountDao;
+import com.cloud.utils.db.EntityManager;
 
 /**
  * Implementation of VirtualMachineProfile.
  *
  */
-public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements VirtualMachineProfile<T> {
+public class VirtualMachineProfileImpl implements VirtualMachineProfile {
 
-    T _vm;
-    ServiceOfferingVO _offering;
-    VMTemplateVO _template;
+    VirtualMachine _vm;
+    ServiceOffering _offering;
+    VirtualMachineTemplate _template;
     UserVmDetailVO _userVmDetails;
     Map<Param, Object> _params;
     List<NicProfile> _nics = new ArrayList<NicProfile>();
@@ -56,7 +52,7 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
 
     VirtualMachine.Type _type;
 
-    public VirtualMachineProfileImpl(T vm, VMTemplateVO template, ServiceOfferingVO offering, Account owner, Map<Param, Object> params) {
+    public VirtualMachineProfileImpl(VirtualMachine vm, VMTemplateVO template, ServiceOfferingVO offering, Account owner, Map<Param, Object> params) {
         _vm = vm;
         _template = template;
         _offering = offering;
@@ -69,7 +65,7 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
         	_type = vm.getType();
     }
 
-    public VirtualMachineProfileImpl(T vm) {
+    public VirtualMachineProfileImpl(VirtualMachine vm) {
         this(vm, null, null, null, null);
     }
 
@@ -83,14 +79,14 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
     }
 
     @Override
-    public T getVirtualMachine() {
+    public VirtualMachine getVirtualMachine() {
         return _vm;
     }
 
     @Override
     public ServiceOffering getServiceOffering() {
         if (_offering == null) {
-            _offering = s_offeringDao.findByIdIncludingRemoved(_vm.getServiceOfferingId());
+            _offering = s_entityMgr.findById(ServiceOffering.class, _vm.getServiceOfferingId());
         }
         return _offering;
     }
@@ -102,13 +98,13 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
 
     @Override
     public void setBootLoaderType(BootloaderType bootLoader) {
-    	this._bootloader = bootLoader;
+    	_bootloader = bootLoader;
     }
 
     @Override
     public VirtualMachineTemplate getTemplate() {
         if (_template == null && _vm != null) {
-            _template = s_templateDao.findByIdIncludingRemoved(_vm.getTemplateId());
+            _template = s_entityMgr.findById(VirtualMachineTemplate.class, _vm.getTemplateId());
         }
         return _template;
     }
@@ -186,7 +182,7 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
     @Override
     public Account getOwner() {
         if (_owner == null) {
-            _owner = s_accountDao.findByIdIncludingRemoved(_vm.getAccountId());
+            _owner = s_entityMgr.findById(Account.class, _vm.getAccountId());
         }
         return _owner;
     }
@@ -196,13 +192,10 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
         return _bootArgs.toString();
     }
 
-    static ServiceOfferingDao s_offeringDao;
-    static VMTemplateDao s_templateDao;
-    static AccountDao s_accountDao;
-    static void setComponents(ServiceOfferingDao offeringDao, VMTemplateDao templateDao, AccountDao accountDao) {
-        s_offeringDao = offeringDao;
-        s_templateDao = templateDao;
-        s_accountDao = accountDao;
+    static EntityManager s_entityMgr;
+
+    static void init(EntityManager entityMgr) {
+        s_entityMgr = entityMgr;
     }
 
     @Override
@@ -232,7 +225,7 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
 
 	@Override
 	public BootloaderType getBootLoaderType() {
-		return this._bootloader;
+		return _bootloader;
 	}
 
 	@Override
@@ -256,11 +249,11 @@ public class VirtualMachineProfileImpl<T extends VMInstanceVO> implements Virtua
 
     @Override
     public Float getCpuOvercommitRatio() {
-        return  this.cpuOvercommitRatio;
+        return  cpuOvercommitRatio;
     }
 
     @Override
     public Float getMemoryOvercommitRatio() {
-        return this.memoryOvercommitRatio;
+        return memoryOvercommitRatio;
     }
 }

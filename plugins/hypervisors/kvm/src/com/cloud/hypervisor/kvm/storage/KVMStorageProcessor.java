@@ -404,6 +404,11 @@ public class KVMStorageProcessor implements StorageProcessor {
     }
 
     @Override
+    public Answer createTemplateFromSnapshot(CopyCommand cmd) {
+        return null;  //To change body of implemented methods use File | Settings | File Templates.
+    }
+
+    @Override
     public Answer backupSnapshot(CopyCommand cmd) {
         DataTO srcData = cmd.getSrcTO();
         DataTO destData = cmd.getDestTO();
@@ -834,10 +839,10 @@ public class KVMStorageProcessor implements StorageProcessor {
 
             NfsTO nfsImageStore = (NfsTO) imageStore;
 
-            String snapshotPath = snapshot.getPath();
-            int index = snapshotPath.lastIndexOf("/");
-            snapshotPath = snapshotPath.substring(0, index);
-            String snapshotName = snapshotPath.substring(index + 1);
+            String snapshotFullPath = snapshot.getPath();
+            int index = snapshotFullPath.lastIndexOf("/");
+            String snapshotPath = snapshotFullPath.substring(0, index);
+            String snapshotName = snapshotFullPath.substring(index + 1);
             KVMStoragePool secondaryPool = storagePoolMgr.getStoragePoolByURI(nfsImageStore.getUrl() + File.separator
                     + snapshotPath);
             KVMPhysicalDisk snapshotDisk = secondaryPool.getPhysicalDisk(snapshotName);
