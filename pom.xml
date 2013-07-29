@@ -180,7 +180,7 @@
         <groupId>mysql</groupId>
         <artifactId>mysql-connector-java</artifactId>
         <version>${cs.mysql.version}</version>
-        <scope>provided</scope>
+        <scope>provided,test</scope>
       </dependency>
       <dependency>
         <groupId>log4j</groupId>
@@ -276,12 +276,6 @@
       </dependency>
       <!-- Test dependency in mysql for db tests -->
       <dependency>
-        <groupId>mysql</groupId>
-        <artifactId>mysql-connector-java</artifactId>
-        <version>${cs.mysql.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
         <groupId>commons-io</groupId>
         <artifactId>commons-io</artifactId>
         <version>${cs.commons-io.version}</version>
@@ -297,11 +291,11 @@
         <artifactId>esapi</artifactId>
         <version>2.0.1</version>
       </dependency>
-    <dependency>
-      <groupId>org.eclipse.persistence</groupId>
-      <artifactId>javax.persistence</artifactId>
-      <version>${cs.jpa.version}</version>
-    </dependency>
+      <dependency>
+        <groupId>org.eclipse.persistence</groupId>
+        <artifactId>javax.persistence</artifactId>
+        <version>${cs.jpa.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -532,6 +526,8 @@
               <exclude>patches/systemvm/debian/vpn/etc/ipsec.d/l2tp.conf</exclude>
               <exclude>tools/transifex/.tx/config</exclude>
               <exclude>tools/marvin/marvin/sandbox/advanced/sandbox.cfg</exclude>
+              <exclude>tools/ngui/static/bootstrap/*</exclude>
+              <exclude>tools/ngui/static/js/lib/*</exclude>
             </excludes>
           </configuration>
         </plugin>
