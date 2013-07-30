@@ -150,8 +150,6 @@ public enum Config {
 	// Advanced
     JobExpireMinutes("Advanced", ManagementServer.class, String.class, "job.expire.minutes", "1440", "Time (in minutes) for async-jobs to be kept in system", null),
     JobCancelThresholdMinutes("Advanced", ManagementServer.class, String.class, "job.cancel.threshold.minutes", "60", "Time (in minutes) for async-jobs to be forcely cancelled if it has been in process for long", null),
-    SwiftEnable("Advanced", ManagementServer.class, Boolean.class, "swift.enable", "false", "enable swift ", null),
-    S3Enable("Advanced", ManagementServer.class, Boolean.class, "s3.enable", "false", "enable s3 ", null),
     EventPurgeInterval("Advanced", ManagementServer.class, Integer.class, "event.purge.interval", "86400", "The interval (in seconds) to wait before running the event purge thread", null),
 	AccountCleanupInterval("Advanced", ManagementServer.class, Integer.class, "account.cleanup.interval", "86400", "The interval (in seconds) between cleanup for removed accounts", null),
 	AllowPublicUserTemplates("Advanced", ManagementServer.class, Integer.class, "allow.public.user.templates", "true", "If false, users will not be able to create public templates.", null, ConfigurationParameterScope.account.toString()),
@@ -167,10 +165,10 @@ public enum Config {
 	IntegrationAPIPort("Advanced", ManagementServer.class, Integer.class, "integration.api.port", null, "Defaul API port", null),
 	InvestigateRetryInterval("Advanced", HighAvailabilityManager.class, Integer.class, "investigate.retry.interval", "60", "Time (in seconds) between VM pings when agent is disconnected", null),
 	MigrateRetryInterval("Advanced", HighAvailabilityManager.class, Integer.class, "migrate.retry.interval", "120", "Time (in seconds) between migration retries", null),
-	PingInterval("Advanced", AgentManager.class, Integer.class, "ping.interval", "60", "Ping interval in seconds", null),
-	PingTimeout("Advanced", AgentManager.class, Float.class, "ping.timeout", "2.5", "Multiplier to ping.interval before announcing an agent has timed out", null),
-	ClusterDeltaSyncInterval("Advanced", AgentManager.class, Integer.class, "sync.interval", "60", "Cluster Delta sync interval in seconds", null),
-	Port("Advanced", AgentManager.class, Integer.class, "port", "8250", "Port to listen on for agent connection.", null),
+    PingInterval("Advanced", AgentManager.class, Integer.class, "ping.interval", "60", "Ping interval in seconds", null),
+    PingTimeout("Advanced", AgentManager.class, Float.class, "ping.timeout", "2.5", "Multiplier to ping.interval before announcing an agent has timed out", null),
+    ClusterDeltaSyncInterval("Advanced", AgentManager.class, Integer.class, "sync.interval", "60", "Cluster Delta sync interval in seconds", null),
+    Port("Advanced", AgentManager.class, Integer.class, "port", "8250", "Port to listen on for agent connection.", null),
 	RouterCpuMHz("Advanced", NetworkManager.class, Integer.class, "router.cpu.mhz", String.valueOf(VpcVirtualNetworkApplianceManager.DEFAULT_ROUTER_CPU_MHZ), "Default CPU speed (MHz) for router VM.", null),
 	RestartRetryInterval("Advanced", HighAvailabilityManager.class, Integer.class, "restart.retry.interval", "600", "Time (in seconds) between retries to restart a vm", null),
 	RouterStatsInterval("Advanced", NetworkManager.class, Integer.class, "router.stats.interval", "300", "Interval (in seconds) to report router statistics.", null),
@@ -436,7 +434,7 @@ public enum Config {
     InternalLbVmServiceOfferingId("Advanced", ManagementServer.class, String.class, "internallbvm.service.offering", null, "Uuid of the service offering used by internal lb vm; if NULL - default system internal lb offering will be used", null),
     ExecuteInSequence("Advanced", ManagementServer.class, Boolean.class, "execute.in.sequence.hypervisor.commands", "false", "If set to true, StartCommand, StopCommand, CopyCommand will be synchronized on the agent side." +
     		" If set to false, these commands become asynchronous. Default value is false.", null),
-    ExecuteInSequenceNetworkElementCommands("Advanced", NetworkManager.class, Boolean.class, "execute.in.sequence.network.element.commands", "false", "If set to true, DhcpEntryCommand, SavePasswordCommand, UserDataCommand, VmDataCommand will be synchronized on the agent side." + 
+    ExecuteInSequenceNetworkElementCommands("Advanced", NetworkManager.class, Boolean.class, "execute.in.sequence.network.element.commands", "false", "If set to true, DhcpEntryCommand, SavePasswordCommand, UserDataCommand, VmDataCommand will be synchronized on the agent side." +
             " If set to false, these commands become asynchronous. Default value is false.", null),
 	
 	UCSSyncBladeInterval("Advanced", ManagementServer.class, Integer.class, "ucs.sync.blade.interval", "3600", "the interval cloudstack sync with UCS manager for available blades in case user remove blades from chassis without notifying CloudStack", null);

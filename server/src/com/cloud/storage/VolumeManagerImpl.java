@@ -31,6 +31,9 @@ import java.util.concurrent.ExecutionException;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
+
 import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.command.user.volume.AttachVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.CreateVolumeCmd;
@@ -70,14 +73,9 @@ import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.apache.cloudstack.storage.image.datastore.ImageStoreEntity;
-import org.apache.commons.lang.StringUtils;
-import org.apache.log4j.Logger;
-import org.springframework.stereotype.Component;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.storage.CreateVolumeOVAAnswer;
-import com.cloud.agent.api.storage.CreateVolumeOVACommand;
 import com.cloud.agent.api.to.DataTO;
 import com.cloud.agent.api.to.DiskTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
@@ -143,7 +141,6 @@ import com.cloud.storage.dao.VMTemplateS3Dao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.storage.download.DownloadMonitor;
-import com.cloud.storage.s3.S3Manager;
 import com.cloud.storage.secondary.SecondaryStorageVmManager;
 import com.cloud.storage.snapshot.SnapshotApiService;
 import com.cloud.storage.snapshot.SnapshotManager;
@@ -237,8 +234,6 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
     protected VMTemplatePoolDao _vmTemplatePoolDao = null;
     @Inject
     protected VMTemplateS3Dao _vmTemplateS3Dao;
-    @Inject
-    protected S3Manager _s3Mgr;
     @Inject
     protected VMTemplateDao _vmTemplateDao = null;
     @Inject
@@ -2784,6 +2779,12 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
             extractMode = mode.equals(Upload.Mode.FTP_UPLOAD.toString()) ? Upload.Mode.FTP_UPLOAD : Upload.Mode.HTTP_DOWNLOAD;
         }
 
+        // Check if the url already exists
+        VolumeDataStoreVO volumeStoreRef = _volumeStoreDao.findByVolume(volumeId);
+        if(volumeStoreRef != null && volumeStoreRef.getExtractUrl() != null){
+            return volumeStoreRef.getExtractUrl();
+        }
+
         // Clean up code to remove all those previous uploadVO and uploadMonitor code. Previous code is trying to fake an async operation purely in
         // db table with uploadVO and async_job entry, but internal implementation is actually synchronous.
         StoragePool srcPool = (StoragePool) dataStoreMgr.getPrimaryDataStore(volume.getPoolId());
@@ -2812,23 +2813,13 @@ public class VolumeManagerImpl extends ManagerBase implements VolumeManager {
         }
 
         VolumeInfo vol = cvResult.getVolume();
-        String volumeLocalPath = vol.getPath();
-        String volumeName = StringUtils.substringBeforeLast(StringUtils.substringAfterLast(volumeLocalPath, "/"), ".");
-        // volss, handle the ova special case;
-        if (getFormatForPool(srcPool) == "ova") {
-            // TODO: need to handle this for S3 as secondary storage
-            CreateVolumeOVACommand cvOVACmd = new CreateVolumeOVACommand(secondaryStorageURL, volumeLocalPath, volumeName, srcPool, copyvolumewait);
-            CreateVolumeOVAAnswer OVAanswer = null;
 
-            try {
-                cvOVACmd.setContextParam("hypervisor", HypervisorType.VMware.toString());
-                // for extract volume, create the ova file here;
-                OVAanswer = (CreateVolumeOVAAnswer) storageMgr.sendToPool(srcPool, cvOVACmd);
-            } catch (StorageUnavailableException e) {
-                s_logger.debug("Storage unavailable");
-            }
-        }
-        return secStore.createEntityExtractUrl(vol.getPath(), vol.getFormat());
+        String extractUrl = secStore.createEntityExtractUrl(vol.getPath(), vol.getFormat(), vol);
+        volumeStoreRef = _volumeStoreDao.findByVolume(volumeId);
+        volumeStoreRef.setExtractUrl(extractUrl);
+        _volumeStoreDao.update(volumeStoreRef.getId(), volumeStoreRef);
+
+        return extractUrl;
     }
 
     private String getFormatForPool(StoragePool pool) {
