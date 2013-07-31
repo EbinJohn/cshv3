@@ -17,6 +17,7 @@
 
 import paramiko
 import time
+import socket
 import cloudstackException
 import contextlib
 import logging
@@ -24,7 +25,7 @@ from contextlib import closing
 
 
 class remoteSSHClient(object):
-    def __init__(self, host, port, user, passwd, retries=10, delay=5,
+    def __init__(self, host, port, user, passwd, retries=5, delay=30,
                  log_lvl=logging.INFO, keyPairFileLocation=None):
         self.host = host
         self.port = port
@@ -57,10 +58,10 @@ class remoteSSHClient(object):
                         (str(host), user, keyPairFileLocation))
                     self.logger.debug("SSH connect: %s@%s with passwd %s" %
                                       (user, str(host), passwd))
-            except paramiko.SSHException, sshex:
+            except (paramiko.SSHException, paramiko.ChannelException, socket.error) as se:
                 if retry_count == 0:
                     raise cloudstackException. \
-                        InvalidParameterException(repr(sshex))
+                        InvalidParameterException(repr(se))
                 retry_count = retry_count - 1
                 time.sleep(delay)
             except paramiko.AuthenticationException, authEx:
@@ -68,8 +69,6 @@ class remoteSSHClient(object):
                     InvalidParameterException("Invalid credentials to "
                                               + "login to %s on port %s" %
                                               (str(host), port))
-            else:
-                return
 
     def execute(self, command):
         stdin, stdout, stderr = self.ssh.exec_command(command)

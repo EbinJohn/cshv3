@@ -393,6 +393,11 @@
                                         docID: 'helpRegisterTemplateFeatured',
                                         isBoolean: true,
                                         isHidden: true
+                                    },
+                                    isrouting: {
+                                        label: 'label.routing',
+                                        isBoolean: true,
+                                        isHidden: true
                                     }
                                 }
                             },
@@ -420,6 +425,12 @@
                                 if (args.$form.find('.form-item[rel=isFeatured]').css("display") != "none") {
                                     $.extend(data, {
                                         isfeatured: (args.data.isFeatured == "on")
+                                    });
+                                }
+
+                                if (args.$form.find('.form-item[rel=isrouting]').is(':visible')) {
+                                    $.extend(data, {
+                                        isrouting: (args.data.isrouting === 'on')
                                     });
                                 }
 

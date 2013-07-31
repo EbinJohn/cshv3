@@ -3202,6 +3202,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     public Map<String, Object> listCapabilities(ListCapabilitiesCmd cmd) {
         Map<String, Object> capabilities = new HashMap<String, Object>();
 
+        Account caller = CallContext.current().getCallingAccount();
         boolean securityGroupsEnabled = false;
         boolean elasticLoadBalancerEnabled = false;
         String supportELB = "false";
@@ -3220,7 +3221,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
 
         long diskOffMaxSize = Long.valueOf(_configDao.getValue(Config.CustomDiskOfferingMaxSize.key()));
 
-        String userPublicTemplateEnabled = _configs.get(Config.AllowPublicUserTemplates.key());
+        String userPublicTemplateEnabled = _configServer.getConfigValue(Config.AllowPublicUserTemplates.key(), Config.ConfigurationParameterScope.account.toString(), caller.getId());
 
         // add some parameters UI needs to handle API throttling
         boolean apiLimitEnabled = Boolean.parseBoolean(_configDao.getValue(Config.ApiLimitEnabled.key()));
@@ -3729,6 +3730,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
     }
 
     @Override
+    @ActionEvent(eventType = EventTypes.EVENT_VM_UPGRADE, eventDescription = "Upgrading system VM", async = true)
     public VirtualMachine upgradeSystemVM(ScaleSystemVMCmd cmd) throws ResourceUnavailableException, ManagementServerException, VirtualMachineMigrationException, ConcurrentOperationException {
 
         VMInstanceVO vmInstance = _vmInstanceDao.findById(cmd.getId());
@@ -3740,7 +3742,7 @@ public class ManagementServerImpl extends ManagerBase implements ManagementServe
             VirtualMachine vm = _vmInstanceDao.findById(cmd.getId());
             return vm;
         }else{
-            return null;
+            throw new CloudRuntimeException("Failed to upgrade System VM");
         }
     }
 
