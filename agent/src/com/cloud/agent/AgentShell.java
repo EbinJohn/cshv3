@@ -317,6 +317,7 @@ public class AgentShell implements IAgentShell, Daemon {
     	s_logger.info("Agent started");
     	
         final Class<?> c = this.getClass();
+        _version = c.getPackage().getImplementationVersion();
         if (_version == null) {
             throw new CloudRuntimeException(
                     "Unable to find the implementation version of this agent");
