@@ -313,7 +313,7 @@ public class AutoScaleManagerImpl<Type> extends ManagerBase implements AutoScale
 
         long zoneId = cmd.getZoneId();
         long serviceOfferingId = cmd.getServiceOfferingId();
-        Long autoscaleUserId = cmd.getAutoscaleUserId();
+        long autoscaleUserId = cmd.getAutoscaleUserId();
 
         DataCenter zone = _configMgr.getZone(zoneId);
 
@@ -337,10 +337,6 @@ public class AutoScaleManagerImpl<Type> extends ManagerBase implements AutoScale
          * will be throwing an error.
          */
         ApiDispatcher.processParameters(new DeployVMCmd(), deployParams);
-
-        if (autoscaleUserId == null) {
-            autoscaleUserId = CallContext.current().getCallingUserId();
-        }
 
         AutoScaleVmProfileVO profileVO = new AutoScaleVmProfileVO(cmd.getZoneId(), cmd.getDomainId(), cmd.getAccountId(), cmd.getServiceOfferingId(), cmd.getTemplateId(), cmd.getOtherDeployParams(),
                 cmd.getCounterParamList(), cmd.getDestroyVmGraceperiod(), autoscaleUserId);
