@@ -93,4 +93,45 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <!-- Hyper-V plugin is built using mono -->
+    <profile>
+      <id>hyperv-agent</id>
+      <activation>
+        <property>
+          <name>hyperv-agent</name>
+        </property>
+      </activation>
+      <dependencies>
+          <dependency>
+              <groupId>org.apache.cloudstack</groupId>
+              <artifactId>cloud-plugin-hypervisor-hyperv</artifactId>
+              <version>${project.version}</version>
+          </dependency>
+      </dependencies>
+      <build>
+      <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.2.1</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <executable>bash</executable>
+          <arguments>
+            <argument>./buildagent.sh</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+      </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
