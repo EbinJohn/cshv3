@@ -50,7 +50,7 @@ namespace HypervResource
             {
                 ValidateIpAddress(value);
                 privateIpAddress = value;
-                var nic = HypervResourceController.GetNicInfoFromIpAddress(privateIpAddress, out PrivateNetmask);
+                System.Net.NetworkInformation.NetworkInterface nic = HypervResourceController.GetNicInfoFromIpAddress(privateIpAddress, out PrivateNetmask);
                 PrivateMacAddress = nic.GetPhysicalAddress().ToString();
             }
         }
@@ -1216,7 +1216,7 @@ namespace HypervResource
                     // TODO: can we assume that the host has only one adaptor?
                     string tmp;
                     var privateNic = GetNicInfoFromIpAddress(config.PrivateIpAddress, out tmp);
-                    var nicStats = privateNic.GetIPStatistics();
+                    var nicStats = privateNic.GetIPv4Statistics();  //TODO: add IPV6 support, currentl
                     networkReadKBs = nicStats.BytesReceived;
                     networkWriteKBs = nicStats.BytesSent;
 
