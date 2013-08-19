@@ -23,7 +23,15 @@ import static java.lang.String.format;
 import static java.util.Arrays.asList;
 import static org.apache.commons.lang.StringUtils.substringAfterLast;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.URI;
@@ -39,10 +47,19 @@ import java.util.concurrent.Callable;
 
 import javax.naming.ConfigurationException;
 
-import com.cloud.agent.api.storage.*;
-import com.cloud.storage.VMTemplateStorageResourceAssoc;
-import com.cloud.storage.template.*;
-import com.cloud.utils.SwiftUtil;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.utils.URLEncodedUtils;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.log4j.Logger;
+
+import com.amazonaws.services.s3.model.S3ObjectSummary;
+
 import org.apache.cloudstack.storage.command.CopyCmdAnswer;
 import org.apache.cloudstack.storage.command.CopyCommand;
 import org.apache.cloudstack.storage.command.DeleteCommand;
@@ -56,16 +73,7 @@ import org.apache.cloudstack.storage.template.UploadManagerImpl;
 import org.apache.cloudstack.storage.to.SnapshotObjectTO;
 import org.apache.cloudstack.storage.to.TemplateObjectTO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.log4j.Logger;
 
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.CheckHealthAnswer;
 import com.cloud.agent.api.CheckHealthCommand;
@@ -86,6 +94,14 @@ import com.cloud.agent.api.SecStorageSetupCommand.Certificates;
 import com.cloud.agent.api.SecStorageVMSetupCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupSecondaryStorageCommand;
+import com.cloud.agent.api.storage.CreateEntityDownloadURLCommand;
+import com.cloud.agent.api.storage.DeleteEntityDownloadURLCommand;
+import com.cloud.agent.api.storage.DownloadAnswer;
+import com.cloud.agent.api.storage.ListTemplateAnswer;
+import com.cloud.agent.api.storage.ListTemplateCommand;
+import com.cloud.agent.api.storage.ListVolumeAnswer;
+import com.cloud.agent.api.storage.ListVolumeCommand;
+import com.cloud.agent.api.storage.UploadCommand;
 import com.cloud.agent.api.to.DataObjectType;
 import com.cloud.agent.api.to.DataStoreTO;
 import com.cloud.agent.api.to.DataTO;
@@ -100,10 +116,17 @@ import com.cloud.resource.ServerResourceBase;
 import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.StorageLayer;
+import com.cloud.storage.VMTemplateStorageResourceAssoc;
+import com.cloud.storage.template.Processor;
 import com.cloud.storage.template.Processor.FormatInfo;
+import com.cloud.storage.template.QCOW2Processor;
+import com.cloud.storage.template.TemplateLocation;
+import com.cloud.storage.template.TemplateProp;
+import com.cloud.storage.template.VhdProcessor;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.S3Utils;
 import com.cloud.utils.S3Utils.FileNamingStrategy;
+import com.cloud.utils.SwiftUtil;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.script.OutputInterpreter;
@@ -156,6 +179,14 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     final private String _tmpltDir = "/var/cloudstack/template";
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
+
+    public void setParentPath(String path) {
+        _parent = path;
+    }
+
+    public String getMountingRoot() {
+        return _parent;
+    }
 
     @Override
     public void disconnected() {
@@ -1859,24 +1890,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         _timeout = NumbersUtil.parseInt(value, 1440) * 1000;
 
         _storage = (StorageLayer) params.get(StorageLayer.InstanceConfigKey);
-        if (_storage == null) {
-            value = (String) params.get(StorageLayer.ClassConfigKey);
-            if (value == null) {
-                value = "com.cloud.storage.JavaStorageLayer";
-            }
-
-            try {
-                Class<?> clazz = Class.forName(value);
-                _storage = (StorageLayer) clazz.newInstance();
-                _storage.configure("StorageLayer", params);
-            } catch (ClassNotFoundException e) {
-                throw new ConfigurationException("Unable to find class " + value);
-            } catch (InstantiationException e) {
-                throw new ConfigurationException("Unable to find class " + value);
-            } catch (IllegalAccessException e) {
-                throw new ConfigurationException("Unable to find class " + value);
-            }
-        }
+        configureStorageLayerClass(params);
 
         if (_inSystemVM) {
             _storage.mkdirs(_parent);
@@ -1963,6 +1977,28 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             return false;
         }
         return true;
+    }
+
+    protected void configureStorageLayerClass(Map<String, Object> params) throws ConfigurationException {
+        String value;
+        if (_storage == null) {
+            value = (String) params.get(StorageLayer.ClassConfigKey);
+            if (value == null) {
+                value = "com.cloud.storage.JavaStorageLayer";
+            }
+
+            try {
+                Class<?> clazz = Class.forName(value);
+                _storage = (StorageLayer) clazz.newInstance();
+                _storage.configure("StorageLayer", params);
+            } catch (ClassNotFoundException e) {
+                throw new ConfigurationException("Unable to find class " + value);
+            } catch (InstantiationException e) {
+                throw new ConfigurationException("Unable to find class " + value);
+            } catch (IllegalAccessException e) {
+                throw new ConfigurationException("Unable to find class " + value);
+            }
+        }
     }
 
     private void startAdditionalServices() {
@@ -2096,9 +2132,9 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
      * <p>
      * 
      * CIFS parameters are documented with mount.cifs at
-     * http://linux.die.net/man/8/mount.cifs CIFS domain,username,password
-     * appear in the username of the URI: &ltdomain> '\' &ltusername> ':'
-     * &ltpassword>
+     * http://linux.die.net/man/8/mount.cifs
+	 * For simplicity, when a URI is used to specify a CIFS share,
+	 * options such as domain,user,password are passed as query parameters.
      * 
      * @param uri
      *            crresponding to the remote device. Will throw for unsupported
@@ -2109,15 +2145,57 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     protected String mountUri(URI uri) throws UnknownHostException {
         String uriHostIp = getUriHostIp(uri);
         String nfsPath = uriHostIp + ":" + uri.getPath();
+
+        // Single means of calculating mount directory regardless of scheme
         String dir = UUID.nameUUIDFromBytes(nfsPath.getBytes()).toString();
         String localRootPath = _parent + "/" + dir;
 
-        mount(localRootPath, nfsPath, uri);
+        // remote device syntax varies by scheme.
+        String remoteDevice;
+        if (uri.getScheme().equals("cifs")) {
+            remoteDevice = "//" + uriHostIp + uri.getPath();
+            s_logger.debug("Mounting device with cifs-style path of "
+                    + remoteDevice);
+        }
+        else
+        {
+            remoteDevice = nfsPath;
+            s_logger.debug("Mounting device with nfs-style path of "
+                    + remoteDevice);
+        }
+
+        mount(localRootPath, remoteDevice, uri);
 
         return dir;
     }
 
+    
+    protected void umount(String localRootPath, URI uri) {
+        ensureLocalRootPathExists(localRootPath, uri);
+
+        if (!mountExists(localRootPath, uri)) {
+            return;
+        }
+
+        Script command = new Script(!_inSystemVM, "mount", _timeout, s_logger);
+        command.add(localRootPath);
+        String result = command.execute();
+        if (result != null) {
+            // Fedora Core 12 errors out with any -o option executed from java
+            String errMsg = "Unable to umount " + localRootPath + " due to "
+                    + result;
+            s_logger.error(errMsg);
+            File file = new File(localRootPath);
+            if (file.exists()) {
+                file.delete();
+            }
+            throw new CloudRuntimeException(errMsg);
+        }
+        s_logger.debug("Successfully umounted " + localRootPath);
+    }
+    
     protected void mount(String localRootPath, String remoteDevice, URI uri) {
+        s_logger.debug("mount " + uri.toString() + " on " + localRootPath);
         ensureLocalRootPathExists(localRootPath, uri);
 
         if (mountExists(localRootPath, uri)) {
@@ -2134,8 +2212,8 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
     protected void attemptMount(String localRootPath, String remoteDevice, URI uri) {
         String result;
-        s_logger.debug("Make cmdline call to mount " + uri.toString() + " at "
-                + localRootPath);
+        s_logger.debug("Make cmdline call to mount " + remoteDevice + " at "
+                + localRootPath + " based on uri " + uri);
         Script command = new Script(!_inSystemVM, "mount", _timeout, s_logger);
 
         String scheme = uri.getScheme().toLowerCase();
@@ -2151,27 +2229,13 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
                         "soft,timeo=133,retrans=2147483647,tcp,acdirmax=0,acdirmin=0");
             }
         } else if (scheme.equals("cifs")) {
-            // Roll domain and username into a 'user' options
-            String[] usrAndPwd = uri.getUserInfo().split(":");
-
-            String userPwdOptions = "";
-            if (usrAndPwd.length < 2) {
-                // Fedora Core 12 errors out with any -o option executed from java
-                String errMsg = "Username and passwords should be provided in"
-                        + " the form cifs://[<domain>\\]<user>:<password>/<device "
-                        + "path>, but you have not provided a user and password";
-                s_logger.error(errMsg);
-                throw new CloudRuntimeException(errMsg);
-            } else if (usrAndPwd.length == 2) {
-                userPwdOptions = userPwdOptions + "user=" + usrAndPwd[0];
-                userPwdOptions = userPwdOptions + ",password=" + usrAndPwd[1];
-            }
+            String extraOpts = parseCifsMountOptions(uri);
 
             // nfs acdirmax / acdirmin correspoonds to CIFS actimeo (see
             // http://linux.die.net/man/8/mount.cifs)
             // no equivalent to nfs timeo, retrans or tcp in CIFS
             // todo: allow security mode to be set.
-            command.add("-o", "soft,actimeo=0," + userPwdOptions);
+            command.add("-o", extraOpts + "soft,actimeo=0");
         } else {
             String errMsg = "Unsupported storage device scheme " + scheme
                     + " in uri " + uri.toString();
@@ -2196,6 +2260,40 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         s_logger.debug("Successfully mounted " + remoteDevice + " at " + localRootPath);
     }
 
+    protected String parseCifsMountOptions(URI uri) {
+        List<NameValuePair> args = URLEncodedUtils.parse(uri, "UTF-8");
+        boolean foundUser = false;
+        boolean foundPswd = false;
+        String extraOpts = "";
+        for (NameValuePair nvp : args) {
+            String name = nvp.getName();
+            if (name.equals("user")) {
+                foundUser = true;
+                s_logger.debug("foundUser is" + foundUser);
+            }
+            else if (name.equals("password")) {
+                foundPswd = true;
+                s_logger.debug("foundPswd is" + foundPswd);
+            }
+
+            extraOpts = extraOpts + name + "=" + nvp.getValue() + ",";
+        }
+
+        if (s_logger.isDebugEnabled())
+        {
+            s_logger.error("extraOpts now " + extraOpts);
+        }
+
+        if (!foundUser || !foundPswd) {
+            String errMsg = "Missing user and password from URI. Make sure they"
+                    + "are in the query string and separated by '&'.  E.g. "
+                    + "cifs://example.com/some_share?user=foo&password=bar";
+            s_logger.error(errMsg);
+            throw new CloudRuntimeException(errMsg);
+        }
+        return extraOpts;
+    }
+
     protected boolean mountExists(String localRootPath, URI uri) {
         Script script = null;
         script = new Script(!_inSystemVM, "mount", _timeout, s_logger);
@@ -2216,13 +2314,18 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     }
 
     protected void ensureLocalRootPathExists(String localRootPath, URI uri) {
+        s_logger.debug("making available " + localRootPath + " on " + uri.toString());
         File file = new File(localRootPath);
+        s_logger.debug("local folder for mount will be " + file.toPath().toAbsolutePath());
         if (!file.exists()) {
-            if (_storage.mkdir(localRootPath)) {
-                s_logger.debug("create mount point: " + localRootPath);
-            } else {
-                String errMsg = "Unable to create mount point: " + localRootPath
-                        + " for device at " + uri.toString();
+            s_logger.debug("create mount point: " + file.toPath().toAbsolutePath().toString());
+            _storage.mkdir(file.toPath().toAbsolutePath().toString());
+
+            // Need to check after mkdir to allow O/S to complete operation
+            if (!file.exists()) {
+                String errMsg = "Unable to create local folder for: "
+                        + localRootPath
+                        + " in order to mount " + uri.toString();
                 s_logger.error(errMsg);
                 throw new CloudRuntimeException(errMsg);
             }
