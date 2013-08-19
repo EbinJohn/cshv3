@@ -27,6 +27,7 @@ import java.io.*;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -739,6 +740,10 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
                 newVol.setPath(key);
                 newVol.setSize(srcFile.length());
                 retObj = newVol;
+            } else if (destData.getObjectType() == DataObjectType.SNAPSHOT) {
+                SnapshotObjectTO newSnapshot = new SnapshotObjectTO();
+                newSnapshot.setPath(key);
+                retObj = newSnapshot;
             }
 
             return new CopyCmdAnswer(retObj);
@@ -1104,16 +1109,10 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             String secUrl = cmd.getSecUrl();
             try {
                 URI uri = new URI(secUrl);
-                String nfsHost = uri.getHost();
-
-                InetAddress nfsHostAddr = InetAddress.getByName(nfsHost);
-                String nfsHostIp = nfsHostAddr.getHostAddress();
+                String nfsHostIp = getUriHostIp(uri);
 
                 addRouteToInternalIpOrCidr(_storageGateway, _storageIp, _storageNetmask, nfsHostIp);
-                String nfsPath = nfsHostIp + ":" + uri.getPath();
-                String dir = UUID.nameUUIDFromBytes(nfsPath.getBytes()).toString();
-                String root = _parent + "/" + dir;
-                mount(root, nfsPath);
+                String dir = mountUri(uri);
 
                 configCerts(cmd.getCerts());
 
@@ -1775,15 +1774,8 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         }
         try {
             URI uri = new URI(secUrl);
-            String nfsHost = uri.getHost();
-
-            InetAddress nfsHostAddr = InetAddress.getByName(nfsHost);
-            String nfsHostIp = nfsHostAddr.getHostAddress();
-            String nfsPath = nfsHostIp + ":" + uri.getPath();
-            String dir = UUID.nameUUIDFromBytes(nfsPath.getBytes()).toString();
-            String root = _parent + "/" + dir;
-            mount(root, nfsPath);
-            return root;
+            String dir = mountUri(uri);
+            return _parent + "/" + dir;
         } catch (Exception e) {
             String msg = "GetRootDir for " + secUrl + " failed due to " + e.toString();
             s_logger.error(msg, e);
@@ -1850,6 +1842,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
         String inSystemVM = (String) params.get("secondary.storage.vm");
         if (inSystemVM == null || "true".equalsIgnoreCase(inSystemVM)) {
+            s_logger.debug("conf secondary.storage.vm is true, act as if executing in SSVM");
             _inSystemVM = true;
         }
 
@@ -2094,60 +2087,155 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         return result;
     }
 
-    protected String mount(String root, String nfsPath) {
-        File file = new File(root);
-        if (!file.exists()) {
-            if (_storage.mkdir(root)) {
-                s_logger.debug("create mount point: " + root);
-            } else {
-                s_logger.debug("Unable to create mount point: " + root);
-                return null;
-            }
+    /**
+     * Mount remote device named on local file system on subfolder of _parent
+     * field.
+     * <p>
+     * 
+     * Supported schemes are "nfs" and "cifs".
+     * <p>
+     * 
+     * CIFS parameters are documented with mount.cifs at
+     * http://linux.die.net/man/8/mount.cifs CIFS domain,username,password
+     * appear in the username of the URI: &ltdomain> '\' &ltusername> ':'
+     * &ltpassword>
+     * 
+     * @param uri
+     *            crresponding to the remote device. Will throw for unsupported
+     *            scheme.
+     * @return name of folder in _parent that device was mounted.
+     * @throws UnknownHostException
+     */
+    protected String mountUri(URI uri) throws UnknownHostException {
+        String uriHostIp = getUriHostIp(uri);
+        String nfsPath = uriHostIp + ":" + uri.getPath();
+        String dir = UUID.nameUUIDFromBytes(nfsPath.getBytes()).toString();
+        String localRootPath = _parent + "/" + dir;
+
+        mount(localRootPath, nfsPath, uri);
+
+        return dir;
+    }
+
+    protected void mount(String localRootPath, String remoteDevice, URI uri) {
+        ensureLocalRootPathExists(localRootPath, uri);
+
+        if (mountExists(localRootPath, uri)) {
+            return;
         }
 
-        Script script = null;
-        String result = null;
-        script = new Script(!_inSystemVM, "mount", _timeout, s_logger);
-        List<String> res = new ArrayList<String>();
-        ZfsPathParser parser = new ZfsPathParser(root);
-        script.execute(parser);
-        res.addAll(parser.getPaths());
-        for (String s : res) {
-            if (s.contains(root)) {
-                return root;
-            }
-        }
-
-        Script command = new Script(!_inSystemVM, "mount", _timeout, s_logger);
-        command.add("-t", "nfs");
-        if (_inSystemVM) {
-            // Fedora Core 12 errors out with any -o option executed from java
-            command.add("-o", "soft,timeo=133,retrans=2147483647,tcp,acdirmax=0,acdirmin=0");
-        }
-        command.add(nfsPath);
-        command.add(root);
-        result = command.execute();
-        if (result != null) {
-            s_logger.warn("Unable to mount " + nfsPath + " due to " + result);
-            file = new File(root);
-            if (file.exists()) {
-                file.delete();
-            }
-            return null;
-        }
+        attemptMount(localRootPath, remoteDevice, uri);
 
         // XXX: Adding the check for creation of snapshots dir here. Might have
         // to move it somewhere more logical later.
-        if (!checkForSnapshotsDir(root)) {
-            return null;
+        checkForSnapshotsDir(localRootPath);
+        checkForVolumesDir(localRootPath);
+    }
+
+    protected void attemptMount(String localRootPath, String remoteDevice, URI uri) {
+        String result;
+        s_logger.debug("Make cmdline call to mount " + uri.toString() + " at "
+                + localRootPath);
+        Script command = new Script(!_inSystemVM, "mount", _timeout, s_logger);
+
+        String scheme = uri.getScheme().toLowerCase();
+        command.add("-t", scheme);
+
+        if (scheme.equals("nfs")) {
+            if ("Mac OS X".equalsIgnoreCase(System.getProperty("os.name"))) {
+                // See http://wiki.qnap.com/wiki/Mounting_an_NFS_share_from_OS_X
+                command.add("-o", "resvport");
+            }
+            if (_inSystemVM) {
+                command.add("-o",
+                        "soft,timeo=133,retrans=2147483647,tcp,acdirmax=0,acdirmin=0");
+            }
+        } else if (scheme.equals("cifs")) {
+            // Roll domain and username into a 'user' options
+            String[] usrAndPwd = uri.getUserInfo().split(":");
+
+            String userPwdOptions = "";
+            if (usrAndPwd.length < 2) {
+                // Fedora Core 12 errors out with any -o option executed from java
+                String errMsg = "Username and passwords should be provided in"
+                        + " the form cifs://[<domain>\\]<user>:<password>/<device "
+                        + "path>, but you have not provided a user and password";
+                s_logger.error(errMsg);
+                throw new CloudRuntimeException(errMsg);
+            } else if (usrAndPwd.length == 2) {
+                userPwdOptions = userPwdOptions + "user=" + usrAndPwd[0];
+                userPwdOptions = userPwdOptions + ",password=" + usrAndPwd[1];
+            }
+
+            // nfs acdirmax / acdirmin correspoonds to CIFS actimeo (see
+            // http://linux.die.net/man/8/mount.cifs)
+            // no equivalent to nfs timeo, retrans or tcp in CIFS
+            // todo: allow security mode to be set.
+            command.add("-o", "soft,actimeo=0," + userPwdOptions);
+        } else {
+            String errMsg = "Unsupported storage device scheme " + scheme
+                    + " in uri " + uri.toString();
+            s_logger.error(errMsg);
+            throw new CloudRuntimeException(errMsg);
         }
 
-        // Create the volumes dir
-        if (!checkForVolumesDir(root)) {
-            return null;
+        command.add(remoteDevice);
+        command.add(localRootPath);
+        result = command.execute();
+        if (result != null) {
+            // Fedora Core 12 errors out with any -o option executed from java
+            String errMsg = "Unable to mount " + remoteDevice + " at "
+                    + localRootPath + " due to " + result;
+            s_logger.error(errMsg);
+            File file = new File(localRootPath);
+            if (file.exists()) {
+                file.delete();
+            }
+            throw new CloudRuntimeException(errMsg);
         }
+        s_logger.debug("Successfully mounted " + remoteDevice + " at " + localRootPath);
+    }
 
-        return root;
+    protected boolean mountExists(String localRootPath, URI uri) {
+        Script script = null;
+        script = new Script(!_inSystemVM, "mount", _timeout, s_logger);
+
+        List<String> res = new ArrayList<String>();
+        ZfsPathParser parser = new ZfsPathParser(localRootPath);
+        script.execute(parser);
+        res.addAll(parser.getPaths());
+        for (String s : res) {
+            if (s.contains(localRootPath)) {
+                s_logger.debug("Some device already mounted at "
+                        + localRootPath + ", no need to mount "
+                        + uri.toString());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected void ensureLocalRootPathExists(String localRootPath, URI uri) {
+        File file = new File(localRootPath);
+        if (!file.exists()) {
+            if (_storage.mkdir(localRootPath)) {
+                s_logger.debug("create mount point: " + localRootPath);
+            } else {
+                String errMsg = "Unable to create mount point: " + localRootPath
+                        + " for device at " + uri.toString();
+                s_logger.error(errMsg);
+                throw new CloudRuntimeException(errMsg);
+            }
+        }
+    }
+
+    protected String getUriHostIp(URI uri) throws UnknownHostException {
+        String nfsHost = uri.getHost();
+        InetAddress nfsHostAddr = InetAddress.getByName(nfsHost);
+        String nfsHostIp = nfsHostAddr.getHostAddress();
+        s_logger.info("Determined host " + nfsHost + " corresponds to IP "
+                + nfsHostIp);
+        return nfsHostIp;
     }
 
     @Override
