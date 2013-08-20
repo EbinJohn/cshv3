@@ -1429,10 +1429,16 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         try {
             uri = new URI(UriUtils.encodeURIComponent(newUrl));
             if (uri.getScheme() == null) {
-                throw new InvalidParameterValueException("uri.scheme is null " + newUrl + ", add nfs:// as a prefix");
+                throw new InvalidParameterValueException("uri.scheme is null " + newUrl + ", add nfs:// (or cifs://) as a prefix");
             } else if (uri.getScheme().equalsIgnoreCase("nfs")) {
                 if (uri.getHost() == null || uri.getHost().equalsIgnoreCase("") || uri.getPath() == null || uri.getPath().equalsIgnoreCase("")) {
                     throw new InvalidParameterValueException("Your host and/or path is wrong.  Make sure it's of the format nfs://hostname/path");
+                }
+            } else if (uri.getScheme().equalsIgnoreCase("cifs")) {
+                String warnMsg = UriUtils.getCifsUriParametersProblems(uri);
+                if (warnMsg != null)
+                {
+                    throw new InvalidParameterValueException(warnMsg);
                 }
             }
         } catch (URISyntaxException e) {
