@@ -147,7 +147,9 @@ public class CloudStackPrimaryDataStoreLifeCycleImpl implements PrimaryDataStore
                     throw new InvalidParameterValueException("host or path is null, should be nfs://hostname/path");
                 }
             } else if (uri.getScheme().equalsIgnoreCase("cifs")) {
-                String warnMsg = UriUtils.getCifsUriParametersProblems(uri);
+                // Don't validate against a URI encoded URI.
+                URI cifsUri = new URI(url);
+                String warnMsg = UriUtils.getCifsUriParametersProblems(cifsUri);
                 if (warnMsg != null)
                 {
                     throw new InvalidParameterValueException(warnMsg);

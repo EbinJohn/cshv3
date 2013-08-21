@@ -721,7 +721,9 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
                     throw new InvalidParameterValueException("Your host and/or path is wrong.  Make sure it's of the format nfs://hostname/path");
                 }
             } else if (uri.getScheme().equalsIgnoreCase("cifs")) {
-                String warnMsg = UriUtils.getCifsUriParametersProblems(uri);
+                // Don't validate against a URI encoded URI.
+                URI cifsUri = new URI(url);
+                String warnMsg = UriUtils.getCifsUriParametersProblems(cifsUri);
                 if (warnMsg != null)
                 {
                     throw new InvalidParameterValueException(warnMsg);
