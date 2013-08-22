@@ -338,8 +338,7 @@ namespace HypervResource
             this.hostPath = hostPath;
             this.poolType = poolType;
             this.capacityBytes = capacityBytes;
-            // Management server availableBytes field to the 'used_byptes' in the database table 'storage_pool'.
-            this.availableBytes = capacityBytes - availableBytes;
+            this.availableBytes = availableBytes;
             details = null;
         }
 
