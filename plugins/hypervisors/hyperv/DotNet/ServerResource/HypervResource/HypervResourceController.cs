@@ -633,7 +633,6 @@ namespace HypervResource
                     hostPath = cmd.localPath,
                     poolType = cmd.pool.type,
                     capacityBytes = capacityBytes,
-                    // TODO:  double check whether you need 'available' or 'used' bytes?
                     availableBytes = availableBytes
                 };
 
@@ -1170,6 +1169,7 @@ namespace HypervResource
                     GetCapacityForLocalPath(localPath, out capacity, out available);
                     used = capacity - available;
                     result = true;
+                    logger.Debug(CloudStackTypes.GetStorageStatsCommand + " set used bytes to " + used);
                 }
                 catch (Exception ex)
                 {
@@ -1269,6 +1269,7 @@ namespace HypervResource
                 strtRouteCmd.storageNetmask = config.PrivateNetmask;
                 strtRouteCmd.storageMacAddress = config.PrivateMacAddress;
                 strtRouteCmd.gatewayIpAddress = config.GatewayIpAddress;
+                strtRouteCmd.caps = "hvm";
 
                 // Detect CPUs, speed, memory
                 uint cores;
@@ -1310,6 +1311,8 @@ namespace HypervResource
                     long available;
                     GetCapacityForLocalPath(localStoragePath, out capacity, out available);
 
+                    logger.Debug(CloudStackTypes.StartupStorageCommand + " set available bytes to " + available); 
+
                     string ipAddr = strtRouteCmd.privateIpAddress;
                     StoragePoolInfo pi = new StoragePoolInfo(
                         poolGuid.ToString(),
@@ -1320,7 +1323,7 @@ namespace HypervResource
                         capacity,
                         available);
 
-                    // Build StorageStartCommand using an anonymous type
+                    // Build StartupStorageCommand using an anonymous type
                     // See http://stackoverflow.com/a/6029228/939250
                     object ansContent = new
                     {
